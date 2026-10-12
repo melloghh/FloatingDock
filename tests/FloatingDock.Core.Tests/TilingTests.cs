@@ -5,6 +5,13 @@ using Xunit;
 namespace FloatingDock.Core.Tests;
 public sealed class TilingTests
 {
+    [Fact] public void ClosingAColumnReturnsTheRemainingTwoWindowsToEqualHalves()
+    {
+        var tree=new TileTree();var bounds=new TileRect(0,0,1920,1080);var mins=new Dictionary<long,(int Width,int Height)>();
+        for(int i=1;i<=3;i++){mins[i]=(600,700);Assert.True(tree.AddBalanced(i,i-1,bounds,8,12,mins));}
+        tree.Remove(3);mins.Remove(3);Assert.True(tree.AddBalanced(1,0,bounds,8,12,mins));
+        var layout=tree.Layout(bounds);Assert.InRange(Math.Abs(layout[1].Width-layout[2].Width),0,1);
+    }
     [Fact] public void MinimumConstraintIsReleasedWhenEqualWidthsFitAgain()
     {
         var tree=new TileTree();var mins=new Dictionary<long,(int Width,int Height)>{{1,(480,600)},{2,(800,600)}};
