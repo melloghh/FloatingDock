@@ -161,7 +161,7 @@ internal sealed class DockWindowPreview : IDisposable
             target.Click+=async(_,_)=>
             {
                 if(_activating)return;_activating=true;Hide();
-                try { await WindowActivator.ActivateOrMinimizeAsync(new[]{source},false); }
+                try { DockApp.Current.Tiling.PrepareActivation(new[]{source});await WindowActivator.ActivateOrMinimizeAsync(new[]{source},false); }
                 catch(Exception ex) { DockApp.Current.Log.Warn("Preview activation failed: "+ex.Message); }
                 finally { _activating=false; }
             };

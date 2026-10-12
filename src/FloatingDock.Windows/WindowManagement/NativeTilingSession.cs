@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Diagnostics;
 using FloatingDock.Core.Models;
 using FloatingDock.Core.Tiling;
 using FloatingDock.Windows.Display;
@@ -23,7 +24,12 @@ public sealed class NativeTilingSession : IDisposable
         public required Placement Original;
         public required string Monitor;
         public int Workspace=1;
-        public bool Floating,MinimizedByUs,UserMinimized,Hidden;
+        public bool Floating,MinimizedByUs,UserMinimized,Hidden,PendingRestore,Placed,RestoredExternally,InitialPlacementPending;
+        public readonly WindowBorderAccent Border=new();
+        public TileRect? LastRequest;
+        public long SubmittedAt;
+        public bool MinimizeOutstanding;
+        public int OwnRestoreEvents;
         public int MinimumWidth=120,MinimumHeight=80;
         public (int Left,int Top,int Right,int Bottom)? FrameInsets;
         public uint FrameDpi;
@@ -31,6 +37,7 @@ public sealed class NativeTilingSession : IDisposable
     private readonly Dictionary<long,Member> _members=new();
     private readonly Dictionary<(string Monitor,int Workspace),TileTree> _trees=new();
     private readonly Dictionary<string,int> _active=new(StringComparer.Ordinal);
+    private readonly Dictionary<(string Monitor,int Workspace),long> _lastFocused=new();
     private IReadOnlyList<MonitorDescriptor> _monitors=Array.Empty<MonitorDescriptor>();
     private HashSet<string> _excluded=new(StringComparer.OrdinalIgnoreCase);
     private long _focused;
@@ -38,10 +45,31 @@ public sealed class NativeTilingSession : IDisposable
     public int Gap { get; set; }=8;
     public int OuterGap { get; set; }=12;
     public int WorkspaceCount { get; set; }=5;
+    public bool BringActivatedWindows { get; set; }=true;
+    public bool TileMaximizedApps { get; set; }=true;
+    public bool BordersEnabled { get; set; }
+    public uint ActiveBorderColor { get; set; }=0xFAC7A8;
+    public uint InactiveBorderColor { get; set; }=0x564941;
     public IReadOnlySet<long>? DiagnosticWindows { get; set; }
     public int ManagedCount=>_members.Count;
+    public bool IsManaged(long id)=>_members.ContainsKey(id);
+    public bool NeedsRestoredPlacement(long id)=>_members.TryGetValue(id,out var member)&&member.PendingRestore&&!NativeMethods.IsIconic(new(id))&&!IsZoomed(new(id));
+    public bool NeedsInitialPlacement(long id)=>_members.TryGetValue(id,out var member)&&member.InitialPlacementPending&&!member.Floating&&!member.UserMinimized&&member.Workspace==ActiveWorkspace(member.Monitor);
+    public void FinishInitialPlacement(long id){if(_members.TryGetValue(id,out var member))member.InitialPlacementPending=false;}
+    public bool CanFollowActivation(long id)=>_members.TryGetValue(id,out var member)&&(!member.MinimizedByUs||member.RestoredExternally);
+    public void ObserveNativeMinimize(long id)
+    {if(_members.TryGetValue(id,out var member))member.MinimizeOutstanding=false;}
+    public void ObserveNativeRestore(long id)
+    {
+        if(!_members.TryGetValue(id,out var member))return;
+        // An acknowledgement of our older restore can arrive after a later
+        // workspace switch. It is not a user's request to bring this app back.
+        if(member.OwnRestoreEvents>0){member.OwnRestoreEvents--;return;}
+        if(member.MinimizedByUs&&member.Workspace!=ActiveWorkspace(member.Monitor)&&!NativeMethods.IsIconic(new(id)))member.RestoredExternally=true;
+    }
+    public bool HasTiles(string monitor)=>_members.Any(p=>p.Value.Monitor==monitor&&p.Value.Workspace==ActiveWorkspace(monitor)&&!p.Value.Floating&&!p.Value.Hidden&&!p.Value.UserMinimized);
     public IReadOnlyList<long> ManagedWindows=>_members.Keys.ToArray();
-    public string DescribeForDiagnostics(long id)=>$"focused={_focused}, window={id}, floating={(_members.TryGetValue(id,out var member)?member.Floating:null)}, hidden={member?.Hidden}, minimized={member?.UserMinimized}, minimum={member?.MinimumWidth}x{member?.MinimumHeight}, nativeZoomed={IsZoomed(new(id))}";
+    public string DescribeForDiagnostics(long id)=>$"focused={_focused}, window={id}, floating={(_members.TryGetValue(id,out var member)?member.Floating:null)}, hidden={member?.Hidden}, minimized={member?.UserMinimized}, minimum={member?.MinimumWidth}x{member?.MinimumHeight}, nativeZoomed={IsZoomed(new(id))}, borderHR={member?.Border.LastResult:X8}, borderColor={member?.Border.Applied:X8}";
     public void SetExcluded(string names)=>_excluded=new(names.Split(';',StringSplitOptions.RemoveEmptyEntries|StringSplitOptions.TrimEntries),StringComparer.OrdinalIgnoreCase);
     private bool Owns(long hwnd,Member member)
     {NativeMethods.GetWindowThreadProcessId(new(hwnd),out var pid);return pid==member.Pid&&NativeMethods.IsWindow(new(hwnd));}
@@ -52,7 +80,24 @@ public sealed class NativeTilingSession : IDisposable
     private string CurrentMonitor()=>_members.TryGetValue(_focused,out var m)?m.Monitor:(MonitorHelper.FromCursor()??_monitors.FirstOrDefault())?.DeviceName??"";
     public void RefreshMonitors()=>_monitors=MonitorHelper.GetMonitors();
     public bool Forget(long window)
-    {if(!_members.Remove(window,out var member))return false;Tree(member).Remove(window);return true;}
+    {if(!_members.Remove(window,out var member))return false;if(Owns(window,member))member.Border.Restore(new(window));Tree(member).Remove(window);return true;}
+    public bool CanManageNew(WindowInfo window)
+    {
+        var hwnd=new IntPtr(window.Hwnd);
+        if(_members.ContainsKey(window.Hwnd)||_excluded.Contains(window.ExeFileName??""))return false;
+        if(DiagnosticWindows is not null&&!DiagnosticWindows.Contains(window.Hwnd))return false;
+        if(window.ProcessId==Environment.ProcessId&&DiagnosticWindows is null)return false;
+        if(window.IsMinimized||NativeMethods.IsIconic(hwnd)||IsZoomed(hwnd)&&!TileMaximizedApps||!NativeMethods.IsWindowVisible(hwnd)||(NativeMethods.GetStyle(hwnd)&NativeMethods.WS_THICKFRAME)==0)return false;
+        var owner=GetWindow(hwnd,4);return owner==IntPtr.Zero||!NativeMethods.IsWindowVisible(owner);
+    }
+    private void AddBalanced(long id,Member member,long near=0)
+    {
+        var monitor=_monitors.FirstOrDefault(m=>m.DeviceName==member.Monitor);if(monitor is null)return;
+        var tree=Tree(member);var minimums=tree.Windows.Append(id).Distinct().Where(w=>_members.TryGetValue(w,out var m)&&!m.UserMinimized&&!m.Hidden&&!m.Floating).ToDictionary(w=>w,w=>(_members[w].MinimumWidth,_members[w].MinimumHeight));
+        var rect=monitor.WorkArea;
+        if(!tree.AddBalanced(id,near,new(rect.Left,rect.Top,rect.Width,rect.Height),(int)(Gap*monitor.Scale),(int)(OuterGap*monitor.Scale),minimums))
+        {member.Floating=true;member.Border.Restore(new(id));if((member.Placed||member.PendingRestore)&&Owns(id,member))RestorePlacement(new(id),member.Original);}
+    }
     public bool Reconcile(IReadOnlyList<WindowInfo> windows,long foreground)
     {
         if(_disposed)return false;
@@ -65,56 +110,56 @@ public sealed class NativeTilingSession : IDisposable
             bool hidden=(!live.Contains(id)&&!member.MinimizedByUs)||!NativeMethods.IsWindowVisible(new(id));
             if(hidden!=member.Hidden)
             {
-                member.Hidden=hidden;if(hidden)Tree(member).Remove(id);else if(!member.Floating)Tree(member).Add(id);
+                member.Hidden=hidden;if(hidden)Tree(member).Remove(id);else if(!member.Floating)AddBalanced(id,member);
                 changed=true;
             }
             if(info is not null&&_excluded.Contains(info.ExeFileName??"")){Restore(id,member);Tree(member).Remove(id);_members.Remove(id);changed=true;continue;}
             if(!_monitors.Any(m=>m.DeviceName==member.Monitor))
-            {Tree(member).Remove(id);member.Monitor=_monitors.FirstOrDefault()?.DeviceName??"";member.Workspace=1;if(!member.Floating)Tree(member).Add(id);changed=true;}
-            if(member.Workspace>WorkspaceCount){Tree(member).Remove(id);member.Workspace=1;if(!member.Floating)Tree(member).Add(id);changed=true;}
-            bool minimized=NativeMethods.IsIconic(new(id))&&!member.MinimizedByUs;
+            {Tree(member).Remove(id);member.Monitor=_monitors.FirstOrDefault()?.DeviceName??"";member.Workspace=1;if(!member.Floating)AddBalanced(id,member);changed=true;}
+            if(member.Workspace>WorkspaceCount){Tree(member).Remove(id);member.Workspace=1;if(!member.Floating)AddBalanced(id,member);changed=true;}
+            bool iconic=NativeMethods.IsIconic(new(id));if(!iconic&&!IsZoomed(new(id)))member.PendingRestore=false;
+            bool minimized=iconic&&!member.MinimizedByUs&&!member.PendingRestore;
             if(minimized!=member.UserMinimized){member.UserMinimized=minimized;changed=true;}
             // Maximizing deliberately floats an existing window. User resizing is handled on move/size end.
             var memberMonitor=_monitors.FirstOrDefault(m=>m.DeviceName==member.Monitor);
             bool fullscreen=memberMonitor is not null&&FullscreenDetector.IsWindowFullscreenOn(new(id),memberMonitor.Handle,0);
-            if((IsZoomed(new(id))||fullscreen||(NativeMethods.GetStyle(new(id))&NativeMethods.WS_THICKFRAME)==0)&&!member.Floating){Tree(member).Remove(id);member.Floating=true;changed=true;}
+            if((IsZoomed(new(id))||fullscreen||(NativeMethods.GetStyle(new(id))&NativeMethods.WS_THICKFRAME)==0)&&!member.Floating&&!member.PendingRestore){Tree(member).Remove(id);member.Floating=true;changed=true;}
         }
         foreach(var window in windows)
         {
             var hwnd=new IntPtr(window.Hwnd);
-            if(_members.ContainsKey(window.Hwnd)||!live.Contains(window.Hwnd)||_excluded.Contains(window.ExeFileName??""))continue;
-            if(DiagnosticWindows is not null&&!DiagnosticWindows.Contains(window.Hwnd))continue;
-            if(window.ProcessId==Environment.ProcessId&&DiagnosticWindows is null)continue;
-            if(window.IsMinimized||IsZoomed(hwnd)||!NativeMethods.IsWindowVisible(hwnd)||(NativeMethods.GetStyle(hwnd)&0x40000)==0)continue;
-            var owner=GetWindow(hwnd,4);if(owner!=IntPtr.Zero&&NativeMethods.IsWindowVisible(owner))continue;
+            if(!CanManageNew(window))continue;
             var monitor=_monitors.FirstOrDefault(m=>m.Handle==NativeMethods.MonitorFromWindow(hwnd,NativeMethods.MONITOR_DEFAULTTONEAREST));
             if(monitor is null)continue;
             if(FullscreenDetector.IsWindowFullscreenOn(hwnd,monitor.Handle,0))continue;
             var placement=new Placement { Length=Marshal.SizeOf<Placement>() };if(!GetWindowPlacement(hwnd,ref placement))continue;
-            var member=new Member { Pid=window.ProcessId,Original=placement,Monitor=monitor.DeviceName,Workspace=ActiveWorkspace(monitor.DeviceName) };
+            NativeMethods.GetWindowThreadProcessId(hwnd,out var nativePid);
+            var member=new Member { Pid=(int)nativePid,Original=placement,Monitor=monitor.DeviceName,Workspace=ActiveWorkspace(monitor.DeviceName),PendingRestore=IsZoomed(hwnd),InitialPlacementPending=IsZoomed(hwnd) };
             var minimum=new MinMaxInfo();
             if(SendMinimumQuery(hwnd,0x24,IntPtr.Zero,ref minimum,2,40,out _)!=IntPtr.Zero)
             {member.MinimumWidth=Math.Max(120,minimum.MinTrackSize.X);member.MinimumHeight=Math.Max(80,minimum.MinTrackSize.Y);}
             _members[window.Hwnd]=member;
-            var rect=monitor.WorkArea;Tree(member).Add(window.Hwnd,_focused,rect.Width>=rect.Height);changed=true;
+            if(member.PendingRestore)NativeMethods.ShowWindowAsync(hwnd,9);
+            AddBalanced(window.Hwnd,member,_focused);changed=true;
         }
         foreach(var monitor in _monitors)
         {
             if(ActiveWorkspace(monitor.DeviceName)>WorkspaceCount){_active[monitor.DeviceName]=1;changed=true;}
-            if(changed)SwitchWorkspace(ActiveWorkspace(monitor.DeviceName),monitor.DeviceName);
+            if(changed)ApplyWorkspaceVisibility(monitor.DeviceName);
         }
         if(_members.TryGetValue(foreground,out var focused))
         {
-            _focused=foreground;
-            if(focused.Workspace!=ActiveWorkspace(focused.Monitor)&&!NativeMethods.IsIconic(new(foreground)))
-            {SwitchWorkspace(focused.Workspace,focused.Monitor);changed=true;}
+            // A tracker snapshot can lag a workspace click or a new-window event.
+            // Only an explicit activation may change workspace membership/selection.
+            if(focused.Workspace==ActiveWorkspace(focused.Monitor)&&!focused.MinimizedByUs)
+            {_focused=foreground;_lastFocused[(focused.Monitor,focused.Workspace)]=foreground;}
         }
         else
         {
             NativeMethods.GetWindowThreadProcessId(new(foreground),out var pid);
             if(pid!=(uint)Environment.ProcessId)_focused=0;
         }
-        return changed;
+        UpdateBorders();return changed;
     }
     public IReadOnlyDictionary<long,TileRect> Targets()
     {
@@ -123,7 +168,7 @@ public sealed class NativeTilingSession : IDisposable
         {
             var tree=Tree(monitor.DeviceName,ActiveWorkspace(monitor.DeviceName));
             // Minimized windows keep their membership/order without occupying a tile.
-            var usable=tree.Windows.Where(id=>_members.TryGetValue(id,out var m)&&!m.UserMinimized&&!m.Floating&&!m.Hidden).ToHashSet();
+            var usable=tree.Windows.Where(id=>_members.TryGetValue(id,out var m)&&!m.UserMinimized&&!m.Floating&&!m.Hidden&&!m.InitialPlacementPending).ToHashSet();
             var area=monitor.WorkArea;
             bool repeat;
             do
@@ -135,7 +180,8 @@ public sealed class NativeTilingSession : IDisposable
                     if(target.Width<member.MinimumWidth||target.Height<member.MinimumHeight)
                     {
                         tree.Remove(id);usable.Remove(id);member.Floating=true;result.Remove(id);
-                        if(Owns(id,member))RestorePlacement(new(id),member.Original);
+                        if(member.Placed&&Owns(id,member))RestorePlacement(new(id),member.Original);
+                        member.Border.Restore(new(id));
                         repeat=true;break;
                     }
                     result[id]=target;
@@ -160,19 +206,57 @@ public sealed class NativeTilingSession : IDisposable
     }
     public void SwitchWorkspace(int workspace,string? monitor=null)
     {
-        if(_disposed)return;workspace=Math.Clamp(workspace,1,WorkspaceCount);monitor??=CurrentMonitor();_active[monitor]=workspace;
+        if(_disposed)return;workspace=Math.Clamp(workspace,1,WorkspaceCount);monitor??=CurrentMonitor();bool changed=ActiveWorkspace(monitor)!=workspace;_active[monitor]=workspace;
+        ApplyWorkspaceVisibility(monitor);
+        if(changed)
+        {
+            var candidates=_members.Where(p=>p.Value.Monitor==monitor&&p.Value.Workspace==workspace&&!p.Value.Hidden&&!p.Value.UserMinimized).Select(p=>p.Key).ToArray();
+            long previous=_lastFocused.GetValueOrDefault((monitor,workspace));_focused=candidates.Contains(previous)?previous:candidates.FirstOrDefault();
+            if(_focused!=0&&DiagnosticWindows is null)NativeMethods.SetForegroundWindow(new(_focused));
+        }
+        UpdateBorders();
+    }
+    private void ApplyWorkspaceVisibility(string monitor)
+    {
+        int workspace=ActiveWorkspace(monitor);
         foreach(var (id,member) in _members.Where(p=>p.Value.Monitor==monitor))
         {
             if(!Owns(id,member)||member.Hidden)continue;
             if(member.Workspace!=workspace)
-            {if(!NativeMethods.IsIconic(new(id))){member.MinimizedByUs=true;NativeMethods.ShowWindow(new(id),6);}}
-            else if(member.MinimizedByUs){member.MinimizedByUs=false;NativeMethods.ShowWindow(new(id),4);}
+            {if(!member.MinimizedByUs&&!NativeMethods.IsIconic(new(id))){member.MinimizedByUs=true;member.RestoredExternally=false;member.PendingRestore=false;member.MinimizeOutstanding=NativeMethods.ShowWindowAsync(new(id),6);}}
+            else if(member.MinimizedByUs)
+            {
+                bool expectEvent=NativeMethods.IsIconic(new(id))||member.MinimizeOutstanding;
+                member.MinimizedByUs=false;member.RestoredExternally=false;member.PendingRestore=true;
+                if(NativeMethods.ShowWindowAsync(new(id),4)&&expectEvent)member.OwnRestoreEvents++;
+            }
+        }
+    }
+    public bool ActivateWindow(long id)
+    {
+        if(_disposed||!_members.TryGetValue(id,out var member)||!Owns(id,member))return false;
+        bool changed=member.Workspace!=ActiveWorkspace(member.Monitor);
+        if(changed)
+        {
+            if(BringActivatedWindows){Tree(member).Remove(id);member.Workspace=ActiveWorkspace(member.Monitor);if(!member.Floating)AddBalanced(id,member);ApplyWorkspaceVisibility(member.Monitor);}
+            else SwitchWorkspace(member.Workspace,member.Monitor);
+        }
+        _focused=id;_lastFocused[(member.Monitor,member.Workspace)]=id;UpdateBorders();return changed;
+    }
+    public void ChangeWorkspace(int delta)=>SwitchWorkspace((ActiveWorkspace(CurrentMonitor())-1+delta+WorkspaceCount)%WorkspaceCount+1);
+    public void UpdateBorders()
+    {
+        foreach(var (id,member) in _members)
+        {
+            if(!Owns(id,member))continue;
+            if(BordersEnabled&&!member.Floating&&!member.Hidden&&!member.UserMinimized&&member.Workspace==ActiveWorkspace(member.Monitor))member.Border.Apply(new(id),id==_focused?ActiveBorderColor:InactiveBorderColor);
+            else member.Border.Restore(new(id));
         }
     }
     public void MoveToWorkspace(int workspace)
     {
         if(!_members.TryGetValue(_focused,out var member))return;
-        Tree(member).Remove(_focused);member.Workspace=Math.Clamp(workspace,1,WorkspaceCount);if(!member.Floating)Tree(member).Add(_focused);
+        Tree(member).Remove(_focused);member.Workspace=Math.Clamp(workspace,1,WorkspaceCount);if(!member.Floating)AddBalanced(_focused,member);
         SwitchWorkspace(ActiveWorkspace(member.Monitor),member.Monitor);
     }
     public void ToggleFloating()
@@ -180,7 +264,7 @@ public sealed class NativeTilingSession : IDisposable
         if(!_members.TryGetValue(_focused,out var m))return;
         if(m.Floating&&(NativeMethods.GetStyle(new(_focused))&NativeMethods.WS_THICKFRAME)==0)return;
         m.Floating=!m.Floating;if(m.Floating){Tree(m).Remove(_focused);if(Owns(_focused,m))RestorePlacement(new(_focused),m.Original);}
-        else{NativeMethods.ShowWindow(new(_focused),9);Tree(m).Add(_focused);}
+        else{m.PendingRestore=true;NativeMethods.ShowWindowAsync(new(_focused),9);AddBalanced(_focused,m);}
     }
     public void ToggleDirection(){if(_members.TryGetValue(_focused,out var m))Tree(m).ToggleDirection(_focused);}
     public void Resize(TileDirection direction){if(_members.TryGetValue(_focused,out var m))Tree(m).Resize(_focused,direction);}
@@ -190,7 +274,7 @@ public sealed class NativeTilingSession : IDisposable
         if(move&&_members.TryGetValue(_focused,out var m))
         {
             if(_members[next].Monitor==m.Monitor)Tree(m).Swap(_focused,next);
-            else{Tree(m).Remove(_focused);m.Monitor=_members[next].Monitor;m.Workspace=ActiveWorkspace(m.Monitor);Tree(m).Add(_focused,next);}
+            else{Tree(m).Remove(_focused);m.Monitor=_members[next].Monitor;m.Workspace=ActiveWorkspace(m.Monitor);AddBalanced(_focused,m,next);}
         }
         else{_focused=next;NativeMethods.SetForegroundWindow(new(next));}
     }
@@ -199,7 +283,7 @@ public sealed class NativeTilingSession : IDisposable
         if(!_members.TryGetValue(window,out var m)||m.Floating)return;
         var monitor=MonitorHelper.Describe(NativeMethods.MonitorFromWindow(new(window),NativeMethods.MONITOR_DEFAULTTONEAREST));
         if(monitor is not null&&monitor.DeviceName!=m.Monitor)
-        {Tree(m).Remove(window);m.Monitor=monitor.DeviceName;m.Workspace=ActiveWorkspace(m.Monitor);Tree(m).Add(window);}
+        {Tree(m).Remove(window);m.Monitor=monitor.DeviceName;m.Workspace=ActiveWorkspace(m.Monitor);AddBalanced(window,m);}
         else if(NativeMethods.GetWindowRect(new(window),out var rect))
         {
             var layout=Targets();var overlap=layout.Where(p=>p.Key!=window&&_members[p.Key].Monitor==m.Monitor&&rect.Left+rect.Width/2>=p.Value.X&&rect.Left+rect.Width/2<p.Value.X+p.Value.Width&&rect.Top+rect.Height/2>=p.Value.Y&&rect.Top+rect.Height/2<p.Value.Y+p.Value.Height).FirstOrDefault();
@@ -208,14 +292,19 @@ public sealed class NativeTilingSession : IDisposable
     }
     public bool Move(long id,TileRect rect,bool resize=true)
     {
-        if(!_members.TryGetValue(id,out var member)||!Owns(id,member)||member.Floating||member.UserMinimized||IsZoomed(new(id))||(NativeMethods.GetStyle(new(id))&NativeMethods.WS_THICKFRAME)==0||member.Workspace!=ActiveWorkspace(member.Monitor))return false;
-        return NativeMethods.SetWindowPos(new(id),IntPtr.Zero,rect.X,rect.Y,Math.Max(1,rect.Width),Math.Max(1,rect.Height),NativeMethods.SWP_NOZORDER|NativeMethods.SWP_NOACTIVATE|NativeMethods.SWP_ASYNCWINDOWPOS|(resize?0:NativeMethods.SWP_NOSIZE));
+        if(!_members.TryGetValue(id,out var member)||!Owns(id,member)||member.Floating||member.UserMinimized||NativeMethods.IsIconic(new(id))||IsZoomed(new(id))||(NativeMethods.GetStyle(new(id))&NativeMethods.WS_THICKFRAME)==0||member.Workspace!=ActiveWorkspace(member.Monitor))return false;
+        // Keep at most a short bounded queue when the application is busy painting.
+        if(!resize&&member.LastRequest is { } pending&&Stopwatch.GetElapsedTime(member.SubmittedAt).TotalMilliseconds<80&&NativeMethods.GetWindowRect(new(id),out var actual)&&
+           (actual.Left!=pending.X||actual.Top!=pending.Y||actual.Width!=pending.Width||actual.Height!=pending.Height))return true;
+        bool moved=NativeMethods.SetWindowPos(new(id),IntPtr.Zero,rect.X,rect.Y,Math.Max(1,rect.Width),Math.Max(1,rect.Height),NativeMethods.SWP_NOZORDER|NativeMethods.SWP_NOACTIVATE|NativeMethods.SWP_ASYNCWINDOWPOS|(resize?0:NativeMethods.SWP_NOSIZE));
+        if(moved){member.Placed=true;member.LastRequest=rect;member.SubmittedAt=Stopwatch.GetTimestamp();}return moved;
     }
     private void Restore(long id,Member member)
     {
         if(!Owns(id,member))return;
+        member.Border.Restore(new(id));
         if(member.Hidden)return;
-        if(member.Floating){if(member.MinimizedByUs)NativeMethods.ShowWindow(new(id),4);return;}
+        if(member.Floating){if(member.MinimizedByUs)NativeMethods.ShowWindowAsync(new(id),4);return;}
         var placement=member.Original;if(member.UserMinimized&&!member.MinimizedByUs)placement.Show=2;
         RestorePlacement(new(id),placement);
     }

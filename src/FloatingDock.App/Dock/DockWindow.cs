@@ -75,6 +75,8 @@ internal sealed class DockWindow : IDisposable
 
     // visibility
     private bool _fsHidden, _userHidden, _suspended, _captureHidden, _concealForFullscreen;
+    private bool _tilingHidden;
+    internal bool TilingHiddenForDiagnostics=>_tilingHidden;
     private bool _strip;                    // auto-hide: window is just a thin edge strip
     private float _hide;                    // 0 shown .. 1 hidden
     private float _idleFor;
@@ -287,7 +289,7 @@ internal sealed class DockWindow : IDisposable
         if (!force) Reposition();
     }
 
-    private bool EffectiveAutoHide => _s.AutoHide || _fsHidden;
+    private bool EffectiveAutoHide => _s.AutoHide || _fsHidden || _tilingHidden;
     private float ExtraBottomDip => Math.Max(0, _s.BottomOffset - _m.ShadowMargin + 2);
 
     /// <summary>Y (px) of the line the dock sits on: the work-area bottom (above the taskbar) or the monitor bottom.</summary>
@@ -525,12 +527,20 @@ internal sealed class DockWindow : IDisposable
         _blockFullscreenReveal = block;
         if (_traceInput) _app.Log.Info("screen-filling app concealment: hidden=" + hidden);
         _fsHidden = hidden;
-        _concealForFullscreen = hidden && _hide < 1;
-        if (hidden) { _idleFor = 1; EndHover(); CancelPress(); }
+        bool conceal=hidden||_tilingHidden;_concealForFullscreen = conceal && _hide < 1;
+        if (conceal) { _idleFor = 1; EndHover(); CancelPress(); }
         else { LeaveStrip(); _idleFor = 0; }
         // Retain the visible bounds until the exit finishes; do not jump to the monitor bottom mid-slide.
-        if (!hidden || _strip) Reposition();
+        if (!conceal || _strip) Reposition();
         UpdateVisibility(); Invalidate();
+    }
+    public void SetTilingHidden(bool hidden)
+    {
+        if(_tilingHidden==hidden)return;_tilingHidden=hidden;
+        bool conceal=hidden||_fsHidden;_concealForFullscreen=conceal&&_hide<1;
+        if(conceal){_preview.Hide();_idleFor=1;EndHover();CancelPress();}
+        else{LeaveStrip();_idleFor=0;}
+        if(!conceal||_strip)Reposition();UpdateVisibility();Invalidate();
     }
     public void SetUserHidden(bool hidden)
     {
@@ -556,7 +566,7 @@ internal sealed class DockWindow : IDisposable
         else
         {
             _idleFor = 0;
-            if (!_fsHidden && !_suspended && !_userHidden) LeaveStrip();
+            if (!_fsHidden && !_tilingHidden && !_suspended && !_userHidden) LeaveStrip();
             UpdateVisibility(); Invalidate();
         }
     }
@@ -1050,6 +1060,7 @@ internal sealed class DockWindow : IDisposable
         if (!_activatingApps.Add(entry.Key)) return;
         try
         {
+            _app.Tiling.PrepareActivation(entry.Windows);
             var item = _motion.Items.FirstOrDefault(i => i.Key == entry.Key);
             if (item is not null && AnimationRectFor(item) is { } rect) _app.Dock.RememberAnimationOrigin(entry.Windows, rect);
             var result = await WindowActivator.ActivateOrMinimizeAsync(entry.Windows, _s.MinimizeOnRepeatClick);

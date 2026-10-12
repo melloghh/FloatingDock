@@ -143,6 +143,8 @@ internal sealed partial class SettingsWindow : IDisposable
     {
         if (_nav.SelectedItem is NavigationViewItem { Tag: string t }) Navigate(t);
     }
+    internal void RefreshTilingBindingsAfterRejection()
+    {if(_nav.SelectedItem is NavigationViewItem {Tag:"Tiling manager"})Refresh();}
 
     private async Task<ContentDialogResult> Dialog(string title, UIElement content, string primary, string close = "Cancel")
     {

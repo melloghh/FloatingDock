@@ -5,6 +5,55 @@ using Xunit;
 namespace FloatingDock.Core.Tests;
 public sealed class TilingTests
 {
+    [Fact] public void ThreeBalancedWindowsKeepUsefulWidthInsteadOfQuarterWidthColumns()
+    {
+        var tree=new TileTree();var bounds=new TileRect(0,0,1920,1080);
+        tree.AddBalanced(1,0,bounds);tree.AddBalanced(2,1,bounds);tree.AddBalanced(3,2,bounds);
+        var layout=tree.Layout(bounds);Assert.Equal(3,layout.Count);
+        Assert.All(layout.Values,r=>{Assert.True(r.Width>900);Assert.True(r.Height>480);});
+        Assert.Equal(layout[2].X,layout[3].X);Assert.True(layout[3].Y>layout[2].Y);
+    }
+    [Fact] public void RetargetPreservesPositionAndVelocityAndSettlesWithoutOvershoot()
+    {
+        var path=new TileMotion(new(0,0,400,300),new(900,600,400,300),0,220);
+        Assert.Equal(0,path.Sample(0).VelocityX);Assert.True(path.Sample(16).Bounds.X<10);
+        var current=path.Sample(90);var next=new TileMotion(current.Bounds,new(1200,800,400,300),90,220,current.VelocityX,current.VelocityY);
+        Assert.Equal(current.Bounds,next.Sample(90).Bounds);Assert.Equal(current.VelocityX,next.Sample(90).VelocityX,7);
+        Assert.Equal(next.Target,next.Sample(310).Bounds);Assert.Equal(0,next.Sample(310).VelocityX);
+        Assert.All(Enumerable.Range(0,221).Select(t=>next.Sample(90+t).Bounds),r=>Assert.InRange(r.X,current.Bounds.X,1200));
+    }
+    [Fact] public void ThreeTallAppsReflowIntoColumnsWhenNeitherLeafSplitFits()
+    {
+        var tree=new TileTree();var bounds=new TileRect(0,0,1920,1080);var minimums=new Dictionary<long,(int Width,int Height)>();
+        for(int i=1;i<=3;i++){minimums[i]=(600,700);tree.AddBalanced(i,i-1,bounds,8,12,minimums);}
+        var layout=tree.Layout(bounds);Assert.Equal(3,layout.Count);
+        Assert.All(layout.Values,r=>{Assert.True(r.Width>=600);Assert.True(r.Height>=700);});
+        Assert.Equal(new long[]{1,2,3},tree.Windows);
+    }
+    [Fact] public void AnImpossibleNewTileDoesNotEvictOrResizeTheExistingTiles()
+    {
+        var tree=new TileTree();var bounds=new TileRect(0,0,1200,800);var minimums=new Dictionary<long,(int Width,int Height)>{{1,(560,750)},{2,(560,750)}};
+        Assert.True(tree.AddBalanced(1,0,bounds,8,12,minimums));Assert.True(tree.AddBalanced(2,1,bounds,8,12,minimums));
+        var before=tree.Layout(bounds);minimums[3]=(560,750);Assert.False(tree.AddBalanced(3,2,bounds,8,12,minimums));
+        Assert.Equal(new long[]{1,2},tree.Windows);Assert.Equal(before[1],tree.Layout(bounds)[1]);Assert.Equal(before[2],tree.Layout(bounds)[2]);
+    }
+    [Fact] public void StartupWaitsForQuietGeometryButHasAFiniteDeadline()
+    {
+        var gate=new WindowArrivalGate();var rect=new TileRect(0,0,400,300);
+        Assert.False(gate.Ready(1,rect,0,180));Assert.False(gate.Ready(1,rect with{Width=500},160,180));
+        Assert.False(gate.Ready(1,rect with{Width=500},230,180));Assert.True(gate.Ready(1,rect with{Width=500},260,180));
+        for(int time=0;time<700;time+=50)Assert.False(gate.Ready(2,rect with{X=time},time,180));
+        Assert.True(gate.Ready(2,rect with{X=700},700,180));
+    }
+    [Fact] public void ShortcutOverridesCloneIndependentlyAndRejectEquivalentDuplicates()
+    {
+        var settings=new DockSettings();settings.TilingKeybindings["focus.left"]="Alt+Left";
+        var clone=settings.Clone();clone.TilingKeybindings["focus.left"]="Alt+Right";
+        Assert.Equal("Alt+Left",settings.TilingKeybindings["focus.left"]);Assert.Null(TilingShortcuts.Error(settings));
+        settings.TilingKeybindings["focus.right"]="alt+left";Assert.NotNull(TilingShortcuts.Error(settings));
+        settings.TilingKeybindings["focus.right"]="";Assert.Null(TilingShortcuts.Error(settings));
+        settings.TilingKeybindings["focus.left"]=settings.SearchHotkey;Assert.NotNull(TilingShortcuts.Error(settings));
+    }
     [Fact] public void NestedSplitsNeverOverlapAndCollapseAfterRemoval()
     {
         var tree=new TileTree();tree.Add(1);tree.Add(2,1);tree.Add(3,2,false);

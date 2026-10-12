@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.3.0
+
+- Keep the selected workspace authoritative. Late tracker focus no longer switches spaces or minimizes a newly opened app; activating an existing app can bring it into the current space.
+- Choose splits from the available tile, try layouts against app minimum sizes, and use equal rows/columns when a local split cannot fit tall apps.
+- Wait for startup geometry to settle, handle apps launching maximized, and use gentle finite motion with continuous position/velocity on retarget. Bound queued movement for busy apps.
+- Add individual shortcut editing/disable/reset, duplicate validation and rollback to previous bindings on registration failure without rebuilding the tiling session.
+- Add native focused/inactive window border colors, dock concealment with edge/keyboard reveal, animation FPS, startup timing and app-activation controls.
+- Center workspace buttons against the whole menu bar. Preserve native owner identity for hosted apps and restore positions/border overrides on disable.
+- Add isolated sequential-opening, minimum-size, workspace race, rendered border/centering, binding rollback and hosted-owner regression checks.
+
 ## 1.2.1
 
 - Fix jerky app opening under tiling: apply client size once, animate position, and preserve each unchanged transition's deadline during startup notification bursts.

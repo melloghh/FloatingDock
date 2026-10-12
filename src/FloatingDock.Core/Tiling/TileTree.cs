@@ -29,6 +29,44 @@ public sealed class TileTree
         var target=Find(near)??Find(Windows.Last())!;
         target.First=new(){Window=target.Window};target.Second=new(){Window=id};target.Window=0;target.Horizontal=horizontal;target.Ratio=.5;
     }
+    public bool AddBalanced(long id,long near,TileRect bounds,int gap=8,int outer=12,IReadOnlyDictionary<long,(int Width,int Height)>? minimums=null)
+    {
+        if(Find(id) is not null)return true;
+        var layout=Layout(bounds,gap,outer);
+        long target=layout.ContainsKey(near)?near:Windows.LastOrDefault();
+        var cell=layout.GetValueOrDefault(target,bounds);
+        if(minimums is null){Add(id,target,cell.Width>=cell.Height);return true;}
+        var visible=minimums.Keys.ToHashSet();
+        bool Fits()=>Layout(bounds,gap,outer,visible).All(p=>!minimums.TryGetValue(p.Key,out var min)||p.Value.Width>=min.Width&&p.Value.Height>=min.Height);
+        if(_root is null){Add(id,target,cell.Width>=cell.Height);if(Fits())return true;Remove(id);return false;}
+        foreach(var leaf in new[]{target}.Concat(layout.Keys).Distinct())
+        {
+            var rect=layout.GetValueOrDefault(leaf,bounds);bool preferred=rect.Width>=rect.Height;
+            foreach(bool horizontal in new[]{preferred,!preferred})
+            {
+                Add(id,leaf,horizontal);
+                if(Fits())return true;
+                Remove(id);
+            }
+        }
+        // Three tall apps can fit in equal columns even when splitting one
+        // existing column cannot fit either axis. Preserve order in that fallback.
+        var original=_root;var windows=Windows.Append(id).ToArray();
+        int margin=Math.Clamp(outer,0,Math.Max(0,Math.Min(bounds.Width,bounds.Height)/4));
+        int space=Math.Clamp(gap,0,80);
+        foreach(bool horizontal in new[]{bounds.Width>=bounds.Height,bounds.Width<bounds.Height})
+        {
+            Node Build(int index,int length)
+            {
+                int count=windows.Length-index;if(count==1)return new(){Window=windows[index]};
+                int first=Math.Max(1,(length-space*(count-1))/count);
+                return new(){Horizontal=horizontal,Ratio=Math.Clamp(first/(double)Math.Max(1,length-space),.001,.999),First=new(){Window=windows[index]},Second=Build(index+1,Math.Max(1,length-first-space))};
+            }
+            _root=Build(0,Math.Max(1,(horizontal?bounds.Width:bounds.Height)-2*margin));
+            if(Fits())return true;
+        }
+        _root=original;return false;
+    }
     public bool Remove(long id)
     {
         bool removed=false;

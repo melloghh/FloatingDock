@@ -174,7 +174,9 @@ internal sealed class MenuBarWindow : IDisposable
         var ring=new Ellipse { Width=12,Height=12,Stroke=new SolidColorBrush(Colors.White),StrokeThickness=2 };
         _mainButton=ActionButton(ring,"FloatingDock menu",ShowMenu);left.Children.Add(_mainButton);left.Children.Add(_name);
         _root.Children.Add(left);
-        Grid.SetColumn(_workspaces,1);_root.Children.Add(_workspaces);
+        Grid.SetColumnSpan(_workspaces,3);_root.Children.Add(_workspaces);
+        _root.SizeChanged+=(_,_)=>_name.MaxWidth=Math.Max(40,Math.Min(420,(_root.ActualWidth-_workspaces.ActualWidth)/2-64));
+        _workspaces.SizeChanged+=(_,_)=>_name.MaxWidth=Math.Max(40,Math.Min(420,(_root.ActualWidth-_workspaces.ActualWidth)/2-64));
         var right=new StackPanel { Orientation=Orientation.Horizontal,Spacing=3,Margin=new Thickness(0,0,8,0),VerticalAlignment=VerticalAlignment.Center };
         _searchButton=ActionButton(new FontIcon { Glyph="\uE721",FontSize=14 },"Search",_app.ToggleSearch);right.Children.Add(_searchButton);
         _mediaButton=ActionButton(new FontIcon { Glyph="\uE8D6",FontSize=15 },"Media",()=>_menus.Media(_mediaButton!));right.Children.Add(_mediaButton);
@@ -258,6 +260,7 @@ internal sealed class MenuBarWindow : IDisposable
             _workspaceButtons[i].Tag=selected;_workspaceButtons[i].Background=new SolidColorBrush(selected?ColorHelper.FromArgb(45,255,255,255):Colors.Transparent);
         }
     }
+    internal double WorkspaceCenterOffsetForDiagnostics=>_workspaces.TransformToVisual(_root).TransformPoint(new(0,0)).X+_workspaces.ActualWidth/2-_root.ActualWidth/2;
     private void RefreshClock()
     {
         if(_disposed)return;

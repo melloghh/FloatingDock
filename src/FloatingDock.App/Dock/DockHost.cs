@@ -49,6 +49,7 @@ internal sealed class DockHost : IDisposable
         _app.Running.Changed += OnRunningChanged;
         _app.Running.NativeWindowChanged += OnNativeWindowChanged;
         _app.Icons.IconsChanged += OnIconsChanged;
+        _app.Tiling.StateChanged+=UpdateTilingVisibility;
         Reconcile();
         _capture.Scan();
         CheckFullscreen();
@@ -128,6 +129,8 @@ internal sealed class DockHost : IDisposable
     {
         foreach (var w in _windows) w.ReloadIcons();
     }
+    private void UpdateTilingVisibility()
+    {foreach(var window in _windows)window.SetTilingHidden(_app.Settings.Current.TilingHideDock&&_app.Tiling.Session?.HasTiles(window.Monitor.DeviceName)==true);}
 
     /// <summary>Creates / removes / moves dock windows after a monitor change (hot-plug, resolution, DPI) or a MonitorMode change.</summary>
     public void Reconcile()
@@ -165,6 +168,7 @@ internal sealed class DockHost : IDisposable
         Reconcile();
         _vm.Rebuild();
         foreach (var w in _windows) w.ApplySettings();
+        UpdateTilingVisibility();
         _fullscreenTimer.IsRepeating = true;
         if (!_fullscreenTimer.IsRunning) _fullscreenTimer.Start();
         CheckFullscreen();
@@ -252,6 +256,7 @@ internal sealed class DockHost : IDisposable
         _app.Running.Changed -= OnRunningChanged;
         _app.Running.NativeWindowChanged -= OnNativeWindowChanged;
         _app.Icons.IconsChanged -= OnIconsChanged;
+        _app.Tiling.StateChanged-=UpdateTilingVisibility;
         _appBar.Dispose();
         foreach (var w in _windows) w.Dispose();
         _windows.Clear();

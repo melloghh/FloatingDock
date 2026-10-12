@@ -13,6 +13,40 @@ public sealed class TilingPlacementTests
     [DllImport("user32.dll",CharSet=CharSet.Unicode)] private static extern IntPtr CreateWindowEx(uint exStyle,string cls,string title,uint style,int x,int y,int width,int height,IntPtr parent,IntPtr menu,IntPtr instance,IntPtr parameter);
     [DllImport("user32.dll")] private static extern bool DestroyWindow(IntPtr window);
     [DllImport("user32.dll")] private static extern bool PostMessage(IntPtr window,uint message,IntPtr w,IntPtr l);
+    [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr window,int command);
+    [Fact]
+    public async Task HostedAppIdentityUsesTheActualNativeOwnerForMovement()
+    {
+        using var fixture=new BusyWindow();using var session=new NativeTilingSession {DiagnosticWindows=new HashSet<long>{fixture.Handle.ToInt64()}};
+        session.Reconcile(new[]{new WindowInfo(fixture.Handle.ToInt64(),Environment.ProcessId+1,"hosted-app.exe",null,"Owned hosted identity fixture","STATIC",false)},0);
+        Assert.True(session.Move(fixture.Handle.ToInt64(),new(260,240,500,350)));
+        await Task.Delay(100);GetWindowRect(fixture.Handle,out var moved);Assert.Equal(260,moved.Left);Assert.Equal(240,moved.Top);
+    }
+    [Fact]
+    public async Task LateOwnRestoreAcknowledgementDoesNotBecomeAUserActivation()
+    {
+        using var fixture=new BusyWindow();using var session=new NativeTilingSession {DiagnosticWindows=new HashSet<long>{fixture.Handle.ToInt64()}};
+        session.Reconcile(new[]{new WindowInfo(fixture.Handle.ToInt64(),Environment.ProcessId,null,null,"Owned workspace fixture","STATIC",false)},fixture.Handle.ToInt64());
+        var monitor=FloatingDock.Windows.Display.MonitorHelper.Primary()!;
+        session.SwitchWorkspace(2,monitor.DeviceName);await Task.Delay(70);session.ObserveNativeMinimize(fixture.Handle.ToInt64());
+        session.SwitchWorkspace(1,monitor.DeviceName);await Task.Delay(70);session.SwitchWorkspace(2,monitor.DeviceName);await Task.Delay(70);
+        session.ObserveNativeRestore(fixture.Handle.ToInt64());Assert.False(session.CanFollowActivation(fixture.Handle.ToInt64()));
+        ShowWindow(fixture.Handle,9);session.ObserveNativeRestore(fixture.Handle.ToInt64());Assert.True(session.CanFollowActivation(fixture.Handle.ToInt64()));
+    }
+    [Fact]
+    public async Task StaleForegroundDoesNotSendNewWindowToAnotherWorkspace()
+    {
+        using var first=new BusyWindow();using var second=new BusyWindow();
+        using var session=new NativeTilingSession { DiagnosticWindows=new HashSet<long>{first.Handle.ToInt64(),second.Handle.ToInt64()} };
+        WindowInfo Info(BusyWindow w)=>new(w.Handle.ToInt64(),Environment.ProcessId,null,null,"Owned tiling fixture","STATIC",false);
+        var monitor=FloatingDock.Windows.Display.MonitorHelper.Primary()!;
+        session.Reconcile(new[]{Info(first)},first.Handle.ToInt64());session.SwitchWorkspace(2,monitor.DeviceName);await Task.Delay(100);
+        session.Reconcile(new[]{Info(first),Info(second)},second.Handle.ToInt64());await Task.Delay(100);
+        ShowWindow(first.Handle,9); // A late activation arrives after the new window was admitted.
+        session.Reconcile(new[]{Info(first),Info(second)},first.Handle.ToInt64());await Task.Delay(100);
+        Assert.Equal(2,session.ActiveWorkspace(monitor.DeviceName));
+        Assert.Contains(second.Handle.ToInt64(),session.Targets().Keys);
+    }
     [Fact]
     public async Task BusyWindowDoesNotBlockPlacementOrLoseItsRestoreToQueuedMoves()
     {

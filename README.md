@@ -14,7 +14,7 @@ FloatingDock brings a compact desktop interface to Windows: animated icon magnif
 - **Launchpad.** Windows Start pins and apps you add with the + button or by dropping a shortcut. Three built-in launcher icon styles.
 - **A rounded menu bar.** Active application, network, volume, input language, battery when available, clock and calendar. Media playback controls, a FloatingDock menu of real Windows notification icons and search. Configurable auto-hide FPS, timing and work-area reservation.
 - **Search palette.** `Ctrl+Alt+K` searches apps and familiar personal file types in Desktop and Downloads. A bounded 30-second filename cache avoids scanning on every keystroke; Documents and build noise are excluded. Configure scopes and depth in Settings → Search.
-- **Built-in tiling.** Opt-in split layouts, workspaces per monitor, directional focus/move/resize, floating rules, finite animations and position restoration. Configure Settings → Tiling manager; see [controls and limits](docs/TILING.md). No separate window manager is required.
+- **Built-in tiling.** Opt-in split layouts, workspaces per monitor, directional focus/move/resize, editable bindings, focus borders, dock concealment, finite animations and position restoration. Configure Settings → Tiling manager; see [controls and limits](docs/TILING.md). No separate window manager is required.
 - **Interface language.** English by default; switch to Russian in Settings → Appearance.
 - **Your own icons.** PNG/ICO overrides and imported ZIP packs shared by the dock and Launchpad. Decorative icon packs are not bundled.
 - **Local glass effects.** App-owned blur works independently of the Windows transparency toggle; transitions respect the system animation preference.

@@ -117,7 +117,16 @@ public sealed class DockSettings
     public int TilingWorkspaces { get; set; } = 5;
     public int TilingGap { get; set; } = 8;
     public int TilingOuterGap { get; set; } = 12;
-    public int TilingAnimationMs { get; set; } = 160;
+    public int TilingAnimationMs { get; set; } = 220;
+    public int TilingAnimationFps { get; set; } = 60;
+    public int TilingStartupDelayMs { get; set; } = 180;
+    public bool TilingHideDock { get; set; } = true;
+    public bool TilingBringActivatedWindows { get; set; } = true;
+    public bool TilingTileMaximizedApps { get; set; } = true;
+    public bool TilingBorders { get; set; }
+    public string TilingActiveBorderColor { get; set; } = "A8C7FA";
+    public string TilingInactiveBorderColor { get; set; } = "414956";
+    public Dictionary<string,string> TilingKeybindings { get; set; } = new(StringComparer.Ordinal);
     public TilingModifier TilingModifier { get; set; } = TilingModifier.Alt;
     public string TilingExcludedApps { get; set; } = "FloatingDock.exe;Taskmgr.exe;SnippingTool.exe;ScreenClippingHost.exe";
 
@@ -128,7 +137,8 @@ public sealed class DockSettings
     /// <summary>Moves keyboard focus into the Dock (arrows, Enter, Esc).</summary>
     public string DockFocusHotkey { get; set; } = "Ctrl+Alt+D";
 
-    public DockSettings Clone() => (DockSettings)MemberwiseClone();
+    public DockSettings Clone()
+    {var copy=(DockSettings)MemberwiseClone();copy.TilingKeybindings=new(TilingKeybindings??new(),StringComparer.Ordinal);return copy;}
 
     /// <summary>Clamps everything into sane ranges (hand-edited JSON can contain anything).</summary>
     public DockSettings Normalize()
@@ -149,8 +159,12 @@ public sealed class DockSettings
         MenuAnimationMs=Math.Clamp(MenuAnimationMs,80,600);PreviewDelayMs=Math.Clamp(PreviewDelayMs,200,2000);
         SearchResultLimit=Math.Clamp(SearchResultLimit,5,100);SearchFolders??="";SearchHotkey??="";
         SearchDepth=Math.Clamp(SearchDepth,0,3);
-        TilingWorkspaces=Math.Clamp(TilingWorkspaces,1,9);TilingGap=Math.Clamp(TilingGap,0,40);TilingOuterGap=Math.Clamp(TilingOuterGap,0,80);TilingAnimationMs=Math.Clamp(TilingAnimationMs,0,400);
+        TilingWorkspaces=Math.Clamp(TilingWorkspaces,1,9);TilingGap=Math.Clamp(TilingGap,0,40);TilingOuterGap=Math.Clamp(TilingOuterGap,0,80);
         if(!Enum.IsDefined(TilingModifier))TilingModifier=TilingModifier.Alt;TilingExcludedApps??="";
+        TilingAnimationMs=Math.Clamp(TilingAnimationMs,0,600);TilingAnimationFps=Math.Clamp(TilingAnimationFps,30,144);TilingStartupDelayMs=Math.Clamp(TilingStartupDelayMs,0,500);
+        TilingKeybindings=TilingKeybindings is null?new():TilingKeybindings.Where(p=>p.Key.Length<=64).ToDictionary(p=>p.Key,p=>(p.Value??"").Trim(),StringComparer.Ordinal);
+        if(!ColorUtil.TryParseRgb(TilingActiveBorderColor,out _))TilingActiveBorderColor="A8C7FA";
+        if(!ColorUtil.TryParseRgb(TilingInactiveBorderColor,out _))TilingInactiveBorderColor="414956";
         SearchFolders=string.Join(';',SearchFolders.Split(';',StringSplitOptions.RemoveEmptyEntries|StringSplitOptions.TrimEntries).Where(t=>!t.Equals("Documents",StringComparison.OrdinalIgnoreCase)));
         IconSize = Math.Clamp(IconSize, 24, 128);
         IconSpacing = Math.Clamp(IconSpacing, 0, 40);
