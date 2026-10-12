@@ -135,7 +135,7 @@ public sealed class NativeTilingSession : IDisposable
                     if(target.Width<member.MinimumWidth||target.Height<member.MinimumHeight)
                     {
                         tree.Remove(id);usable.Remove(id);member.Floating=true;result.Remove(id);
-                        if(Owns(id,member))SetWindowPlacement(new(id),member.Original);
+                        if(Owns(id,member))RestorePlacement(new(id),member.Original);
                         repeat=true;break;
                     }
                     result[id]=target;
@@ -179,7 +179,7 @@ public sealed class NativeTilingSession : IDisposable
     {
         if(!_members.TryGetValue(_focused,out var m))return;
         if(m.Floating&&(NativeMethods.GetStyle(new(_focused))&NativeMethods.WS_THICKFRAME)==0)return;
-        m.Floating=!m.Floating;if(m.Floating){Tree(m).Remove(_focused);if(Owns(_focused,m))SetWindowPlacement(new(_focused),m.Original);}
+        m.Floating=!m.Floating;if(m.Floating){Tree(m).Remove(_focused);if(Owns(_focused,m))RestorePlacement(new(_focused),m.Original);}
         else{NativeMethods.ShowWindow(new(_focused),9);Tree(m).Add(_focused);}
     }
     public void ToggleDirection(){if(_members.TryGetValue(_focused,out var m))Tree(m).ToggleDirection(_focused);}
@@ -217,7 +217,14 @@ public sealed class NativeTilingSession : IDisposable
         if(member.Hidden)return;
         if(member.Floating){if(member.MinimizedByUs)NativeMethods.ShowWindow(new(id),4);return;}
         var placement=member.Original;if(member.UserMinimized&&!member.MinimizedByUs)placement.Show=2;
-        SetWindowPlacement(new(id),placement);
+        RestorePlacement(new(id),placement);
+    }
+    private static void RestorePlacement(IntPtr hwnd,Placement placement)
+    {
+        // Queue behind previously submitted async moves. A synchronous restore
+        // can overtake them in a busy GUI thread and then be undone by that queue.
+        placement.Flags|=4; // WPF_ASYNCWINDOWPLACEMENT
+        SetWindowPlacement(hwnd,placement);
     }
     public void Dispose(){if(_disposed)return;_disposed=true;foreach(var (id,member) in _members)Restore(id,member);_members.Clear();_trees.Clear();}
 }

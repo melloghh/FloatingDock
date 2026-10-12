@@ -6,6 +6,7 @@
 - Cache DWM frame insets by window DPI so compositor lag cannot shift animation targets. Use asynchronous placement across UI threads to avoid blocking the dock on a busy application.
 - Reassert final bounds after late startup sizing, retain zero-duration placement and restore original window positions on disable.
 - Add isolated native opening, notification-burst and late-resize regression checks.
+- Queue restoration after pending moves; verify placement and disable against a deliberately busy owned GUI thread.
 
 ## 1.2.0
 
