@@ -49,6 +49,8 @@ internal static partial class RuntimeSmoke
             await Wait(()=>app.Tiling.Session?.Targets().Count==1&&!app.Tiling.Animating,"First fixture did not settle.");
             Create(400,250);await Wait(()=>app.Tiling.Session?.Targets().Count==2&&!app.Tiling.Animating,"Second fixture did not settle.");
             Create(480,400);await Wait(()=>app.Tiling.Session?.Targets().Count==3&&!app.Tiling.Animating,"Third fixture did not settle.");
+            var bar=app.TopBar!.Primary!;NativeMethods.GetWindowRect(bar.Handle,out var barRect);
+            int backgroundX=barRect.Width/2+250,backgroundY=barRect.Height/2;
             long playerId;
             if(realPlayer)
             {
@@ -89,10 +91,16 @@ internal static partial class RuntimeSmoke
             // Inspect only the center of our own fixture's representation, including
             // after native minimization. A black/empty DWM thumbnail is not a pass.
             var frame=OwnWindowCapture.Capture(hiding.Handle);NativeMethods.GetWindowRect(hiding.Handle,out var viewport);
+            int gapPixel=((barRect.Top+backgroundY-viewport.Top)*frame.Width+barRect.Left+backgroundX-viewport.Left)*4;
             int x=hiding.Bounds.X+hiding.Bounds.Width/2-viewport.Left,y=hiding.Bounds.Y+hiding.Bounds.Height/2-viewport.Top;
             int pixel=(y*frame.Width+x)*4;bool rendered=pixel>=0&&pixel+3<frame.Pixels.Length&&(realPlayer?frame.Pixels[pixel]+frame.Pixels[pixel+1]+frame.Pixels[pixel+2]>20:frame.Pixels[pixel]>90&&frame.Pixels[pixel+1]>45);
             checks["minimizedThumbnailRendered"]=new{rendered,bgra=pixel>=0&&pixel+3<frame.Pixels.Length?frame.Pixels.Skip(pixel).Take(4).ToArray():Array.Empty<byte>()};Check(rendered,"Minimized source disappeared from the compositor animation.");
             var conceal=new List<TileRect>();while(app.Tiling.Animating){if(app.Tiling.PresentationsForDiagnostics.TryGetValue(playerId,out var p))conceal.Add(p.Bounds);await Task.Delay(12);}
+            // Compare the same minimized native state with/without the surface;
+            // tiled test titlebars can cover this point before the workspace switch.
+            var background=OwnWindowCapture.Capture(bar.Handle);int backgroundPixel=(backgroundY*background.Width+backgroundX)*4;
+            checks["viewportColors"]=new{without=background.Pixels.Skip(backgroundPixel).Take(3).ToArray(),during=frame.Pixels.Skip(gapPixel).Take(3).ToArray()};
+            Check(Enumerable.Range(0,3).All(c=>Math.Abs(frame.Pixels[gapPixel+c]-background.Pixels[backgroundPixel+c])<12),"The animation surface darkened the desktop outside its thumbnail.");checks["transparentAnimationViewport"]=true;
             Check(conceal.Distinct().Count()>5&&conceal[^1].Width<100,"Workspace animation did not shrink towards the dock.");
             checks["workspaceHideToDock"]=new{frames=conceal.Distinct().Count(),dock=origin,last=conceal[^1],edge=app.Settings.Current.Edge.ToString()};RestoredOpacity();
             app.Tiling.SwitchWorkspace(1,mon.DeviceName);await Wait(()=>!app.Tiling.Animating&&ids.All(id=>!NativeMethods.IsIconic(new(id))&&Matches(id,session.Targets()[id])),"Workspace restoration did not return exact tiles.");RestoredOpacity();

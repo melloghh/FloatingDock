@@ -60,17 +60,42 @@ public sealed class WindowTransitionSurface : IDisposable
     [DllImport("dwmapi.dll")] private static extern int DwmUpdateThumbnailProperties(IntPtr thumbnail,ref Properties properties);
     [DllImport("dwmapi.dll")] private static extern int DwmExtendFrameIntoClientArea(IntPtr window,ref Margins margins);
     [DllImport("gdi32.dll")] private static extern IntPtr GetStockObject(int index);
-    [DllImport("user32.dll")] private static extern bool SetLayeredWindowAttributes(IntPtr h,uint key,byte alpha,uint flags);
+    [StructLayout(LayoutKind.Sequential)] private struct Blend {public byte Operation,Flags,Alpha,Format;}
+    [DllImport("user32.dll")] private static extern bool UpdateLayeredWindow(IntPtr window,IntPtr destination,in POINT position,in SIZE size,IntPtr source,in POINT origin,uint key,in Blend blend,uint flags);
+    [DllImport("gdi32.dll")] private static extern IntPtr CreateCompatibleDC(IntPtr dc);
+    [DllImport("gdi32.dll")] private static extern bool DeleteDC(IntPtr dc);
+    [DllImport("gdi32.dll")] private static extern IntPtr SelectObject(IntPtr dc,IntPtr value);
+    [DllImport("gdi32.dll")] private static extern IntPtr CreateDIBSection(IntPtr dc,in BITMAPINFOHEADER info,uint usage,out IntPtr pixels,IntPtr section,uint offset);
     private delegate IntPtr WindowProc(IntPtr h,uint m,IntPtr w,IntPtr l);
     private static readonly WindowProc Proc=(h,m,w,l)=>m==0x84?new(-1):m==0x21?new(3):NativeMethods.DefWindowProc(h,m,w,l);
     private const string ClassName="FloatingDock.TileTransition";
     private static bool _registered;
+    private static readonly byte[] TransparentPixels=new byte[65536];
     private IntPtr _thumbnail;
     private WindowOpacityLease? _lease;
     public IntPtr Handle { get; private set; }
     public TileRect Bounds { get; private set; }
     public byte Opacity { get; private set; }=255;
     private readonly int _x,_y;
+    private static bool InitializeTransparentViewport(IntPtr window,int x,int y,int width,int height)
+    {
+        long bytes=(long)width*height*4;if(bytes<=0||bytes>128*1024*1024)return false;
+        var memory=CreateCompatibleDC(IntPtr.Zero);
+        var info=new BITMAPINFOHEADER {biSize=40,biWidth=width,biHeight=-height,biPlanes=1,biBitCount=32};
+        var bitmap=CreateDIBSection(memory,info,0,out var pixels,IntPtr.Zero,0);IntPtr previous=IntPtr.Zero;
+        try
+        {
+            if(bitmap==IntPtr.Zero||pixels==IntPtr.Zero)return false;
+            // Reuse a small zero block instead of allocating a monitor-sized
+            // managed bitmap (and triggering LOH collections at every switch).
+            for(int offset=0;offset<bytes;offset+=TransparentPixels.Length)
+                Marshal.Copy(TransparentPixels,0,IntPtr.Add(pixels,offset),(int)Math.Min(TransparentPixels.Length,bytes-offset));
+            previous=SelectObject(memory,bitmap);
+            var position=new POINT {X=x,Y=y};var origin=new POINT();var size=new SIZE(width,height);var blend=new Blend {Alpha=255,Format=1};
+            return UpdateLayeredWindow(window,IntPtr.Zero,position,size,memory,origin,0,blend,2);
+        }
+        finally{if(previous!=IntPtr.Zero)SelectObject(memory,previous);if(bitmap!=IntPtr.Zero)NativeMethods.DeleteObject(bitmap);if(memory!=IntPtr.Zero)DeleteDC(memory);}
+    }
     private WindowTransitionSurface(IntPtr window,IntPtr thumbnail,WindowOpacityLease lease,int x,int y)
     {Handle=window;_thumbnail=thumbnail;_lease=lease;_x=x;_y=y;}
     public static WindowTransitionSurface? TryCreate(IntPtr source,TileRect from,TileRect to,WindowOpacityLease? lease=null)
@@ -87,7 +112,7 @@ public sealed class WindowTransitionSurface : IDisposable
         foreach(var monitor in monitors.Where(m=>m.Handle==NativeMethods.MonitorFromWindow(source,NativeMethods.MONITOR_DEFAULTTONEAREST)))
         {left=Math.Min(left,monitor.Bounds.Left);top=Math.Min(top,monitor.Bounds.Top);right=Math.Max(right,monitor.Bounds.Right);bottom=Math.Max(bottom,monitor.Bounds.Bottom);}
         var window=NativeMethods.CreateWindowEx(0x080800A8,ClassName,null,0x80000000,left,top,right-left,bottom-top,IntPtr.Zero,IntPtr.Zero,IntPtr.Zero,IntPtr.Zero);
-        if(window!=IntPtr.Zero)SetLayeredWindowAttributes(window,0,255,2);
+        if(window!=IntPtr.Zero&&!InitializeTransparentViewport(window,left,top,right-left,bottom-top)){NativeMethods.DestroyWindow(window);if(acquired)lease.Dispose();return null;}
         var margins=new Margins {Left=-1,Right=-1,Top=-1,Bottom=-1};
         if(window==IntPtr.Zero||DwmExtendFrameIntoClientArea(window,ref margins)<0||DwmRegisterThumbnail(window,source,out var thumbnail)<0)
         {if(window!=IntPtr.Zero)NativeMethods.DestroyWindow(window);if(acquired)lease.Dispose();return null;}
