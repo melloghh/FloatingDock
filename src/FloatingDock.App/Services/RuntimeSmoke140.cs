@@ -81,6 +81,7 @@ internal static partial class RuntimeSmoke
             foreach(var (id,r) in targets){Check(r.Width>=minima[id].Width&&r.Height>=minima[id].Height,"Mixed layout violated a minimum size.");foreach(var other in targets.Where(p=>p.Key!=id))Check(r.X+r.Width<=other.Value.X+16||other.Value.X+other.Value.Width<=r.X+16||r.Y+r.Height<=other.Value.Y+16||other.Value.Y+other.Value.Height<=r.Y+16,"Mixed windows overlap.");}
             RestoredOpacity();checks["fourMixedMinimumWindows"]=new{count=4,openingFrames=opening.Distinct().Count(),nativeIntermediateChanges=nativeChanges,playerMinimum="800x600"};
             // A real app can apply its saved geometry well after the startup gate.
+            session.Move(playerId,session.Targets()[playerId]);
             NativeMethods.SetWindowPos(new(playerId),IntPtr.Zero,mon.WorkArea.Left+100,mon.WorkArea.Top+100,1000,750,NativeMethods.SWP_NOZORDER|NativeMethods.SWP_NOACTIVATE);
             await Wait(()=>!app.Tiling.Animating&&Matches(playerId,session.Targets()[playerId]),"A late self-resize covered adjacent windows.");checks["lateSelfResizeRepaired"]=true;
             var origin=app.Dock.AnimationRectFor(new(playerId));Check(origin is not null,"Workspace hiding has no dock icon destination.");

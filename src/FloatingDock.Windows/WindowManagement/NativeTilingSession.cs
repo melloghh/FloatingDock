@@ -63,7 +63,7 @@ public sealed class NativeTilingSession : IDisposable
     }
     public bool PlacementDrifted(long id)
     {
-        if(!_members.TryGetValue(id,out var m)||m.Floating||m.UserMinimized||m.Hidden||m.MinimizedByUs||!m.Placed||m.PendingRestore||Stopwatch.GetElapsedTime(m.SubmittedAt).TotalMilliseconds<120)return false;
+        if(!_members.TryGetValue(id,out var m)||m.Floating||m.UserMinimized||m.Hidden||m.MinimizedByUs||!m.Placed||m.PendingRestore)return false;
         return m.LastRequest is { } r&&NativeMethods.GetWindowRect(new(id),out var actual)&&(Math.Abs(actual.Left-r.X)>2||Math.Abs(actual.Top-r.Y)>2||Math.Abs(actual.Width-r.Width)>2||Math.Abs(actual.Height-r.Height)>2);
     }
     public bool NeedsInitialPlacement(long id)=>_members.TryGetValue(id,out var member)&&member.InitialPlacementPending&&!member.Floating&&!member.UserMinimized&&member.Workspace==ActiveWorkspace(member.Monitor);
