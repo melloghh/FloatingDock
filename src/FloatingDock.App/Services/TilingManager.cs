@@ -17,11 +17,9 @@ internal sealed class TilingManager : IDisposable
     private readonly DispatcherQueueTimer _settle,_animation;
     private readonly Dictionary<int,Action> _commands=new();
     private readonly HashSet<long> _dragging=new();
-    private readonly Dictionary<long,(TileRect From,TileRect To)> _moves=new();
+    private readonly Dictionary<long,(TileRect From,TileRect To,long Start,int Duration)> _moves=new();
     private NativeTilingSession? _session;
     private DockSettings _settings=new();
-    private long _animationStart;
-    private int _duration;
     private bool _paused,_disposed;
     internal NativeTilingSession? Session=>_session;
     internal bool Animating=>_animation.IsRunning;
@@ -29,6 +27,7 @@ internal sealed class TilingManager : IDisposable
     internal event Action? StateChanged;
     internal void SwitchWorkspace(int workspace,string monitor)=>Command(s=>s.SwitchWorkspace(workspace,monitor));
     internal IReadOnlySet<long>? DiagnosticWindows { get; set; }
+    internal bool SkipHotkeyRegistrationForDiagnostics { get; set; }
     internal TilingManager(DockApp app)
     {
         _app=app;_settle=app.UiQueue.CreateTimer();_settle.IsRepeating=false;_settle.Interval=TimeSpan.FromMilliseconds(45);_settle.Tick+=(_,_)=>Reconcile();
@@ -77,7 +76,7 @@ internal sealed class TilingManager : IDisposable
         int id=100;string modifier=_settings.TilingModifier==TilingModifier.Alt?"Alt":"Ctrl+Alt+Win";
         bool Add(string keys,Action action)
         {
-            if(!FloatingDock.Core.Services.HotkeyParser.TryParse(keys,out var mods,out var key)||!_app.Msg.RegisterHotkey(id,mods,key)){_app.Log.Warn("Tiling shortcut unavailable: "+keys);return false;}
+            if(!FloatingDock.Core.Services.HotkeyParser.TryParse(keys,out var mods,out var key)||(!SkipHotkeyRegistrationForDiagnostics||DiagnosticWindows is null)&&!_app.Msg.RegisterHotkey(id,mods,key)){_app.Log.Warn("Tiling shortcut unavailable: "+keys);return false;}
             _commands[id++]=action;return true;
         }
         foreach(var (key,direction) in new[]{("H",TileDirection.Left),("J",TileDirection.Down),("K",TileDirection.Up),("L",TileDirection.Right)})
@@ -101,7 +100,7 @@ internal sealed class TilingManager : IDisposable
     }
     private void Unregister(){foreach(var id in _commands.Keys)_app.Msg.UnregisterHotkey(id);_commands.Clear();}
     internal bool HandleHotkey(int id){if(!_commands.TryGetValue(id,out var command))return false;command();return true;}
-    private void Command(Action<NativeTilingSession> action){if(_session is null)return;Reconcile();action(_session);AnimateLayout();StateChanged?.Invoke();}
+    private void Command(Action<NativeTilingSession> action){if(_session is null)return;_session.Reconcile(_app.Running.Snapshot(),_app.Running.ForegroundRoot);action(_session);AnimateLayout();StateChanged?.Invoke();}
     private void Reconcile()
     {
         if(_session is null||_disposed)return;
@@ -112,29 +111,45 @@ internal sealed class TilingManager : IDisposable
     internal void AnimateLayout()
     {
         if(_session is null)return;
-        _animation.Stop();_moves.Clear();
-        foreach(var (id,target) in _session.Targets())
+        var targets=_session.Targets();
+        foreach(var id in _moves.Keys.ToArray())
+            if(!targets.ContainsKey(id)||_dragging.Contains(id))_moves.Remove(id);
+        int duration=Views.SurfaceMotion.Enabled?_settings.TilingAnimationMs:0;
+        foreach(var (id,target) in targets)
         {
+            // Metadata/focus bursts must not restart an unchanged transition.
+            if(duration>0&&_moves.TryGetValue(id,out var pending)&&pending.To==target)continue;
             if(_dragging.Contains(id)||!NativeMethods.GetWindowRect(new(id),out var current))continue;
             var from=new TileRect(current.Left,current.Top,current.Width,current.Height);
-            if(Math.Abs(from.X-target.X)+Math.Abs(from.Y-target.Y)+Math.Abs(from.Width-target.Width)+Math.Abs(from.Height-target.Height)<=2)continue;
-            _moves[id]=(from,target);
+            _moves.Remove(id);
+            if(from==target)continue;
+            if(duration==0){_session.Move(id,target);continue;}
+            // Set the final client size once. Resizing a newly starting application
+            // at 60 Hz repeatedly rebuilds its layout/swap chain and stalls painting.
+            if(from.Width!=target.Width||from.Height!=target.Height)
+            {
+                from=new(from.X,from.Y,target.Width,target.Height);
+                if(!_session.Move(id,from))continue;
+            }
+            if(from.X==target.X&&from.Y==target.Y)continue;
+            _moves[id]=(from,target,Stopwatch.GetTimestamp(),duration);
         }
-        _duration=Views.SurfaceMotion.Enabled?_settings.TilingAnimationMs:0;_animationStart=Stopwatch.GetTimestamp();
-        if(_moves.Count==0)return;
-        if(_duration==0)Frame();else _animation.Start();
+        if(_moves.Count==0)_animation.Stop();else if(!_animation.IsRunning)_animation.Start();
     }
     private void Frame()
     {
         if(_session is null){_animation.Stop();return;}
-        double progress=_duration==0?1:Math.Clamp(Stopwatch.GetElapsedTime(_animationStart).TotalMilliseconds/_duration,0,1);
-        double ease=1-Math.Pow(1-progress,3);
-        foreach(var (id,move) in _moves)
+        foreach(var (id,move) in _moves.ToArray())
         {
+            double progress=Math.Clamp(Stopwatch.GetElapsedTime(move.Start).TotalMilliseconds/move.Duration,0,1);
+            double ease=1-Math.Pow(1-progress,3);
             int Interpolate(int start,int end)=>(int)Math.Round(start+(end-start)*ease);
-            _session.Move(id,new(Interpolate(move.From.X,move.To.X),Interpolate(move.From.Y,move.To.Y),Interpolate(move.From.Width,move.To.Width),Interpolate(move.From.Height,move.To.Height)));
+            // A startup routine may apply its saved size after our first placement.
+            // Reassert the final size only at completion, never on intermediate frames.
+            bool moved=_session.Move(id,new(Interpolate(move.From.X,move.To.X),Interpolate(move.From.Y,move.To.Y),move.To.Width,move.To.Height),resize:progress>=1);
+            if(!moved||progress>=1)_moves.Remove(id);
         }
-        if(progress>=1){_animation.Stop();_moves.Clear();}
+        if(_moves.Count==0)_animation.Stop();
     }
     private void StopSession(){_settle.Stop();_animation.Stop();_moves.Clear();_dragging.Clear();_session?.Dispose();_session=null;}
     internal void EmergencyRestore()=>_session?.Dispose();

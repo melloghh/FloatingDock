@@ -25,6 +25,8 @@ public sealed class NativeTilingSession : IDisposable
         public int Workspace=1;
         public bool Floating,MinimizedByUs,UserMinimized,Hidden;
         public int MinimumWidth=120,MinimumHeight=80;
+        public (int Left,int Top,int Right,int Bottom)? FrameInsets;
+        public uint FrameDpi;
     }
     private readonly Dictionary<long,Member> _members=new();
     private readonly Dictionary<(string Monitor,int Workspace),TileTree> _trees=new();
@@ -129,7 +131,7 @@ public sealed class NativeTilingSession : IDisposable
                 repeat=false;
                 foreach(var (id,rect) in tree.Layout(new(area.Left,area.Top,area.Width,area.Height),(int)(Gap*monitor.Scale),(int)(OuterGap*monitor.Scale),usable))
                 {
-                    var target=FrameToWindow(new(id),rect);var member=_members[id];
+                    var member=_members[id];var target=FrameToWindow(new(id),rect,member);
                     if(target.Width<member.MinimumWidth||target.Height<member.MinimumHeight)
                     {
                         tree.Remove(id);usable.Remove(id);member.Floating=true;result.Remove(id);
@@ -142,10 +144,18 @@ public sealed class NativeTilingSession : IDisposable
         }
         return result;
     }
-    private static TileRect FrameToWindow(IntPtr hwnd,TileRect frame)
+    private static TileRect FrameToWindow(IntPtr hwnd,TileRect frame,Member member)
     {
-        if(NativeMethods.GetWindowRect(hwnd,out var outer)&&DwmGetWindowAttribute(hwnd,9,out var visible,Marshal.SizeOf<RECT>())>=0)
-            return new(frame.X-(visible.Left-outer.Left),frame.Y-(visible.Top-outer.Top),frame.Width+(visible.Left-outer.Left)+(outer.Right-visible.Right),frame.Height+(visible.Top-outer.Top)+(outer.Bottom-visible.Bottom));
+        uint dpi=NativeMethods.GetDpiForWindow(hwnd);
+        // DWM's presented bounds can lag GetWindowRect during movement. Reading
+        // their difference every frame turns that lag into a new layout target.
+        if(member.FrameInsets is null||member.FrameDpi!=dpi)
+        {
+            if(NativeMethods.GetWindowRect(hwnd,out var outer)&&DwmGetWindowAttribute(hwnd,9,out var visible,Marshal.SizeOf<RECT>())>=0)
+            {member.FrameInsets=(visible.Left-outer.Left,visible.Top-outer.Top,outer.Right-visible.Right,outer.Bottom-visible.Bottom);member.FrameDpi=dpi;}
+        }
+        if(member.FrameInsets is { } inset)
+            return new(frame.X-inset.Left,frame.Y-inset.Top,frame.Width+inset.Left+inset.Right,frame.Height+inset.Top+inset.Bottom);
         return frame;
     }
     public void SwitchWorkspace(int workspace,string? monitor=null)
@@ -196,10 +206,10 @@ public sealed class NativeTilingSession : IDisposable
             if(overlap.Key!=0)Tree(m).Swap(window,overlap.Key);
         }
     }
-    public bool Move(long id,TileRect rect)
+    public bool Move(long id,TileRect rect,bool resize=true)
     {
         if(!_members.TryGetValue(id,out var member)||!Owns(id,member)||member.Floating||member.UserMinimized||IsZoomed(new(id))||(NativeMethods.GetStyle(new(id))&NativeMethods.WS_THICKFRAME)==0||member.Workspace!=ActiveWorkspace(member.Monitor))return false;
-        return NativeMethods.SetWindowPos(new(id),IntPtr.Zero,rect.X,rect.Y,Math.Max(1,rect.Width),Math.Max(1,rect.Height),NativeMethods.SWP_NOZORDER|NativeMethods.SWP_NOACTIVATE);
+        return NativeMethods.SetWindowPos(new(id),IntPtr.Zero,rect.X,rect.Y,Math.Max(1,rect.Width),Math.Max(1,rect.Height),NativeMethods.SWP_NOZORDER|NativeMethods.SWP_NOACTIVATE|NativeMethods.SWP_ASYNCWINDOWPOS|(resize?0:NativeMethods.SWP_NOSIZE));
     }
     private void Restore(long id,Member member)
     {

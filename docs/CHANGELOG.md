@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.1
+
+- Fix jerky app opening under tiling: apply client size once, animate position, and preserve each unchanged transition's deadline during startup notification bursts.
+- Cache DWM frame insets by window DPI so compositor lag cannot shift animation targets. Use asynchronous placement across UI threads to avoid blocking the dock on a busy application.
+- Reassert final bounds after late startup sizing, retain zero-duration placement and restore original window positions on disable.
+- Add isolated native opening, notification-burst and late-resize regression checks.
+
 ## 1.2.0
 
 - Replace per-keystroke recursive file scans with a bounded 30-second filename cache. Remove Documents from effective scopes, restrict personal file types and top-level folders, and add depth/refresh controls.

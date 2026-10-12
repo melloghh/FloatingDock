@@ -31,6 +31,7 @@ internal static partial class RuntimeSmoke
                 app.Running.IncludeOwnWindow(hwnd);NativeMethods.GetWindowRect(hwnd,out var rect);rects[hwnd.ToInt64()]=rect;
             }
             app.Tiling.DiagnosticWindows=rects.Keys.ToHashSet();
+            app.Tiling.SkipHotkeyRegistrationForDiagnostics=true;
             app.Settings.Update(s=>{s.TilingEnabled=true;s.TilingModifier=TilingModifier.Alt;s.TilingExcludedApps="";s.TilingAnimationMs=160;s.TilingWorkspaces=3;});
             await Task.Delay(1100);
             Check(app.Settings.Current.TilingEnabled&&app.Tiling.Session?.ManagedCount==3,"Opt-in tiling did not manage exactly the own fixtures.");
