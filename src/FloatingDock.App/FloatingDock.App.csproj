@@ -1,0 +1,75 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    FloatingDock UI. WinUI 3 / Windows App SDK. Views are built in C#; minimal App.xaml
+    generates WinUI metadata and initializes theme resources. Runnable releases are built on Windows.
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <AssemblyName>FloatingDock</AssemblyName>
+    <RootNamespace>FloatingDock.UI</RootNamespace>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <UseRidGraph>true</UseRidGraph>
+    <UseWinUI>true</UseWinUI>
+    <WindowsPackageType>None</WindowsPackageType>
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <PublishReadyToRun Condition="'$(Configuration)' == 'Release' and '$(OS)' == 'Windows_NT'">true</PublishReadyToRun>
+    <!-- Background tiered JIT caused short CPU spikes during the first hover. Release code is precompiled. -->
+    <TieredCompilation Condition="'$(Configuration)' == 'Release'">false</TieredCompilation>
+    <PublishSingleFile>false</PublishSingleFile>
+    <PublishTrimmed>false</PublishTrimmed>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <Description>Floating macOS-style dock, Launchpad and icon packs for Windows</Description>
+  </PropertyGroup>
+
+  <!-- On Windows: fully self-contained (no Windows App Runtime install needed). The Linux cross-build used for CI-less
+       compile checks cannot run the PRI / self-contained tooling, so it skips it. -->
+  <PropertyGroup Condition="'$(OS)' == 'Windows_NT'">
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <SelfContained>true</SelfContained>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(OS)' != 'Windows_NT'">
+    <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
+    <AppxGeneratePriEnabled>false</AppxGeneratePriEnabled>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260921001" />
+    <PackageReference Include="Microsoft.Graphics.Win2D" Version="1.4.0" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.9169" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\FloatingDock.Core\FloatingDock.Core.csproj" />
+    <ProjectReference Include="..\FloatingDock.Windows\FloatingDock.Windows.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Assets\AppIcon.ico" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\AppIcon.png" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!-- The WinUI project generates the merged PRI in the build folder,
+       but Windows App SDK 1.8 does not put it into ResolvedFileToPublish. -->
+  <Target Name="PublishMergedWinUIResources" AfterTargets="ComputeFilesToPublish" Condition="'$(OS)' == 'Windows_NT'">
+    <Error Condition="!Exists('$(TargetDir)$(AssemblyName).pri')" Text="The merged WinUI resource index was not generated. A runnable Windows release cannot be published." />
+    <ItemGroup>
+      <ResolvedFileToPublish Include="$(TargetDir)$(AssemblyName).pri">
+        <RelativePath>$(AssemblyName).pri</RelativePath>
+        <CopyToPublishDirectory>Always</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
+</Project>

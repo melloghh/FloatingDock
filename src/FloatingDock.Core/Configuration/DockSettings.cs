@@ -1,0 +1,151 @@
+namespace FloatingDock.Core.Configuration;
+
+public enum DockEdge { Bottom, Left, Right }
+public enum WidthMode { Auto, Fixed }
+public enum DockAlignment { Center, Left, Right }
+public enum MonitorMode { Primary, All }
+public enum ThemeMode { Dark, Light, System }
+public enum IndicatorStyle { Dot, Bar }
+public enum TaskbarMode
+{
+    /// <summary>Do not touch the Windows taskbar.</summary>
+    Leave,
+    /// <summary>Turn on the documented taskbar "automatically hide" state (ABM_SETSTATE). Original state is restored.</summary>
+    AutoHide,
+    /// <summary>Additionally hide the taskbar windows (including clock/tray). Experimental; always reversible, see docs.</summary>
+    HideCompletely,
+}
+
+/// <summary>User configuration. Every property is wired to real behaviour; values are clamped by <see cref="Normalize"/>.</summary>
+public sealed class DockSettings
+{
+    public const int CurrentSchemaVersion = 2;
+
+    public int SchemaVersion { get; set; } = CurrentSchemaVersion;
+
+    // ---- Dock ----
+    public DockEdge Edge { get; set; } = DockEdge.Bottom;
+    public int IconSize { get; set; } = 48;
+    public int IconSpacing { get; set; } = 6;
+    public int DockHeight { get; set; } = 64;
+    public int BottomOffset { get; set; } = 10;
+    public WidthMode WidthMode { get; set; } = WidthMode.Auto;
+    public int FixedWidth { get; set; } = 900;
+    public DockAlignment Alignment { get; set; } = DockAlignment.Center;
+    public int HorizontalOffset { get; set; } = 0;
+    public MonitorMode MonitorMode { get; set; } = MonitorMode.Primary;
+
+    // ---- Appearance ----
+    public string BackgroundColor { get; set; } = "1E1E1E";
+    public int Opacity { get; set; } = 55;
+    public int CornerRadius { get; set; } = 22;
+    public bool Shadow { get; set; } = true;
+    public bool Border { get; set; } = true;
+    public bool Blur { get; set; } = false;
+    public ThemeMode Theme { get; set; } = ThemeMode.Dark;
+    public IndicatorStyle IndicatorStyle { get; set; } = IndicatorStyle.Dot;
+    public bool ShowLabels { get; set; } = true;
+
+    // ---- Magnification ----
+    public bool MagnificationEnabled { get; set; } = true;
+    /// <summary>Size of the icon directly under the cursor, in percent of the base size.</summary>
+    public int MaxScalePercent { get; set; } = 170;
+    /// <summary>Reach of the effect around the cursor, DIP.</summary>
+    public int MagnificationRadius { get; set; } = 150;
+    /// <summary>1..10: how tightly the zoom follows the cursor (10 = no lag).</summary>
+    public int Responsiveness { get; set; } = 10;
+    /// <summary>1..10: speed of zoom in/out when the cursor enters / leaves, and of auto-hide sliding.</summary>
+    public int AnimationSpeed { get; set; } = 6;
+    /// <summary>0..10: easing curve of zoom in/out (0 = linear, 10 = very soft start and stop).</summary>
+    public int Smoothness { get; set; } = 5;
+    public int AnimationFps { get; set; } = 60;
+    public bool IconAnimation { get; set; } = true;
+    public int IconAnimationMs { get; set; } = 240;
+
+    // ---- Behaviour ----
+    public bool ShowStartButton { get; set; } = true;
+    public bool ShowLaunchpadButton { get; set; } = true;
+    public bool ShowPinned { get; set; } = true;
+    public bool ShowRunning { get; set; } = true;
+    public bool ShowActiveIndicator { get; set; } = true;
+    public bool AutoHide { get; set; } = false;
+    public bool RevealOnEdgeHover { get; set; } = true;
+    public bool HideOnFullscreen { get; set; } = true;
+    public bool MinimizeOnRepeatClick { get; set; } = true;
+    public bool StartWithWindows { get; set; } = false;
+
+    // ---- Menu bar ----
+    public bool TopBarEnabled { get; set; } = true;
+    public bool TopBarAutoHide { get; set; } = false;
+    public bool TopBarReserveSpace { get; set; } = true;
+    public bool TopBarShowDate { get; set; } = false;
+    public bool TopBarShowSeconds { get; set; } = false;
+
+    // ---- Icon packs ----
+    public bool UseIconPack { get; set; } = true;
+    public string ActiveIconPack { get; set; } = "Default";
+    public bool PreferDarkVariants { get; set; } = true;
+
+    // ---- Launchpad ----
+    public int LaunchpadIconSize { get; set; } = 72;
+    public int LaunchpadSpacing { get; set; } = 28;
+    public string LaunchpadHotkey { get; set; } = "Ctrl+Alt+Space";
+
+    // ---- Windows taskbar ----
+    public TaskbarMode TaskbarMode { get; set; } = TaskbarMode.HideCompletely;
+    public bool ReserveWorkArea { get; set; } = false;
+    public string RestoreTaskbarHotkey { get; set; } = "Ctrl+Alt+Shift+T";
+    /// <summary>Moves keyboard focus into the Dock (arrows, Enter, Esc).</summary>
+    public string DockFocusHotkey { get; set; } = "Ctrl+Alt+D";
+
+    public DockSettings Clone() => (DockSettings)MemberwiseClone();
+
+    /// <summary>Clamps everything into sane ranges (hand-edited JSON can contain anything).</summary>
+    public DockSettings Normalize()
+    {
+        SchemaVersion = CurrentSchemaVersion;
+        if (!Enum.IsDefined(Edge)) Edge = DockEdge.Bottom;
+        if (!Enum.IsDefined(WidthMode)) WidthMode = WidthMode.Auto;
+        if (!Enum.IsDefined(Alignment)) Alignment = DockAlignment.Center;
+        if (!Enum.IsDefined(MonitorMode)) MonitorMode = MonitorMode.Primary;
+        if (!Enum.IsDefined(Theme)) Theme = ThemeMode.Dark;
+        if (!Enum.IsDefined(IndicatorStyle)) IndicatorStyle = IndicatorStyle.Dot;
+        if (!Enum.IsDefined(TaskbarMode)) TaskbarMode = TaskbarMode.Leave;
+        IconSize = Math.Clamp(IconSize, 24, 128);
+        IconSpacing = Math.Clamp(IconSpacing, 0, 40);
+        DockHeight = Math.Clamp(DockHeight, IconSize + 4, 200);
+        BottomOffset = Math.Clamp(BottomOffset, 0, 200);
+        FixedWidth = Math.Clamp(FixedWidth, 200, 7680);
+        HorizontalOffset = Math.Clamp(HorizontalOffset, -4000, 4000);
+        Opacity = Math.Clamp(Opacity, 0, 100);
+        CornerRadius = Math.Clamp(CornerRadius, 0, 60);
+        if (!ColorUtil.TryParseRgb(BackgroundColor, out _)) BackgroundColor = "1E1E1E";
+        MaxScalePercent = Math.Clamp(MaxScalePercent, 100, 300);
+        MagnificationRadius = Math.Clamp(MagnificationRadius, 40, 500);
+        Responsiveness = Math.Clamp(Responsiveness, 1, 10);
+        AnimationSpeed = Math.Clamp(AnimationSpeed, 1, 10);
+        Smoothness = Math.Clamp(Smoothness, 0, 10);
+        AnimationFps = Math.Clamp(AnimationFps, 30, 144);
+        IconAnimationMs = Math.Clamp(IconAnimationMs, 80, 800);
+        LaunchpadIconSize = Math.Clamp(LaunchpadIconSize, 32, 160);
+        LaunchpadSpacing = Math.Clamp(LaunchpadSpacing, 4, 120);
+        ActiveIconPack = string.IsNullOrWhiteSpace(ActiveIconPack) ? "Default" : ActiveIconPack;
+        LaunchpadHotkey ??= "";
+        RestoreTaskbarHotkey ??= "";
+        DockFocusHotkey ??= "";
+        return this;
+    }
+}
+
+public static class ColorUtil
+{
+    public static bool TryParseRgb(string? text, out (byte R, byte G, byte B) rgb)
+    {
+        rgb = default;
+        if (string.IsNullOrWhiteSpace(text)) return false;
+        var t = text.Trim().TrimStart('#');
+        if (t.Length != 6 || !int.TryParse(t, System.Globalization.NumberStyles.HexNumber, null, out var v)) return false;
+        rgb = ((byte)(v >> 16), (byte)(v >> 8), (byte)v);
+        return true;
+    }
+}

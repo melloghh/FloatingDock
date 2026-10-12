@@ -1,0 +1,45 @@
+name: build
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --version=6.6.1 -y --no-progress
+      - name: Restore
+        run: dotnet restore FloatingDock.sln -p:Platform=x64
+      - name: Build
+        run: dotnet build FloatingDock.sln -c Release -p:Platform=x64 --no-restore
+      - name: Test
+        run: dotnet test FloatingDock.sln -c Release -p:Platform=x64 --no-build --logger trx --results-directory artifacts/test-results
+      - name: Publish (portable zip + installer)
+        shell: pwsh
+        run: ./packaging/publish.ps1 -SkipTests -Zip -Installer
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FloatingDock-win-x64
+          if-no-files-found: error
+          path: |
+            artifacts/FloatingDock-Setup-x64.exe
+            artifacts/FloatingDock-Portable-x64.zip
+            artifacts/SHA256SUMS.txt
+      - name: Test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: FloatingDock-test-results
+          path: artifacts/test-results/*.trx
+          if-no-files-found: warn
