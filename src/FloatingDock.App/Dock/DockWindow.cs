@@ -159,7 +159,7 @@ internal sealed class DockWindow : IDisposable
 
     public IntPtr Handle => _hwnd;
     public MonitorDescriptor Monitor => _monitor;
-    public bool IsVisible => _shown && !_strip && !_userHidden && !_suspended && !_captureHidden;
+    public bool IsVisible => _shown && !_strip && !_userHidden && !_suspended;
     internal float HideAmount => _hide;
     public (int X, int Y, int W, int H) Bounds => (_winX, _winY, _winW, _winH);
     internal bool IsAnimating => _looping;
@@ -553,21 +553,17 @@ internal sealed class DockWindow : IDisposable
 
     public void SetCaptureHidden(bool hidden)
     {
-        if(hidden)_preview.Hide();
         if (_captureHidden == hidden) return;
         _captureHidden = hidden;
-        if (_traceInput) _app.Log.Info("screen capture overlay: hidden=" + hidden);
+        if (_traceInput) _app.Log.Info("screen capture overlay: frozen=" + hidden);
         if (hidden)
         {
-            EndHover(); CancelPress(); StopLoop();
-            _hide = 1; ApplyHideOffset();
-            WindowStyler.Hide(_hwnd); _shown = false;
+            CancelPress(); StopLoop();
         }
         else
         {
             _idleFor = 0;
-            if (!_fsHidden && !_tilingHidden && !_suspended && !_userHidden) LeaveStrip();
-            UpdateVisibility(); Invalidate();
+            Invalidate();
         }
     }
 
@@ -582,7 +578,7 @@ internal sealed class DockWindow : IDisposable
         UpdateVisibility(); Invalidate();
     }
 
-    private bool WantsWindowVisible => !_captureHidden && !((_userHidden || _suspended || _blockFullscreenReveal) && _hide >= 1) && !(_strip && !_s.RevealOnEdgeHover);
+    private bool WantsWindowVisible => !((_userHidden || _suspended || _blockFullscreenReveal) && _hide >= 1) && !(_strip && !_s.RevealOnEdgeHover);
 
     private void UpdateVisibility()
     {

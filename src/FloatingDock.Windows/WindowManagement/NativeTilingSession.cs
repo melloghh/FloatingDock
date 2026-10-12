@@ -30,7 +30,7 @@ public sealed class NativeTilingSession : IDisposable
         public long SubmittedAt;
         public bool MinimizeOutstanding;
         public int OwnRestoreEvents;
-        public int MinimumWidth=120,MinimumHeight=80;
+        public int MinimumWidth=480,MinimumHeight=320;
         public (int Left,int Top,int Right,int Bottom)? FrameInsets;
         public uint FrameDpi;
     }
@@ -157,7 +157,15 @@ public sealed class NativeTilingSession : IDisposable
             var member=new Member { Pid=(int)nativePid,Original=placement,Monitor=monitor.DeviceName,Workspace=ActiveWorkspace(monitor.DeviceName),PendingRestore=IsZoomed(hwnd),InitialPlacementPending=IsZoomed(hwnd) };
             var minimum=new MinMaxInfo();
             if(SendMinimumQuery(hwnd,0x24,IntPtr.Zero,ref minimum,2,40,out _)!=IntPtr.Zero)
-            {member.MinimumWidth=Math.Max(120,minimum.MinTrackSize.X);member.MinimumHeight=Math.Max(80,minimum.MinTrackSize.Y);}
+            {
+                var useful=TileMinimum.Resolve(minimum.MinTrackSize.X,minimum.MinTrackSize.Y,monitor.Scale);
+                member.MinimumWidth=useful.Width;member.MinimumHeight=useful.Height;
+            }
+            else
+            {
+                var useful=TileMinimum.Resolve(0,0,monitor.Scale);
+                member.MinimumWidth=useful.Width;member.MinimumHeight=useful.Height;
+            }
             _members[window.Hwnd]=member;
             if(member.PendingRestore)NativeMethods.ShowWindowAsync(hwnd,9);
             AddBalanced(window.Hwnd,member,_focused);changed=true;

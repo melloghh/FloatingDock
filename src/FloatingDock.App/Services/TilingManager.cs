@@ -223,6 +223,7 @@ internal sealed class TilingManager : IDisposable
         if(NativeMethods.IsIconic(new(id)))from=_session?.LastPlacement(id)??_normalBounds.GetValueOrDefault(id,from);
         else _normalBounds[id]=from;
         int duration=Views.SurfaceMotion.Enabled?animationMs??_settings.TilingAnimationMs:0;
+        if(!visible&&duration>0&&_session is not null)duration=Math.Max(duration,_settings.IconAnimationMs);
         if(visible)
         {
             // Keep the source invisible through SW_SHOWNA and final placement.
@@ -288,7 +289,7 @@ internal sealed class TilingManager : IDisposable
             WindowTransitionSurface? surface=showing?.Surface;
             byte opacity=showing?.Surface.Opacity??(opening?(byte)0:(byte)255);
             if(showing is not null)_presentations.Remove(id);
-            if(opening)from=held?.Returning==true?DockOrigin(id,target):new(target.X+target.Width/100,target.Y+target.Height/100,Math.Max(1,target.Width*98/100),Math.Max(1,target.Height*98/100));
+            if(opening)from=held?.Returning==true?TileMinimizeMotion.FitAtDock(target,DockOrigin(id,target)):new(target.X+target.Width/100,target.Y+target.Height/100,Math.Max(1,target.Width*98/100),Math.Max(1,target.Height*98/100));
             surface??=WindowTransitionSurface.TryCreate(new(id),from,target,held?.Lease);
             if(surface is not null)
             {
@@ -335,7 +336,9 @@ internal sealed class TilingManager : IDisposable
             double t=Math.Clamp((now-p.Started)/Math.Max(1,p.Duration),0,1),ease=t*t*t*(10+t*(-15+6*t));
             int Mix(int a,int b)=>(int)Math.Round(a+(b-a)*ease);
             var bounds=new TileRect(Mix(p.From.X,p.Target.X),Mix(p.From.Y,p.Target.Y),Math.Max(1,Mix(p.From.Width,p.Target.Width)),Math.Max(1,Mix(p.From.Height,p.Target.Height)));
-            byte alpha=(byte)Math.Clamp(p.Hiding?Math.Round(p.FromOpacity*(1-t*t*t*t)):Math.Round(p.FromOpacity+(255-p.FromOpacity)*ease),0,255);
+            if(p.Hiding)bounds=TileMinimizeMotion.Sample(p.From,p.Target,t);
+            double fade=Math.Clamp((t-.82)/.18,0,1);fade=fade*fade*(3-2*fade);
+            byte alpha=(byte)Math.Clamp(p.Hiding?Math.Round(p.FromOpacity*(1-fade)):Math.Round(p.FromOpacity+(255-p.FromOpacity)*ease),0,255);
             if(!p.Surface.Update(bounds,alpha)||t>=1&&(p.Hiding||atTarget))ReleasePresentation(id);
         }
         foreach(var (id,move) in _moves.ToArray())

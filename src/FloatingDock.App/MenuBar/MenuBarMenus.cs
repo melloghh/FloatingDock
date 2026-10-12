@@ -34,7 +34,10 @@ internal sealed class MenuBarMenus : IDisposable
     private Action? _resizePopup;
     internal IntPtr PopupHandle => _popupWindow is null?IntPtr.Zero:WindowSetup.Hwnd(_popupWindow);
     private int _generation;
+    private long _openingUntil;
+    private bool Opening=>System.Diagnostics.Stopwatch.GetTimestamp()<_openingUntil;
     internal bool SurfaceVisible { get; private set; }
+    internal bool CaptureActive { get; set; }
     internal string? ActiveKind { get; private set; }
     internal Slider? VolumeSlider { get; private set; }
     internal ToggleButton? MuteButton { get; private set; }
@@ -56,14 +59,15 @@ internal sealed class MenuBarMenus : IDisposable
             var foreground=NativeMethods.GetForegroundWindow();
             bool pressed=(GetAsyncKeyState(1)&0x8000)!=0||(GetAsyncKeyState(2)&0x8000)!=0;
             bool inPopup=NativeMethods.GetCursorPos(out var p)&&NativeMethods.GetWindowRect(PopupHandle,out var r)&&p.X>=r.Left&&p.X<r.Right&&p.Y>=r.Top&&p.Y<r.Bottom;
-            if(!_showing&&ActiveKind is not null&&!PointerOverAnchor()&&((foreground!=_lastForeground&&foreground!=PopupHandle)||(pressed&&!inPopup)))Close();
+            if(Opening&&!pressed)return;
+            if(!CaptureActive&&!_showing&&ActiveKind is not null&&!PointerOverAnchor()&&((foreground!=_lastForeground&&foreground!=PopupHandle)||(pressed&&!inPopup)))Close();
             _lastForeground=foreground;
         };
         DockApp.Current.Running.NativeWindowChanged+=OnForegroundChanged;
     }
     private void OnForegroundChanged(FloatingDock.Windows.RunningApps.WindowEventKind kind,IntPtr hwnd)
     {
-        if(kind==FloatingDock.Windows.RunningApps.WindowEventKind.Foreground&&ActiveKind is not null&&!_showing&&NativeMethods.GetForegroundWindow()!=PopupHandle&&!PointerOverAnchor())Close();
+        if(!CaptureActive&&!Opening&&kind==FloatingDock.Windows.RunningApps.WindowEventKind.Foreground&&ActiveKind is not null&&!_showing&&NativeMethods.GetForegroundWindow()!=PopupHandle&&!PointerOverAnchor())Close();
     }
     private static SolidColorBrush Brush(byte a,byte r,byte g,byte b)=>new(ColorHelper.FromArgb(a,r,g,b));
     private static TextBlock Text(string text,double size=13,bool secondary=false)=>new() { Text=L.Text(text),FontSize=size,TextWrapping=TextWrapping.Wrap,Foreground=secondary?Brush(255,169,177,192):Brush(255,246,247,251) };
@@ -92,6 +96,7 @@ internal sealed class MenuBarMenus : IDisposable
         var previous=NativeMethods.GetForegroundWindow();
         if(previous==PopupHandle)previous=_returnFocus;
         Close(immediately:true);_returnFocus=previous;ActiveKind=kind;_anchor=anchor;_showing=true;
+        _openingUntil=System.Diagnostics.Stopwatch.GetTimestamp()+System.Diagnostics.Stopwatch.Frequency*300/1000;
         try
         {
             if(_popupWindow is null)
@@ -99,7 +104,7 @@ internal sealed class MenuBarMenus : IDisposable
                 _popupRoot=new Border { RequestedTheme=ElementTheme.Dark,Background=Brush(96,20,22,27),BorderBrush=Brush(26,255,255,255),BorderThickness=new Thickness(1),CornerRadius=new CornerRadius(16),Padding=new Thickness(16) };
                 _popupWindow=new Window { Title="FloatingDock quick menu",Content=_popupRoot,SystemBackdrop=_glass };
                 WindowSetup.MakeBorderless(_popupWindow);WindowStyler.MakeOverlayWindow(PopupHandle,noActivate:false);
-                _popupWindow.Activated+=(_,e)=> { if(!_showing&&e.WindowActivationState==WindowActivationState.Deactivated&&NativeMethods.GetForegroundWindow()!=PopupHandle&&!PointerOverAnchor())Close(); };
+                _popupWindow.Activated+=(_,e)=> { if(!CaptureActive&&!Opening&&!_showing&&e.WindowActivationState==WindowActivationState.Deactivated&&NativeMethods.GetForegroundWindow()!=PopupHandle&&!PointerOverAnchor())Close(); };
                 _popupRoot.KeyDown+=(_,e)=> { if(e.Key==global::Windows.System.VirtualKey.Escape) { e.Handled=true;Close(); } };
             }
             var monitor=FloatingDock.Windows.Display.MonitorHelper.Describe(NativeMethods.MonitorFromWindow(Microsoft.UI.Win32Interop.GetWindowFromWindowId(anchor.XamlRoot.ContentIslandEnvironment.AppWindowId),NativeMethods.MONITOR_DEFAULTTONEAREST))!;
@@ -190,7 +195,7 @@ internal sealed class MenuBarMenus : IDisposable
     }
     internal void Reassert()
     {
-        if(SurfaceVisible&&NativeMethods.IsWindowVisible(PopupHandle))
+        if(!CaptureActive&&SurfaceVisible&&NativeMethods.IsWindowVisible(PopupHandle))
             NativeMethods.SetWindowPos(PopupHandle,NativeMethods.HWND_TOPMOST,0,0,0,0,NativeMethods.SWP_NOMOVE|NativeMethods.SWP_NOSIZE|NativeMethods.SWP_NOACTIVATE);
     }
     internal void Main(Button anchor)

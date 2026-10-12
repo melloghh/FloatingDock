@@ -67,9 +67,9 @@ internal static partial class RuntimeSmoke
             bar.OpenMenuForDiagnostics("main");await Task.Delay(35);WithoutContext(()=>bar.Menus.Close());await Task.Delay(35);
             bar.OpenMenuForDiagnostics("sound");await Task.Delay(240);
             Check(bar.Menus.ActiveKind=="sound"&&WindowStyler.IsVisible(bar.Menus.PopupHandle),"A stale timer hid the replacement menu.");
-            bar.SetCaptureHidden(true);Check(!WindowStyler.IsVisible(bar.Menus.PopupHandle),"Capture dismissal was animated over the screenshot overlay.");
-            bar.SetCaptureHidden(false);bar.Target(false);await Task.Delay(200);
-            checks["interruptedMenus"]=new { replacementSurvivesOldClose=true,captureHidesImmediately=true };
+            bar.SetCaptureHidden(true);Check(WindowStyler.IsVisible(bar.Menus.PopupHandle),"Capture hid the current menu.");
+            bar.SetCaptureHidden(false);bar.Menus.Close(immediately:true);bar.Target(false);await Task.Delay(200);
+            checks["interruptedMenus"]=new { replacementSurvivesOldClose=true,captureKeepsVisible=true };
             await app.PrepareLaunchpadAsync();var launchpad=app.LaunchpadWin!;launchpad.Show();await Task.Delay(380);
             var tiles=launchpad.TilesForDiagnostics;
             Check(tiles.Count>0,"Launchpad has no realized tiles.");

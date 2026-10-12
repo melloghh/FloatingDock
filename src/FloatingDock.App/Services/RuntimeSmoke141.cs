@@ -42,7 +42,15 @@ internal static partial class RuntimeSmoke
             app.ToggleSearch();await app.Palette!.SearchForDiagnostics("");Check(app.Palette.ResultCount==0,"Fresh search displayed unsolicited apps.");
             await app.Palette.SearchForDiagnostics("Деинсталлировать");Check(app.Palette.ResultCount==0,"Search included an uninstaller.");app.Palette.Hide();checks["emptyPaletteAndNoiseFilter"]=true;
             var bar=app.TopBar!.Primary!;bar.IgnoreRealCursorForDiagnostics=true;
-            await bar.OpenTrayForDiagnostics();await Task.Delay(150);Check(bar.TrayVisible,"Custom tray did not open.");
+            await bar.OpenTrayForDiagnostics();await Task.Delay(100);Check(bar.TrayVisible,"Custom tray did not open: "+bar.DiagnosticState);
+            NativeMethods.GetWindowRect(dock.Handle,out var dockBeforeCapture);NativeMethods.GetWindowRect(bar.Handle,out var barBeforeCapture);
+            Check(NativeMethods.IsWindowVisible(dock.Handle)&&NativeMethods.IsWindowVisible(bar.Handle),"Capture setup does not contain both visible panels.");
+            void PanelsUnchanged()
+            {
+                NativeMethods.GetWindowRect(dock.Handle,out var d);NativeMethods.GetWindowRect(bar.Handle,out var b);
+                Check(NativeMethods.IsWindowVisible(dock.Handle)&&NativeMethods.IsWindowVisible(bar.Handle),"Screenshot selection hid the dock or menu bar.");
+                Check(d.Left==dockBeforeCapture.Left&&d.Top==dockBeforeCapture.Top&&d.Right==dockBeforeCapture.Right&&d.Bottom==dockBeforeCapture.Bottom&&b.Left==barBeforeCapture.Left&&b.Top==barBeforeCapture.Top&&b.Right==barBeforeCapture.Right&&b.Bottom==barBeforeCapture.Bottom,"Screenshot selection moved or collapsed a panel.");
+            }
             if(Environment.GetCommandLineArgs().Contains("--test-real-capture141"))
             {
                 INPUT Key(ushort key,bool up=false)=>new(){type=NativeMethods.INPUT_KEYBOARD,U=new(){ki=new(){wVk=key,dwFlags=up?NativeMethods.KEYEVENTF_KEYUP:0}}};
@@ -50,15 +58,15 @@ internal static partial class RuntimeSmoke
                 Check(NativeMethods.SendInput((uint)keys.Length,keys,Marshal.SizeOf<INPUT>())==keys.Length,"Could not issue the screenshot shortcut.");
                 var monitor=new CaptureOverlayMonitor();
                 await Wait(()=>{monitor.Scan();return monitor.IsActive;},"Win+Shift+S did not open the capture overlay while the tray was open.",6000);
-                Check(!bar.Menus.SurfaceVisible,"Real screenshot shortcut did not dismiss the tray.");
+                for(int sample=0;sample<4;sample++){PanelsUnchanged();Check(bar.Menus.SurfaceVisible,"Screenshot selection dismissed the custom tray.");await Task.Delay(80);}
                 var escape=new[]{Key(0x1B),Key(0x1B,true)};NativeMethods.SendInput(2,escape,Marshal.SizeOf<INPUT>());
                 await Wait(()=>{monitor.Scan();return !monitor.IsActive;},"Capture overlay did not close.");checks["realWinShiftSWithTray"]=true;
             }
             else app.Dock.BeginCaptureShortcut();
-            Check(!bar.Menus.SurfaceVisible&&!NativeMethods.IsWindowVisible(bar.Menus.PopupHandle),"Screenshot shortcut left the tray visible.");
+            PanelsUnchanged();
             Check(!FloatingDock.Windows.Integration.SystemTrayOverflow.Visible,"Screenshot shortcut left Explorer's overflow visible.");
             Check(CaptureShortcutWatcher.IsCaptureShortcut(0x53,true,true)&&CaptureShortcutWatcher.IsCaptureShortcut(0x2C,false,false)&&!CaptureShortcutWatcher.IsCaptureShortcut(0x53,false,true),"Screenshot key recognition is incorrect.");
-            await Task.Delay(2200);checks["trayScreenshotShortcutDismissal"]=true;
+            await Task.Delay(2200);checks["capturePreservesPanelsAndTray"]=true;
         }
         finally
         {

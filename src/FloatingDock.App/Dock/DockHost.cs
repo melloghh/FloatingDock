@@ -144,9 +144,9 @@ internal sealed class DockHost : IDisposable
     private void UpdateCaptureVisibility()
     {
         bool hidden=_capture.IsActive||System.Diagnostics.Stopwatch.GetTimestamp()<_capturePendingUntil;
-        if(hidden)_app.Palette?.Hide();
         _app.TopBar?.SetCaptureHidden(hidden);
         foreach(var w in _windows)w.SetCaptureHidden(hidden);
+        if(hidden)_app.Tiling.HidePresentationsForCapture();
     }
 
     private void OnIconsChanged()
@@ -226,6 +226,7 @@ internal sealed class DockHost : IDisposable
         if (_disposed || HoldFullscreenStateForDiagnostics) return;
         _capture.Refresh();
         UpdateCaptureVisibility();
+        if(_capture.IsActive||System.Diagnostics.Stopwatch.GetTimestamp()<_capturePendingUntil)return;
         if (_windows.Any(w => w.IsContextMenuOpen)) return;
         bool enabled = _app.Settings.Current.HideOnFullscreen;
         uint pid = (uint)Environment.ProcessId;

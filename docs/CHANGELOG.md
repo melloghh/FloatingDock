@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.2
+
+- Keep the dock, menu bar and custom tray visible and stationary during screenshot selection. Freeze hover/autohide and topmost reassertion while capture owns input; continue passing screenshot shortcuts to Windows.
+- Give windows reporting zero native minimums a useful DPI-scaled 480×320 fallback. Reflow mixed windows instead of compressing an unknown browser into a narrow strip.
+- Preserve window proportions during dock-directed minimization, use a curved center path and fade only near the destination. Use the dock animation duration for tiling concealment and fit restoring representations into the dock icon.
+
 ## 1.4.1
 
 - Animate user minimization towards dock icons both with and without tiling, including a dock hidden under fullscreen apps. Remove minimized windows from active tiles and restore them from the dock.

@@ -52,8 +52,8 @@ internal static partial class RuntimeSmoke
             bar.OpenMenuForDiagnostics("main");await Task.Delay(25);bar.OpenMenuForDiagnostics("main");await Task.Delay(25);
             bar.OpenMenuForDiagnostics("main");await Task.Delay(220);
             Check(bar.Menus.ActiveKind=="main"&&WindowStyler.IsVisible(bar.Menus.PopupHandle),"Old close completion hid a reopened menu.");
-            bar.SetCaptureHidden(true);Check(!WindowStyler.IsVisible(bar.Menus.PopupHandle),"Capture suppression waited for a menu fade.");bar.SetCaptureHidden(false);bar.Target(false);await Task.Delay(250);
-            checks["circleToggle"]=new { repeatedCycles=4,interruptedCloseSafe=true,captureDismissImmediate=true };
+            bar.SetCaptureHidden(true);Check(WindowStyler.IsVisible(bar.Menus.PopupHandle),"Capture hid the menu.");bar.SetCaptureHidden(false);bar.Menus.Close(immediately:true);bar.Target(false);await Task.Delay(250);
+            checks["circleToggle"]=new { repeatedCycles=4,interruptedCloseSafe=true,captureKeepsVisible=true };
             await app.PrepareLaunchpadAsync();var launchpad=app.LaunchpadWin!;
             launchpad.Show();await Task.Delay(380);
             Check(!launchpad.HasSearch&&launchpad.HasAddApplication,"Launchpad add button is missing or old search remains.");

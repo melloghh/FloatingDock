@@ -28,6 +28,8 @@ internal static partial class RuntimeSmoke
         string? error = null;
         try
         {
+            if(Environment.GetCommandLineArgs().Contains("--test-only-ui142"))
+            {await CheckUi140Async(app,checks);await CheckUi141Async(app,checks);if(Environment.GetCommandLineArgs().Contains("--test-real-apps142"))await CheckRealApps142Async(app,checks);Check(Program.UiFailureCount==0,"XAML failure in capture/minimum/aspect checks.");success=true;return;}
             if(Environment.GetCommandLineArgs().Contains("--test-only-ui141"))
             {await CheckUi140Async(app,checks);await CheckUi141Async(app,checks);Check(Program.UiFailureCount==0,"XAML failure in minimize/capture/search checks.");success=true;return;}
             if(Environment.GetCommandLineArgs().Contains("--test-only-ui140"))
@@ -246,7 +248,7 @@ internal static partial class RuntimeSmoke
                     var frame=OwnWindowCapture.Capture(preview.Handle);frame.Save(Path.Combine(app.Paths.Root,"window-preview.png"));
                     int pixel=((frame.Height/2)*frame.Width+frame.Width/2)*4;
                     Check(frame.Pixels[pixel+1]>frame.Pixels[pixel+2]+40,"DWM preview did not display the source window.");
-                    dock.SetCaptureHidden(true);Check(!preview.Visible,"Capture left a preview visible.");dock.SetCaptureHidden(false);
+                    dock.SetCaptureHidden(true);Check(WindowStyler.IsVisible(dock.Handle),"Capture hid the dock.");dock.SetCaptureHidden(false);
                     checks["windowPreview"]=new { delayed=true,liveDwmPixels=true,captureHidden=true };
                 }
                 finally { app.Dock.PrimaryWindowForDiagnostics!.PreviewForDiagnostics.Hide();probe.Close(); }
@@ -623,10 +625,10 @@ internal static partial class RuntimeSmoke
             app.Settings.Update(s=>s.TopBarAutoHide=true);await Task.Delay(850);
             Check(bar.HideAmount==0,"The bar hid while its menu was open.");
             bar.SetCaptureHidden(true);
-            Check(bar.Menus.ActiveKind is null&&!WindowStyler.IsVisible(bar.Handle),"Capture did not dismiss the popup and bar.");
+            Check(bar.Menus.ActiveKind is not null&&WindowStyler.IsVisible(bar.Handle),"Capture hid the popup or bar.");
             bar.SetCaptureHidden(false);bar.Reveal();await Task.Delay(300);
             Check(WindowStyler.IsVisible(bar.Handle),"Bar did not return after capture suppression.");
-            checks["menuLifetime"]=new { autoHideHeld=true,captureDismissed=true,returned=true };
+            checks["menuLifetime"]=new { autoHideHeld=true,captureKeepsVisible=true,returned=true };
             app.Settings.Update(s=>s.TopBarAutoHide=false);
             bar.OpenMenuForDiagnostics("calendar");await Task.Delay(500);
             Check(bar.Menus.ActiveKind=="calendar","Calendar menu did not open.");
@@ -714,7 +716,7 @@ internal static partial class RuntimeSmoke
             await Task.Delay(250);
             Check(bar.HideAmount == 0, "Menu bar reveal did not complete.");
             bar.SetCaptureHidden(true); bar.Reveal();
-            Check(!WindowStyler.IsVisible(bar.Handle), "Menu bar rose over capture suppression.");
+            Check(WindowStyler.IsVisible(bar.Handle)&&bar.HideAmount==0, "Capture moved or hid the menu bar.");
             bar.SetCaptureHidden(false);
             app.Settings.Update(s => s.TopBarAutoHide = false);
             await Task.Delay(400);
@@ -993,12 +995,12 @@ internal static partial class RuntimeSmoke
         checks["fullscreenEdgeRevealAndReturn"] = new { passed = true, exitMiddle, returnMiddle };
         dock.SetCaptureHidden(true);
         dock.Reassert(); dock.Reveal();
-        Check(!WindowStyler.IsVisible(dock.Handle), "Dock rose over capture suppression.");
+        Check(WindowStyler.IsVisible(dock.Handle)&&dock.HideAmount==0, "Capture moved or hid the dock.");
         dock.SetCaptureHidden(false);
-        Check(dock.HideAmount > 0, "Dock return after capture snapped.");
+        Check(dock.HideAmount == 0, "Capture changed the dock's visibility state.");
         await Task.Delay(450);
         Check(WindowStyler.IsVisible(dock.Handle) && dock.HideAmount == 0, "Dock did not return after capture.");
-        checks["captureSuppression"] = new { hidden = true, reassertBlocked = true, edgeRevealBlocked = true, animatedReturn = true };
+        checks["captureSuppression"] = new { keptVisible = true, reassertBlocked = true, edgeRevealBlocked = true };
         }
         finally { dock.SetCaptureHidden(false); dock.SetFullscreenHidden(false); dock.IgnoreRealCursorForDiagnostics = false; app.Dock.HoldFullscreenStateForDiagnostics = false; }
     }

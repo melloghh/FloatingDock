@@ -84,10 +84,10 @@ internal static partial class RuntimeSmoke
                 for(int i=0;i<2;i++)
                 {
                     await bar.OpenTrayForDiagnostics();await Task.Delay(180);Check(bar.TrayVisible,"The real Explorer tray did not stay open: "+bar.DiagnosticState);
-                    bar.SetCaptureHidden(true);Check(!FloatingDock.Windows.Integration.SystemTrayOverflow.Visible,"Capture left real tray pixels visible.");
-                    bar.SetCaptureHidden(false);bar.Target(false);await Task.Delay(300);
+                    bar.SetCaptureHidden(true);Check(bar.TrayVisible&&WindowStyler.IsVisible(bar.Handle),"Capture hid the tray or menu bar.");
+                    bar.SetCaptureHidden(false);bar.Menus.Close(immediately:true);bar.Target(false);await Task.Delay(300);
                 }
-                checks["realExplorerTray"]=new { repeatedCycles=2,captureDismissesImmediately=true };
+                checks["realExplorerTray"]=new { repeatedCycles=2,captureKeepsVisible=true };
             }
             else checks["realExplorerTray"]="Explorer did not expose a supported overflow chevron on this test host.";
             var fixture=Path.Combine(app.Paths.Root,"search-files");Directory.CreateDirectory(fixture);File.WriteAllText(Path.Combine(fixture,"FloatingDock-palette-fixture.txt"),"file contents ignored");

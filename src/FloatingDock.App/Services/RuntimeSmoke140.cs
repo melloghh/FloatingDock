@@ -48,7 +48,9 @@ internal static partial class RuntimeSmoke
             app.Settings.Update(s=>{s.TilingEnabled=true;s.TilingExcludedApps="";s.TilingWorkspaces=3;s.TilingAnimationMs=360;s.TilingAnimationFps=120;s.TilingStartupDelayMs=180;if(Environment.GetCommandLineArgs().Contains("--test-side-dock"))s.Edge=FloatingDock.Core.Configuration.DockEdge.Left;});
             await Wait(()=>app.Tiling.Session?.Targets().Count==1&&!app.Tiling.Animating,"First fixture did not settle.");
             Create(400,250);await Wait(()=>app.Tiling.Session?.Targets().Count==2&&!app.Tiling.Animating,"Second fixture did not settle.");
-            Create(480,400);await Wait(()=>app.Tiling.Session?.Targets().Count==3&&!app.Tiling.Animating,"Third fixture did not settle.");
+            bool unknownBrowser=Environment.GetCommandLineArgs().Contains("--test-only-ui142");
+            var browser=Create(unknownBrowser?0:480,unknownBrowser?0:400);long browserId=WindowSetup.Hwnd(browser).ToInt64();
+            await Wait(()=>app.Tiling.Session?.Targets().Count==3&&!app.Tiling.Animating,"Third fixture did not settle.");
             var bar=app.TopBar!.Primary!;NativeMethods.GetWindowRect(bar.Handle,out var barRect);
             int backgroundX=barRect.Width/2+250,backgroundY=barRect.Height/2;
             long playerId;
@@ -76,11 +78,12 @@ internal static partial class RuntimeSmoke
             }
             var session=app.Tiling.Session!;var targets=session.Targets();
             Check(targets.Count==4,"An 800x600 player covered the other tiles instead of reflowing four windows.");
+            if(unknownBrowser){Check(targets[browserId].Width>=480*mon.Scale&&targets[browserId].Height>=320*mon.Scale,"A browser with unknown native minimum became a sliver.");checks["unknownBrowserUsefulSize"]=targets[browserId];}
             Check(opening.Distinct().Count()>5,"Opening did not produce smooth compositor frames.");
             Check(nativeChanges==0&&ids.All(id=>Matches(id,targets[id])),"An app visibly moved through intermediate native bounds.");
             foreach(var (id,r) in targets){Check(r.Width>=minima[id].Width&&r.Height>=minima[id].Height,"Mixed layout violated a minimum size.");foreach(var other in targets.Where(p=>p.Key!=id))Check(r.X+r.Width<=other.Value.X+16||other.Value.X+other.Value.Width<=r.X+16||r.Y+r.Height<=other.Value.Y+16||other.Value.Y+other.Value.Height<=r.Y+16,"Mixed windows overlap.");}
             RestoredOpacity();checks["fourMixedMinimumWindows"]=new{count=4,openingFrames=opening.Distinct().Count(),nativeIntermediateChanges=nativeChanges,playerMinimum="800x600"};
-            if(Environment.GetCommandLineArgs().Contains("--test-only-ui141"))
+            if(Environment.GetCommandLineArgs().Contains("--test-only-ui141")||unknownBrowser)
             {
                 NativeMethods.ShowWindowAsync(new(playerId),NativeMethods.SW_MINIMIZE);
                 await Wait(()=>NativeMethods.IsIconic(new(playerId))&&app.Tiling.PresentationsForDiagnostics.ContainsKey(playerId),"A user minimize did not animate to the dock.");

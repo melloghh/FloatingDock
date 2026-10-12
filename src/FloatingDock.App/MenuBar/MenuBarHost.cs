@@ -307,8 +307,9 @@ internal sealed class MenuBarWindow : IDisposable
     internal void SetCaptureHidden(bool hidden)
     {
         if(_capture==hidden)return;_capture=hidden;
-        if(hidden) { CloseTray();_app.Palette?.Hide();_menus.Close(immediately:true);_slideTimer.Stop();WindowStyler.Hide(Handle);_languageTimer.Stop(); }
-        else if(_settings.TopBarEnabled&&!_suspended) { _hide=1;Move();WindowStyler.Show(Handle,false);Target(_settings.TopBarAutoHide||_fullscreen);UpdateLanguageTimer(); }
+        _menus.CaptureActive=hidden;
+        if(hidden) { _slideTimer.Stop();_languageTimer.Stop(); }
+        else { Target(_targetHidden);UpdateLanguageTimer(); }
     }
     internal void SetSuspended(bool hidden)
     {
@@ -318,6 +319,7 @@ internal sealed class MenuBarWindow : IDisposable
     }
     internal void SetFullscreen(bool fullscreen)
     {
+        if(_capture)return;
         if(_fullscreen==fullscreen)return;_fullscreen=fullscreen;
         if(fullscreen){CloseTray();_app.Palette?.Hide();_menus.Close(immediately:true);}
         else if(_settings.TopBarEnabled&&!_capture&&!_suspended)WindowStyler.Show(Handle,false);
