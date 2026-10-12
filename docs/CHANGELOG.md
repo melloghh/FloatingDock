@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.19
+
+- Keep the dock HWND stable when unpinned applications appear or disappear; animate the visible plate and slots within it.
+- Weight spacing by visible slots so adding/removing a zero-size ghost does not snap the plate width.
+- Bound expanded pointer input to the dock area and hide new visuals until their first layout.
+- Add native application-lifecycle checks and layout-continuity regression tests.
+
 ## 1.0.18
 
 - Anchor side docks to the physical monitor edge so work-area changes do not shift them vertically during auto-hide.

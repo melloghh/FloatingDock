@@ -30,6 +30,12 @@ internal static partial class RuntimeSmoke
         {
             // Explorer applies auto-hide/work-area changes asynchronously at first start.
             await Task.Delay(Program.TestDefaultSettings ? 1800 : 600);
+            if(Environment.GetCommandLineArgs().Contains("--test-only-ui119"))
+            {
+                await CheckUi119Async(app,checks);
+                Check(Program.UiFailureCount==0,"A XAML failure occurred during dynamic dock checks.");
+                success=true;return;
+            }
             if(Environment.GetCommandLineArgs().Contains("--test-only-ui118"))
             {
                 await CheckUi118Async(app,checks);

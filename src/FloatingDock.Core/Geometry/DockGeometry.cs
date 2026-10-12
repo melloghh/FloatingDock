@@ -40,18 +40,18 @@ public sealed class WindowMetrics
 
     public static float Span(GeometryParams p, IReadOnlyList<(float Presence, bool IsSeparator)> items)
     {
-        float span = 0, last = 0;
+        float span = 0, maxPresence = 0;
         foreach (var (pe, sep) in items)
         {
             float w = sep ? p.SeparatorWidth : p.IconSize;
             span += (w + p.Gap) * pe;
-            last = pe * p.Gap;
+            maxPresence = MathF.Max(maxPresence,pe);
         }
-        return Math.Max(0f, span - last);
+        return Math.Max(0f, span - maxPresence*p.Gap);
     }
 
     /// <param name="items">All items including the ones that are still fading out, evaluated at presence 1.</param>
-    public static WindowMetrics Compute(GeometryParams p, int itemCount, int separatorCount)
+    public static WindowMetrics Compute(GeometryParams p, int itemCount, int separatorCount,float? viewportWidth=null)
     {
         var list = new List<(float, bool)>(itemCount);
         for (int i = 0; i < itemCount; i++) list.Add((1f, i < separatorCount));
@@ -60,7 +60,9 @@ public sealed class WindowMetrics
         float A = (p.MaxScale - 1f) * Magnification.Normalisation(p.IconSize, p.Radius);
         float overshoot = MathF.Ceiling(A * Magnification.BellInt(p.Radius, p.Radius)) + 2f;
         if (p.MaxScale <= 1.0001f) overshoot = 2f;
-        float winW = plateW + 2 * (overshoot + p.ShadowMargin);
+        // A caller can keep the native viewport stable while the visible plate
+        // changes size. Layout and input zones still follow the actual items.
+        float winW = viewportWidth is float width ? MathF.Max(1,width) : plateW + 2 * (overshoot + p.ShadowMargin);
         float headroom = MathF.Max(0f, p.IconSize * p.MaxScale - (p.DockHeight - p.IconBottomInset)) + p.LabelHeadroom + 6f;
         float winH = p.DockHeight + headroom + p.ShadowMargin * 2f;
         float plateB = winH - p.ShadowMargin;

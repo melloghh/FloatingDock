@@ -23,15 +23,15 @@ public static class DockLayout
         var res = result ?? new DockLayoutResult();
         res.PlateTop = m.PlateTop; res.PlateBottom = m.PlateBottom;
         float pitchIcon = p.IconSize + p.Gap;
-        float span = 0f, lastPe = 0f;
+        float span = 0f, maxPe = 0f;
         foreach (var it in items)
         {
             float pe = it.Presence;
             float w = it.IsSeparator ? p.SeparatorWidth : p.IconSize;
             span += (w + p.Gap) * pe;
-            lastPe = pe;
+            maxPe = MathF.Max(maxPe,pe);
         }
-        if (items.Count > 0) span -= p.Gap * lastPe;
+        span -= p.Gap * maxPe;
         span = MathF.Max(0f, span);
 
         float plateW = p.FixedWidth ? MathF.Max(p.FixedWidthValue, span + 2 * p.PadX) : span + 2 * p.PadX;
@@ -49,14 +49,19 @@ public static class DockLayout
 
         float itemsL = float.MaxValue, itemsR = float.MinValue, itemsT = float.MaxValue;
         float x = L0;
+        float precedingPresence = 0;
         foreach (var it in items)
         {
             float pe = it.Presence;
+            // Add a gap before the slot, weighted by the visible prefix. A
+            // zero-sized trailing/leading ghost cannot introduce a full gap.
+            x += p.Gap*MathF.Min(precedingPresence,pe);
             float w = (it.IsSeparator ? p.SeparatorWidth : p.IconSize) * pe;
             float b = x;
             float l = b, r = b + w;
             if (warp) { l += A * Magnification.BellInt(l - cursorX, R); r += A * Magnification.BellInt(r - cursorX, R); }
-            x += ((it.IsSeparator ? p.SeparatorWidth : p.IconSize) + p.Gap) * pe;
+            x += w;
+            precedingPresence=MathF.Max(precedingPresence,pe);
 
             if (it.PendingSlide && it.HasLastBase) { it.Slide = it.LastBaseX - b; }
             it.PendingSlide = false;

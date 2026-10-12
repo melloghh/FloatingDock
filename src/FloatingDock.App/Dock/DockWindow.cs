@@ -179,6 +179,12 @@ internal sealed class DockWindow : IDisposable
         return new RECT { Left=(int)Math.Floor(_winX+(rect.X+slide.X)*_scale), Top=(int)Math.Floor(_winY+(rect.Y+slide.Y)*_scale), Right=(int)Math.Ceiling(_winX+(rect.Right+slide.X)*_scale), Bottom=(int)Math.Ceiling(_winY+(rect.Bottom+slide.Y)*_scale) };
     }
     internal RECT PlateScreenForDiagnostics => ScreenRect(new Rect(_m.RestPlateLeft,_m.PlateTop,_m.RestPlateRight-_m.RestPlateLeft,_s.DockHeight));
+    internal RECT RenderedPlateScreenForDiagnostics => ScreenRect(new Rect(_layoutResult.PlateLeft,_layoutResult.PlateTop,_layoutResult.PlateRight-_layoutResult.PlateLeft,_s.DockHeight));
+    internal RECT IconScreenForDiagnostics(string key)
+    {
+        var item=_motion.Items.First(i=>i.Key==key);
+        return ScreenRect(new Rect(item.X,item.Top,item.Size,item.Size));
+    }
     internal int PlateTopScreen => _winY + (int)(_m.PlateTop * _scale);
     internal void ShowContextMenuForSmoke() => ShowContextMenu(_motion.Items.FirstOrDefault(i => i.Entry.Kind == DockEntryKind.App), _winX + _winW / 2, Vertical ? (PlateScreenForDiagnostics.Top+PlateScreenForDiagnostics.Bottom)/2 : _winY + _winH);
 
@@ -215,7 +221,9 @@ internal sealed class DockWindow : IDisposable
 
     public void SetMonitor(MonitorDescriptor m)
     {
+        bool viewportChanged=_monitor.Bounds.Width!=m.Bounds.Width||_monitor.Bounds.Height!=m.Bounds.Height||_monitor.Scale!=m.Scale;
         _monitor = m;
+        if(viewportChanged)RecomputeMetrics(force:true);
         Reposition();
         Invalidate();
     }
@@ -255,7 +263,8 @@ internal sealed class DockWindow : IDisposable
         var shape = _motion.MetricsShape();
         if (!force && shape == _shape) return;
         _shape = shape;
-        _m = WindowMetrics.Compute(_gp, Math.Max(1, shape.Count), shape.Separators);
+        float alongExtent=(float)((Vertical?_monitor.Bounds.Height:_monitor.Bounds.Width)/_monitor.Scale);
+        _m = WindowMetrics.Compute(_gp, Math.Max(1, shape.Count), shape.Separators,alongExtent);
 
 
         SetViewport();
@@ -310,7 +319,8 @@ internal sealed class DockWindow : IDisposable
 
         ApplyBlur();
         _regionApplied = false;
-        if (!_strip) UpdateRegion(_mag.Hovering || _kbMode || _dragging);
+        if (_strip) UpdateStripRegion();
+        else UpdateRegion(_mag.Hovering || _kbMode || _dragging);
     }
 
     private void SetViewport()
@@ -337,6 +347,14 @@ internal sealed class DockWindow : IDisposable
 
     private bool _regionApplied;
 
+    private void UpdateStripRegion()
+    {
+        float margin=_m.ShadowMargin+_m.Overshoot;
+        int start=(int)Math.Floor(Math.Max(0,_m.RestPlateLeft-margin)*_scale);
+        int end=(int)Math.Ceiling(Math.Min(_m.WindowWidth,_m.RestPlateRight+margin)*_scale);
+        WindowStyler.SetRegion(_hwnd,Vertical?(0,start,2,end):(start,0,end,2));
+    }
+
     /// <summary>While idle the window is clipped to the plate so its transparent margins never swallow clicks meant for other apps.</summary>
     private void UpdateRegion(bool full)
     {
@@ -346,7 +364,15 @@ internal sealed class DockWindow : IDisposable
         _regionFull = full;
         try
         {
-            if (full) WindowStyler.SetRegion(_hwnd, null);
+            if (full)
+            {
+                // Keep the expanded hit area at the original dock-sized bounds,
+                // rather than covering the transparent stable monitor viewport.
+                float margin=_m.ShadowMargin+_m.Overshoot;
+                float left=Math.Max(0,_m.RestPlateLeft-margin),right=Math.Min(_m.WindowWidth,_m.RestPlateRight+margin);
+                var rect=Axis.ToPhysical(new Rect(left,0,Math.Max(0,right-left),Axis.CrossExtent));
+                WindowStyler.SetRegion(_hwnd,((int)(rect.X*_scale),(int)(rect.Y*_scale),(int)Math.Ceiling(rect.Right*_scale),(int)Math.Ceiling(rect.Bottom*_scale)));
+            }
             else
             {
                 var rect=Axis.ToPhysical(new Rect(Math.Max(0,_m.RestPlateLeft-24),Math.Max(0,_m.PlateTop-6),Math.Min(_m.WindowWidth,_m.RestPlateRight+24)-Math.Max(0,_m.RestPlateLeft-24),_m.PlateBottom+_m.ShadowMargin-Math.Max(0,_m.PlateTop-6)));
@@ -422,6 +448,8 @@ internal sealed class DockWindow : IDisposable
             icon.SetSize(_s.IconSize);
             host = icon.Visual;
         }
+        // Do not show a newly bound fallback at (0,0) before its first layout.
+        host.Opacity=0;
         _itemsVisual.Children.InsertAtTop(host);
         var v = new ItemVisual { Icon = icon, HostVisual = host };
         v.HostVisual.CenterPoint = Vector3.Zero;
@@ -716,7 +744,7 @@ internal sealed class DockWindow : IDisposable
         _strip = true;
         if (_mag.Hovering) EndHover();
         Reposition();
-        WindowStyler.SetRegion(_hwnd, null);
+        UpdateStripRegion();
         _regionApplied = false;
         SetWindowBounds();
         UpdateVisibility();

@@ -82,7 +82,7 @@ GitHub Actions builds and tests the Windows x64 project and uploads the portable
 
 See [Architecture](docs/ARCHITECTURE.md), [Icon-pack format](docs/ICON-PACKS.md) and [Changelog](docs/CHANGELOG.md).
 
-Version **1.0.18** passed 252 automated tests and five local desktop verification suites covering menus, previews, dock placement, fullscreen, blur and settings. The latest checks verify stable auto-hide positions, separator filtering and app reordering, rounded menu corners and unchanged background pixels after dismissal. Testing across multiple physical monitors and DPI combinations is limited. Launchpad currently has no folders or pages. The appearance of an application's own closing animation is controlled by that application and Windows.
+Version **1.0.19** passed 261 automated tests and seven local desktop verification suites covering application lifecycle, menus, previews, dock placement, fullscreen, blur and settings. The latest checks verify stable dock windows and continuous spacing as unpinned apps appear or disappear, bounded pointer input, stable auto-hide positions and unchanged background pixels after menu dismissal. Testing across multiple physical monitors and DPI combinations is limited. Launchpad currently has no folders or pages. The appearance of an application's own closing animation is controlled by that application and Windows.
 
 ## License and credits
 
