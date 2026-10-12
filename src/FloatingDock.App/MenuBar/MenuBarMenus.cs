@@ -44,6 +44,7 @@ internal sealed class MenuBarMenus : IDisposable
     internal MenuBarMenus(Action<bool> opened)
     {
         _opened=opened;_audioTimer=DockApp.Current.UiQueue.CreateTimer();
+        _glass.SetVisible(false);
         _closeTimer=DockApp.Current.UiQueue.CreateTimer();_closeTimer.IsRepeating=false;
         _closeTimer.Interval=TimeSpan.FromMilliseconds(150);
         _closeTimer.Tick+=(_,_)=> { if(ActiveKind is null)HidePopup(); };
@@ -97,7 +98,6 @@ internal sealed class MenuBarMenus : IDisposable
                 _popupRoot=new Border { RequestedTheme=ElementTheme.Dark,Background=Brush(96,20,22,27),BorderBrush=Brush(26,255,255,255),BorderThickness=new Thickness(1),CornerRadius=new CornerRadius(16),Padding=new Thickness(16) };
                 _popupWindow=new Window { Title="FloatingDock quick menu",Content=_popupRoot,SystemBackdrop=_glass };
                 WindowSetup.MakeBorderless(_popupWindow);WindowStyler.MakeOverlayWindow(PopupHandle,noActivate:false);
-                int corner=2;NativeMethods.DwmSetWindowAttribute(PopupHandle,33,ref corner,4);
                 _popupWindow.Activated+=(_,e)=> { if(!_showing&&e.WindowActivationState==WindowActivationState.Deactivated&&NativeMethods.GetForegroundWindow()!=PopupHandle&&!PointerOverAnchor())Close(); };
                 _popupRoot.KeyDown+=(_,e)=> { if(e.Key==global::Windows.System.VirtualKey.Escape) { e.Handled=true;Close(); } };
             }
@@ -112,10 +112,13 @@ internal sealed class MenuBarMenus : IDisposable
             int x=Math.Clamp(owner.Left+(int)((kind=="main"?point.X-anchor.ActualWidth:point.X)*monitor.Scale)-(kind=="main"?0:width),monitor.Bounds.Left+8,monitor.Bounds.Right-width-8);
             int y=owner.Bottom+(int)Math.Ceiling(6*monitor.Scale);
             WindowStyler.SetBounds(PopupHandle,x,y,width,Math.Max(height,100));
+            WindowStyler.SetRoundedRegion(PopupHandle,width,Math.Max(height,100),(int)Math.Ceiling(16*monitor.Scale));
             _glass.SetVisible(true);SurfaceVisible=true;
-            _opened(true);_popupWindow.Activate();WindowStyler.BringToFront(PopupHandle);
-            SurfaceMotion.Enter(_popupRoot,200);
+            // The HWND backdrop does not share the XAML transform. Keep the
+            // border and blur at identical bounds throughout the opacity fade.
+            SurfaceMotion.Enter(_popupRoot,200,initialScale:1);
             _glass.AnimateOpacity(1,200,entering:true);
+            _opened(true);_popupWindow.Activate();WindowStyler.BringToFront(PopupHandle);
             _lastForeground=NativeMethods.GetForegroundWindow();_dismissTimer.Start();
             int generation=_generation;
             _resizePopup=()=>DockApp.Current.UiQueue.TryEnqueue(()=>
@@ -124,6 +127,7 @@ internal sealed class MenuBarMenus : IDisposable
                 _popupRoot.UpdateLayout();content.Measure(new global::Windows.Foundation.Size(300,double.PositiveInfinity));
                 int finalHeight=(int)Math.Ceiling(Math.Min(maxHeight,content.DesiredSize.Height+34)*monitor.Scale);
                 WindowStyler.SetBounds(PopupHandle,x,y,width,Math.Max(finalHeight,100));
+                WindowStyler.SetRoundedRegion(PopupHandle,width,Math.Max(finalHeight,100),(int)Math.Ceiling(16*monitor.Scale));
             });
             _resizePopup();
 
@@ -142,7 +146,7 @@ internal sealed class MenuBarMenus : IDisposable
             if(immediately||!SurfaceMotion.Enabled)HidePopup();
             else
             {
-                SurfaceMotion.Animate(Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(_popupRoot!),0,.985f,130);
+                SurfaceMotion.Animate(Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(_popupRoot!),0,1,130);
                 _glass.AnimateOpacity(0,130);
                 // Native input callbacks do not necessarily carry a SynchronizationContext.
                 // Finish on the owning dispatcher, never on Task.Delay's worker continuation.
@@ -155,9 +159,9 @@ internal sealed class MenuBarMenus : IDisposable
     {
         _closeTimer.Stop();
         bool focused=NativeMethods.GetForegroundWindow()==PopupHandle;
+        _glass.SetVisible(false);
         _popupWindow?.AppWindow.Hide();
         WindowStyler.Hide(PopupHandle);
-        _glass.SetVisible(false);
         if(_popupRoot is not null)
         {
             SurfaceMotion.Reset(Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(_popupRoot),0);

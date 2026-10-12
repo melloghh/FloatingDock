@@ -48,12 +48,20 @@ internal sealed class GlassBackdrop : SystemBackdrop
         if(_target is null)return;
         if(!visible)
         {
+            ResetOpacity(0);
             _target.SystemBackdrop=null;LocalWindowBlur.Apply(_hwnd,false);
         }
         else
         {
+            ResetOpacity(1);
             LocalWindowBlur.Apply(_hwnd,true);_target.SystemBackdrop=_brush;
         }
+    }
+    private void ResetOpacity(float opacity)
+    {
+        if(_brush is not global::Windows.UI.Composition.CompositionEffectBrush effect)return;
+        effect.StopAnimation("SurfaceFade.Opacity");
+        effect.Properties.InsertScalar("SurfaceFade.Opacity",opacity);
     }
     internal void AnimateOpacity(float opacity,int milliseconds,bool entering=false)
     {
@@ -69,7 +77,7 @@ internal sealed class GlassBackdrop : SystemBackdrop
     }
     protected override void OnTargetDisconnected(ICompositionSupportsSystemBackdrop target)
     {
-        _target=null;target.SystemBackdrop=null;
+        ResetOpacity(0);_target=null;target.SystemBackdrop=null;
         LocalWindowBlur.Apply(_hwnd,false);
         _alpha?.Dispose();_alpha=null;_brush?.Dispose();_brush=null;_compositor?.Dispose();_compositor=null;
         base.OnTargetDisconnected(target);

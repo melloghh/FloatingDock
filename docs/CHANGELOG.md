@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.17
+
+- Clip quick-menu windows and their blur to the same rounded bounds, including asynchronous resizing.
+- Keep menu borders aligned with the backdrop during opening and closing fades.
+- Reset backdrop animations and extended DWM glass when dismissing a surface.
+- Use an opaque settings background and page fades without scaling to avoid stale blurred content.
+- Add native corner and pixel-restoration diagnostics for all five quick menus and settings lifecycle checks.
+
 ## 1.0.16
 
 - Fully dismiss quick-menu windows and their blur surfaces after closing.

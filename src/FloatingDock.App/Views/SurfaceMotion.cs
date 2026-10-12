@@ -31,11 +31,11 @@ internal static class SurfaceMotion
         zoom.InsertExpressionKeyFrame(0,"this.StartingValue");zoom.InsertKeyFrame(1,new Vector3(scale,scale,1),ease);
         visual.StartAnimation("Opacity",fade);visual.StartAnimation("Scale",zoom);
     }
-    internal static void Enter(FrameworkElement element, int milliseconds=220)
+    internal static void Enter(FrameworkElement element, int milliseconds=220,float initialScale=.985f)
     {
         var visual=ElementCompositionPreview.GetElementVisual(element);
         visual.CenterPoint=new Vector3((float)element.ActualWidth/2,(float)element.ActualHeight/2,0);
-        Reset(visual,Enabled?0:1,Enabled?.985f:1);
+        Reset(visual,Enabled?0:1,Enabled?initialScale:1);
         Animate(visual,1,1,milliseconds);
     }
 }

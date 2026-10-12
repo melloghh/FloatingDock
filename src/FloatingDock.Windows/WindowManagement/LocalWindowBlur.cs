@@ -23,7 +23,11 @@ public static class LocalWindowBlur
             var attr=new Attribute { Id=19,Data=memory,Size=new UIntPtr((uint)Marshal.SizeOf<Accent>()) };
             bool applied=SetWindowCompositionAttribute(hwnd,ref attr);
             int host=enabled?1:0;NativeMethods.DwmSetWindowAttribute(hwnd,17,ref host,4);
-            if(enabled) { var margins=new Margins { Left=-1,Right=-1,Top=-1,Bottom=-1 };DwmExtendFrameIntoClientArea(hwnd,ref margins); }
+            // Undo the extended glass frame as well as the accent policy. Otherwise
+            // a reused HWND keeps its native glass surface after the brush fades.
+            var margins=enabled?new Margins { Left=-1,Right=-1,Top=-1,Bottom=-1 }:new Margins();
+            DwmExtendFrameIntoClientArea(hwnd,ref margins);
+            if(!enabled)WindowStyler.SetBlurBehind(hwnd,false,0,0,0,0,0);
             return applied;
         }
         catch(EntryPointNotFoundException) { return false; }
