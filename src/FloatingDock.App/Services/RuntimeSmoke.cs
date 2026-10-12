@@ -30,6 +30,53 @@ internal static partial class RuntimeSmoke
         {
             // Explorer applies auto-hide/work-area changes asynchronously at first start.
             await Task.Delay(Program.TestDefaultSettings ? 1800 : 600);
+            if(Environment.GetCommandLineArgs().Contains("--test-only-tray120"))
+            {
+                var bar=app.TopBar!.Primary!;bar.IgnoreRealCursorForDiagnostics=true;
+                app.Dock.HoldFullscreenStateForDiagnostics=true;
+                var system=new Win32TaskbarSystem();var before=system.GetTaskbarWindows();
+                Check(system.TryGetAppBarState(out var flags),"Could not read original taskbar flags.");
+                var regions=new Dictionary<long,byte[]?>();
+                foreach(var window in before){Check(system.TryGetRegion(window.Handle,out var region),"Could not snapshot taskbar region.");regions[window.Handle]=region;}
+                var probe=new Window { Title="FloatingDock tray probe",Content=new Grid() };probe.Activate();
+                try
+                {
+                    if(Program.TestSystemTaskbar)
+                    {
+                        app.Settings.Update(s=>s.TaskbarMode=TaskbarMode.HideCompletely);await Task.Delay(700);
+                        // Explorer may replace/repaint its taskbar during the work-area
+                        // transition. Settle maintenance and inspect current HWNDs.
+                        for(int attempt=0;attempt<10&&!system.GetTaskbarWindows().All(w=>system.IsClippedEmpty(w.Handle));attempt++)
+                        { app.Taskbar.Maintain(TaskbarMode.HideCompletely);await Task.Delay(100); }
+                        Check(system.GetTaskbarWindows().All(w=>system.IsClippedEmpty(w.Handle)),"Taskbar was not clipped for the hidden-tray test.");
+                    }
+                    await bar.OpenTrayForDiagnostics();await Task.Delay(250);
+                    Check(bar.TrayVisible,"Native tray unavailable: "+FloatingDock.Windows.Integration.SystemTrayOverflow.LastDiagnostic);
+                    bar.SetCaptureHidden(true);Check(!FloatingDock.Windows.Integration.SystemTrayOverflow.Visible,"Tray dismissal left native pixels.");
+                    checks["realTrayOpenAndDismiss"]=new { hiddenTaskbar=Program.TestSystemTaskbar };success=true;return;
+                }
+                finally
+                {
+                    probe.Close();bar.SetCaptureHidden(true);
+                    if(Program.TestSystemTaskbar)
+                    {
+                        app.Settings.Update(s=>s.TaskbarMode=TaskbarMode.Leave);Check(app.Taskbar.Restore().Success,"Taskbar restore failed.");await Task.Delay(150);
+                        Check(system.TryGetAppBarState(out var after)&&after==flags,"Taskbar flags changed after native tray test.");
+                        foreach(var window in before)
+                        {
+                            Check(system.GetTaskbarWindows().Any(w=>w.Handle==window.Handle&&w.Visible==window.Visible),"Original taskbar visibility changed.");
+                            Check(system.TryGetRegion(window.Handle,out var region)&&(regions[window.Handle] is null?region is null:region is not null&&regions[window.Handle]!.AsSpan().SequenceEqual(region)),"Original taskbar region changed.");
+                        }
+                        checks["originalTaskbarRestored"]=true;
+                    }
+                }
+            }
+            if(Environment.GetCommandLineArgs().Contains("--test-only-ui120"))
+            {
+                await CheckUi120Async(app,checks);
+                Check(Program.UiFailureCount==0,"A XAML failure occurred during interface feature checks.");
+                success=true;return;
+            }
             if(Environment.GetCommandLineArgs().Contains("--test-only-ui119"))
             {
                 await CheckUi119Async(app,checks);
@@ -332,14 +379,9 @@ internal static partial class RuntimeSmoke
             Check(app.Dock.WindowHandles.All(h => !WindowStyler.IsVisible(h)), "Dock was not suspended under Launchpad.");
             Check(app.LaunchpadWin.CatalogCount == 0 || app.LaunchpadWin.RealizedTileCount > 0, "Launchpad has no rendered tiles.");
             checks["launchpadRenderedTiles"] = app.LaunchpadWin.RealizedTileCount;
-            Check(app.LaunchpadWin.TypeSearchForSmoke("a"), "Launchpad typing did not focus search and retain the first character.");
-            await app.LaunchpadWin.SearchForSmokeAsync("");
-            checks["launchpadTypeToSearch"] = true;
-            OwnWindowCapture.Capture(app.LaunchpadWin.Handle).Save(Path.Combine(app.Paths.Root, "launchpad-desktop.png"));
-            string query = app.LaunchpadWin.SearchSampleName;
-            if (query.Length > 0) Check(await app.LaunchpadWin.SearchForSmokeAsync(query) > 0, "Launchpad search did not return a pinned application.");
-            Check(await app.LaunchpadWin.SearchForSmokeAsync("FloatingDock-no-such-app-91b854c6") == 0, "Launchpad search did not filter the grid.");
-            await app.LaunchpadWin.SearchForSmokeAsync("");
+            Check(!app.LaunchpadWin.HasSearch && app.LaunchpadWin.HasAddApplication,"Launchpad must expose Add rather than search.");
+            checks["launchpadAddWithoutSearch"] = true;
+            OwnWindowCapture.Capture(app.LaunchpadWin.Handle).Save(Path.Combine(app.Paths.Root,"launchpad-desktop.png"));
             // Reopen before the old hide animation completes: its callback must not hide the new presentation.
             int decodesBeforeReopen = app.Icons.RasterDecodes, rebuildsBeforeReopen = app.LaunchpadWin.ViewRebuilds;
             for (int i = 0; i < 3; i++)
@@ -350,7 +392,7 @@ internal static partial class RuntimeSmoke
                 await Task.Delay(500);
                 Check(app.LaunchpadWin.IsOpen && WindowStyler.IsVisible(app.LaunchpadWin.Handle), "A stale hide animation closed reopened Launchpad.");
             }
-            checks["launchpadSearchAndReopen"] = true;
+            checks["launchpadAddAndReopen"] = true;
             checks["launchpadWarmCache"] = new { rasterDecodes = app.Icons.RasterDecodes - decodesBeforeReopen, viewRebuilds = app.LaunchpadWin.ViewRebuilds - rebuildsBeforeReopen };
             Check(app.Icons.RasterDecodes == decodesBeforeReopen && app.LaunchpadWin.ViewRebuilds == rebuildsBeforeReopen, "Reopening Launchpad redundantly decoded images or rebuilt the unchanged grid.");
             await CheckLaunchpadAnimationAsync(app, checks);

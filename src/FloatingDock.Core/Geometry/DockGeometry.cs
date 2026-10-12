@@ -75,7 +75,8 @@ public sealed class WindowMetrics
         };
         var restR = restL + plateW;
         var enter = new Rect(restL - 4f, plateT, plateW + 8f, p.DockHeight + p.ShadowMargin);
-        var keep = new Rect(restL - 12f - overshoot * 0.5f, 0f, plateW + 24f + overshoot, winH);
+        float hoverTop=MathF.Max(0,plateB-p.IconBottomInset-p.IconSize*p.MaxScale-8);
+        var keep = new Rect(restL - 12f - overshoot * 0.5f, hoverTop, plateW + 24f + overshoot, winH-hoverTop);
         return new WindowMetrics
         {
             WindowWidth = MathF.Ceiling(winW), WindowHeight = MathF.Ceiling(winH),

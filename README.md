@@ -10,9 +10,11 @@ FloatingDock brings a compact desktop interface to Windows: animated icon magnif
 - **A dock that fits your desktop.** Place it at the bottom, left or right; adjust icon size, spacing, alignment and edge distance.
 - **Smooth interaction.** Animated magnification, app indicators, reordering, appearance and dismissal. Fullscreen video and screen-capture overlays suppress the panels.
 - **Pinned and running apps.** Launch, switch and minimize applications from one place. Steam helper windows are grouped with the main client.
-- **Live previews.** Hover for 750 ms, click a thumbnail to open its window, or use its close button. Closing fades the preview before sending a normal window-close request.
-- **Launchpad.** Search Windows Start pins and apps you add yourself, with cached tiles and a compact search field.
-- **A rounded menu bar.** Active application, network, volume, input language, battery when available, clock and calendar. Optional auto-hide and work-area reservation.
+- **Live previews.** Hover after a configurable delay, click a thumbnail to open its window, or use its close button. Closing fades the preview before sending a normal window-close request.
+- **Launchpad.** Windows Start pins and apps you add with the + button or by dropping a shortcut. Three built-in launcher icon styles.
+- **A rounded menu bar.** Active application, network, volume, input language, battery when available, clock and calendar. Media playback controls, Explorer’s real system-tray overflow and search. Configurable auto-hide FPS, timing and work-area reservation.
+- **Search palette.** `Ctrl+Alt+K` searches installed apps, filenames and folders in Desktop, Documents and Downloads. Customize scopes in Settings → Search.
+- **Interface language.** English by default; switch to Russian in Settings → Appearance.
 - **Your own icons.** PNG/ICO overrides and imported ZIP packs shared by the dock and Launchpad. Decorative icon packs are not bundled.
 - **Local glass effects.** App-owned blur works independently of the Windows transparency toggle; transitions respect the system animation preference.
 - **Taskbar controls.** Keep the Windows taskbar, use auto-hide or hide it completely, with recorded state and restoration tools.
@@ -33,6 +35,7 @@ Release builds include .NET and Windows App SDK runtimes. No separate runtime in
 | Action | Control |
 |---|---|
 | Open Launchpad | Dock launcher icon or `Ctrl+Alt+Space` |
+| Search apps and files | `Ctrl+Alt+K` or the top-bar search icon |
 | Focus the dock | `Ctrl+Alt+D`, then arrows, Enter and Esc |
 | Open settings | Dock/tray context menu or the top-bar gear |
 | Change dock placement | Settings → Dock |
@@ -49,7 +52,7 @@ If FloatingDock was forcibly terminated and the taskbar remains hidden, use the 
 .\FloatingDock.exe --restore-taskbar
 ```
 
-Do not delete `taskbar-state.json` until restoration succeeds. The **Hide completely** mode also hides Explorer's system tray and clock; choose **Leave** to retain the original taskbar.
+Do not delete `taskbar-state.json` until restoration succeeds. The **Hide completely** mode hides the original taskbar. The top-bar chevron opens Explorer’s real hidden-icons popup on supported shell versions; choose **Leave** to retain the original taskbar. Media transport controls require an application that exposes a Windows media session.
 
 Wi-Fi scanning follows Windows permissions. Windows may require location access to list nearby wireless networks; FloatingDock does not bypass that restriction.
 
@@ -82,7 +85,9 @@ GitHub Actions builds and tests the Windows x64 project and uploads the portable
 
 See [Architecture](docs/ARCHITECTURE.md), [Icon-pack format](docs/ICON-PACKS.md) and [Changelog](docs/CHANGELOG.md).
 
-Version **1.0.19** passed 261 automated tests and seven local desktop verification suites covering application lifecycle, menus, previews, dock placement, fullscreen, blur and settings. The latest checks verify stable dock windows and continuous spacing as unpinned apps appear or disappear, bounded pointer input, stable auto-hide positions and unchanged background pixels after menu dismissal. Testing across multiple physical monitors and DPI combinations is limited. Launchpad currently has no folders or pages. The appearance of an application's own closing animation is controlled by that application and Windows.
+Version **1.1.0** includes the 1.0.17–1.0.19 geometry and backdrop fixes. Local desktop suites cover previews, menu lifetime, language changes, Launchpad, media commands, search cancellation and prior dock/fullscreen behavior. File search is filename-only; unindexed scans are bounded and may return partial results. Testing across multiple physical monitors and DPI combinations is limited. Launchpad has no folders or pages.
+
+For an optional window-manager integration, see the [tiling proposal](docs/TILING.md).
 
 ## License and credits
 

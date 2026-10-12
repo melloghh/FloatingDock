@@ -86,7 +86,7 @@ internal sealed class MenuBarHost : IDisposable
     {
         if(_disposed||!_app.Settings.Current.TopBarEnabled) return;
         var current=windows.FirstOrDefault(w=>w.Hwnd==foreground);
-        string? name=current is null ? NativeMethods.GetClass(new IntPtr(foreground)) is "Progman" or "WorkerW" ? "Рабочий стол" : null : _app.Pinned.Snapshot().FirstOrDefault(p=>AppMatching.Matches(p,current))?.Name ?? DisplayName(current);
+        string? name=current is null ? NativeMethods.GetClass(new IntPtr(foreground)) is "Progman" or "WorkerW" ? L.Text("Desktop") : null : _app.Pinned.Snapshot().FirstOrDefault(p=>AppMatching.Matches(p,current))?.Name ?? DisplayName(current);
         foreach(var bar in _bars.Values)
         {
             if(name is not null) bar.SetAppName(name);
@@ -96,7 +96,7 @@ internal sealed class MenuBarHost : IDisposable
     private string DisplayName(WindowInfo w)
     {
         string name=AppMatching.DefaultName(w);
-        return name.ToLowerInvariant() switch { "explorer"=>"Проводник", "floatingdock"=>"FloatingDock settings", "taskmgr"=>"Диспетчер задач", "msedge"=>"Microsoft Edge", "chrome"=>"Google Chrome", "steam"=>"Steam", "chatgpt"=>"ChatGPT", "code"=>"Visual Studio Code", _=>name.Length>0?char.ToUpperInvariant(name[0])+name[1..]:"Рабочий стол" };
+        return name.ToLowerInvariant() switch { "explorer"=>L.Text("File Explorer"), "floatingdock"=>"FloatingDock settings", "taskmgr"=>L.Text("Task Manager"), "msedge"=>"Microsoft Edge", "chrome"=>"Google Chrome", "steam"=>"Steam", "chatgpt"=>"ChatGPT", "code"=>"Visual Studio Code", _=>name.Length>0?char.ToUpperInvariant(name[0])+name[1..]:L.Text("Desktop") };
     }
     internal void SetCaptureHidden(bool hidden) { foreach(var b in _bars.Values) b.SetCaptureHidden(hidden); }
     internal void SetSuspended(bool hidden) { foreach(var b in _bars.Values) b.SetSuspended(hidden); }
@@ -114,20 +114,23 @@ internal sealed class MenuBarWindow : IDisposable
     private readonly DockApp _app=DockApp.Current;
     private readonly Window _window;
     private readonly Grid _root=new() { RequestedTheme=ElementTheme.Dark, Background=new SolidColorBrush(ColorHelper.FromArgb(96,18,21,27)), CornerRadius=new CornerRadius(14), BorderThickness=new Thickness(0) };
-    private readonly TextBlock _name=new() { Text="Рабочий стол",FontSize=13,FontWeight=Microsoft.UI.Text.FontWeights.SemiBold,VerticalAlignment=VerticalAlignment.Center,TextTrimming=TextTrimming.CharacterEllipsis,MaxWidth=420 };
+    private readonly TextBlock _name=new() { Text=L.Text("Desktop"),FontSize=13,FontWeight=Microsoft.UI.Text.FontWeights.SemiBold,VerticalAlignment=VerticalAlignment.Center,TextTrimming=TextTrimming.CharacterEllipsis,MaxWidth=420 };
     private readonly TextBlock _clock=new() { FontSize=13,VerticalAlignment=VerticalAlignment.Center };
     private readonly TextBlock _language=new() { FontSize=11,FontWeight=Microsoft.UI.Text.FontWeights.SemiBold,VerticalAlignment=VerticalAlignment.Center };
     private readonly TextBlock _battery=new() { FontSize=12,VerticalAlignment=VerticalAlignment.Center };
     private readonly FontIcon _network=new() { Glyph="\uE839",FontSize=15 };
     private readonly Button _batteryButton, _clockButton;
-    private readonly Button _networkButton, _soundButton, _languageButton;
+    private readonly Button _networkButton, _soundButton, _languageButton, _mediaButton, _searchButton, _trayButton;
+    private readonly DispatcherQueueTimer _trayTimer;
+    private bool _trayOpen;
+    private int _trayGeneration;
     private readonly MenuBarMenus _menus;
     private readonly Button _mainButton;
     private IntPtr? _diagnosticLanguageTarget;
     internal MenuBarMenus Menus => _menus;
     internal void OpenMenuForDiagnostics(string kind,IntPtr target=default)
     {
-        var button=kind switch { "main"=>_mainButton,"sound"=>_soundButton,"network"=>_networkButton,"language"=>_languageButton,"calendar"=>_clockButton,_=>throw new ArgumentException("Unknown quick menu.") };
+        var button=kind switch { "main"=>_mainButton,"sound"=>_soundButton,"network"=>_networkButton,"language"=>_languageButton,"calendar"=>_clockButton,"media"=>_mediaButton,_=>throw new ArgumentException("Unknown quick menu.") };
         bool ignore=IgnoreRealCursorForDiagnostics;IgnoreRealCursorForDiagnostics=false;
         _diagnosticLanguageTarget=target==IntPtr.Zero?null:target;
         try
@@ -169,11 +172,16 @@ internal sealed class MenuBarWindow : IDisposable
         _mainButton=ActionButton(ring,"FloatingDock menu",ShowMenu);left.Children.Add(_mainButton);left.Children.Add(_name);
         _root.Children.Add(left);
         var right=new StackPanel { Orientation=Orientation.Horizontal,Spacing=3,Margin=new Thickness(0,0,8,0),VerticalAlignment=VerticalAlignment.Center };
+        _searchButton=ActionButton(new FontIcon { Glyph="\uE721",FontSize=14 },"Search",_app.ToggleSearch);right.Children.Add(_searchButton);
+        _mediaButton=ActionButton(new FontIcon { Glyph="\uE8D6",FontSize=15 },"Media",()=>_menus.Media(_mediaButton!));right.Children.Add(_mediaButton);
+        _trayButton=ActionButton(new FontIcon { Glyph="\uE70D",FontSize=13 },"System tray",async()=>await OpenTrayAsync());right.Children.Add(_trayButton);
+        _trayTimer=_app.UiQueue.CreateTimer();_trayTimer.Interval=TimeSpan.FromMilliseconds(150);
+        _trayTimer.Tick+=(_,_)=> { if(!SystemTrayOverflow.Visible){SystemTrayOverflow.ReleaseTemporaryTaskbar();_trayOpen=false;_trayTimer.Stop();_lastHover=DateTime.UtcNow;} };
         _batteryButton=ActionButton(_battery,"Battery settings",()=>Open("ms-settings:batterysaver"));
         right.Children.Add(_batteryButton);
-        _networkButton=ActionButton(_network,"Сеть",()=> { _menus.Network(_networkButton!); });right.Children.Add(_networkButton);
-        _soundButton=ActionButton(new FontIcon { Glyph="\uE767",FontSize=15 },"Звук",()=> { _menus.Sound(_soundButton!); });right.Children.Add(_soundButton);
-        _languageButton=ActionButton(_language,"Язык ввода",()=> { _menus.Language(_languageButton!,_diagnosticLanguageTarget); });right.Children.Add(_languageButton);
+        _networkButton=ActionButton(_network,"Network",()=> { _menus.Network(_networkButton!); });right.Children.Add(_networkButton);
+        _soundButton=ActionButton(new FontIcon { Glyph="\uE767",FontSize=15 },"Sound",()=> { _menus.Sound(_soundButton!); });right.Children.Add(_soundButton);
+        _languageButton=ActionButton(_language,"Input language",()=> { _menus.Language(_languageButton!,_diagnosticLanguageTarget); });right.Children.Add(_languageButton);
         right.Children.Add(ActionButton(new FontIcon { Glyph="\uE713",FontSize=15 },"FloatingDock settings",()=>_app.ShowSettings()));
         _clockButton=ActionButton(_clock,"Date and time",ShowCalendar);right.Children.Add(_clockButton);
         Grid.SetColumn(right,2);_root.Children.Add(right);
@@ -191,19 +199,41 @@ internal sealed class MenuBarWindow : IDisposable
     private Button ActionButton(UIElement content,string tip,Action action)
     {
         var b=new Button { Content=content,Height=24,MinWidth=28,VerticalAlignment=VerticalAlignment.Center,Padding=new Thickness(7,0,7,0),BorderThickness=new Thickness(0),Background=new SolidColorBrush(Colors.Transparent),Foreground=new SolidColorBrush(Colors.White),CornerRadius=new CornerRadius(8) };
-        ToolTipService.SetToolTip(b,tip);b.Click+=(_,_)=> { if(!IgnoreRealCursorForDiagnostics)action(); };return b;
+        ToolTipService.SetToolTip(b,L.Text(tip));b.Click+=(_,_)=> { if(!IgnoreRealCursorForDiagnostics)action(); };return b;
     }
+    internal Task OpenTrayForDiagnostics()=>OpenTrayAsync();
+    internal bool TrayVisible=>_trayOpen&&SystemTrayOverflow.Visible;
+    private async Task OpenTrayAsync()
+    {
+        if(_trayOpen){CloseTray();return;}
+        _menus.Close(immediately:true);_app.Palette?.Hide();_trayOpen=true;Reveal();int generation=++_trayGeneration;
+        var point=_trayButton.TransformToVisual(_root).TransformPoint(new global::Windows.Foundation.Point());
+        int x=Monitor.Bounds.Left+(int)((SideInsetDip+point.X)*Monitor.Scale),y=ShownTop+(int)((HeightDip+6)*Monitor.Scale);
+        bool opened=await _app.OpenSystemTrayAsync(x,y,Monitor.Bounds.Right-8,Monitor.Bounds.Bottom-8);
+        if(Program.IsSmokeTest)_app.Log.Info($"Tray open result={opened}, nativeVisible={SystemTrayOverflow.Visible}, generation={generation}/{_trayGeneration}, capture={_capture}, suspended={_suspended}, fullscreen={_fullscreen}, diagnostic={SystemTrayOverflow.LastDiagnostic}");
+        if(Program.IsSmokeTest&&!opened)File.WriteAllLines(System.IO.Path.Combine(_app.Paths.Root,"tray-live-tree.txt"),SystemTrayOverflow.LastDiscovery);
+        if(_disposed||generation!=_trayGeneration||_capture||_suspended||_fullscreen||!_settings.TopBarEnabled){if(opened)SystemTrayOverflow.Dismiss();return;}
+        _trayOpen=opened&&SystemTrayOverflow.Visible;
+        if(_trayOpen)_trayTimer.Start();else _menus.TrayUnavailable(_trayButton);
+    }
+    private void CloseTray(){_trayGeneration++;if(_trayOpen)SystemTrayOverflow.Dismiss();_trayOpen=false;_trayTimer.Stop();}
     private void Open(string uri) { if(!ShellLauncher.Execute(uri,null,null)) _app.Log.Warn("Could not open "+uri); }
     internal void Apply(DockSettings s,MonitorDescriptor m)
     {
         _settings=s;Monitor=m;
+        _slideTimer.Interval=TimeSpan.FromMilliseconds(1000d/s.TopBarAnimationFps);
+        _mediaButton.Visibility=s.TopBarMediaEnabled?Visibility.Visible:Visibility.Collapsed;
+        _trayButton.Visibility=s.TopBarTrayEnabled?Visibility.Visible:Visibility.Collapsed;
+        _searchButton.Visibility=s.TopBarSearchEnabled?Visibility.Visible:Visibility.Collapsed;
+        if(!s.TopBarTrayEnabled)CloseTray();
+
         int height=(int)Math.Ceiling(HeightDip*m.Scale);
         int inset=(int)Math.Round(SideInsetDip*m.Scale);
         WindowStyler.SetBounds(Handle,m.Bounds.Left+inset,ShownTop-(int)Math.Round(HideDistance*_hide),Math.Max(100,m.Bounds.Width-2*inset),height);
         WindowStyler.SetRoundedRegion(Handle,Math.Max(100,m.Bounds.Width-2*inset),height,(int)Math.Round(14*m.Scale));
         RefreshClock();
         if(s.TopBarEnabled) { if(!_capture&&!_suspended&&!(_fullscreen&&_hide>=1))WindowStyler.Show(Handle,false);_clockTimer.Start(); }
-        else { _menus.Close();WindowStyler.Hide(Handle);_clockTimer.Stop();_languageTimer.Stop();_edgeTimer.Stop();_slideTimer.Stop();return; }
+        else { CloseTray();_menus.Close();WindowStyler.Hide(Handle);_clockTimer.Stop();_languageTimer.Stop();_edgeTimer.Stop();_slideTimer.Stop();return; }
         if(s.TopBarAutoHide||_fullscreen) _edgeTimer.Start();else _edgeTimer.Stop();
         UpdateLanguageTimer();Target(!_hover&&!_menuOpen&&(s.TopBarAutoHide||_fullscreen)); // settings changes cancel any prior slide target
     }
@@ -253,26 +283,26 @@ internal sealed class MenuBarWindow : IDisposable
     internal void SetCaptureHidden(bool hidden)
     {
         if(_capture==hidden)return;_capture=hidden;
-        if(hidden) { _menus.Close(immediately:true);_slideTimer.Stop();WindowStyler.Hide(Handle);_languageTimer.Stop(); }
+        if(hidden) { CloseTray();_app.Palette?.Hide();_menus.Close(immediately:true);_slideTimer.Stop();WindowStyler.Hide(Handle);_languageTimer.Stop(); }
         else if(_settings.TopBarEnabled&&!_suspended) { _hide=1;Move();WindowStyler.Show(Handle,false);Target(_settings.TopBarAutoHide||_fullscreen);UpdateLanguageTimer(); }
     }
     internal void SetSuspended(bool hidden)
     {
         _suspended=hidden;
-        if(hidden) { _menus.Close(immediately:true);WindowStyler.Hide(Handle);_languageTimer.Stop(); }
+        if(hidden) { CloseTray();_app.Palette?.Hide();_menus.Close(immediately:true);WindowStyler.Hide(Handle);_languageTimer.Stop(); }
         else if(_settings.TopBarEnabled&&!_capture) { WindowStyler.Show(Handle,false);Target(_settings.TopBarAutoHide||_fullscreen);UpdateLanguageTimer(); }
     }
     internal void SetFullscreen(bool fullscreen)
     {
         if(_fullscreen==fullscreen)return;_fullscreen=fullscreen;
-        if(fullscreen)_menus.Close(immediately:true);
+        if(fullscreen){CloseTray();_app.Palette?.Hide();_menus.Close(immediately:true);}
         else if(_settings.TopBarEnabled&&!_capture&&!_suspended)WindowStyler.Show(Handle,false);
         if(_settings.TopBarEnabled) { if(fullscreen||_settings.TopBarAutoHide)_edgeTimer.Start();else _edgeTimer.Stop();Target(fullscreen||_settings.TopBarAutoHide); }
     }
     internal void Reveal() { if(_fullscreen)return;_lastHover=DateTime.UtcNow;Target(false); }
     private void CheckEdge()
     {
-        if(_capture||_suspended||_menuOpen||!_settings.TopBarEnabled)return;
+        if(_capture||_suspended||_menuOpen||_trayOpen||!_settings.TopBarEnabled)return;
         if(_fullscreen) { Target(true);return; }
         if(!IgnoreRealCursorForDiagnostics && WindowStyler.CursorPos() is { } c)
         {
@@ -281,7 +311,7 @@ internal sealed class MenuBarWindow : IDisposable
             bool over=c.X>=Monitor.Bounds.Left+inset&&c.X<Monitor.Bounds.Right-inset&&c.Y>=Monitor.Bounds.Top&&c.Y<(_hide>.99?Monitor.Bounds.Top+2:ShownTop+h);
             if(over) { Reveal();return; }
         }
-        if(!_hover && DateTime.UtcNow-_lastHover>TimeSpan.FromMilliseconds(700))Target(true);
+        if(!_hover && DateTime.UtcNow-_lastHover>TimeSpan.FromMilliseconds(_settings.TopBarHideDelayMs))Target(true);
     }
     internal void Target(bool hidden)
     {
@@ -294,9 +324,10 @@ internal sealed class MenuBarWindow : IDisposable
     private void Slide()
     {
         float target=_targetHidden?1:0;
+        if(!SurfaceMotion.Enabled){_hide=target;Move();UpdateLanguageTimer();_slideTimer.Stop();return;}
         long now=System.Diagnostics.Stopwatch.GetTimestamp();
         float dt=(float)Math.Clamp((now-_lastSlideTicks)/(double)System.Diagnostics.Stopwatch.Frequency,0,.1);_lastSlideTicks=now;
-        _hide=target>_hide?Math.Min(target,_hide+dt/.22f):Math.Max(target,_hide-dt/.17f);
+        _hide=target>_hide?Math.Min(target,_hide+dt/(_settings.TopBarHideMs/1000f)):Math.Max(target,_hide-dt/(_settings.TopBarShowMs/1000f));
         Move();UpdateLanguageTimer();if(_hide==target) { _slideTimer.Stop();if(_fullscreen&&_hide>=1)WindowStyler.Hide(Handle); }
     }
     private void Move()
@@ -307,7 +338,7 @@ internal sealed class MenuBarWindow : IDisposable
     }
     public void Dispose()
     {
-        _disposed=true;_menus.Dispose();NetworkChange.NetworkAvailabilityChanged-=OnNetwork;_clockTimer.Stop();_edgeTimer.Stop();_slideTimer.Stop();_languageTimer.Stop();_window.Close();
+        _disposed=true;CloseTray();_menus.Dispose();NetworkChange.NetworkAvailabilityChanged-=OnNetwork;_clockTimer.Stop();_edgeTimer.Stop();_slideTimer.Stop();_languageTimer.Stop();_window.Close();
     }
 }
 

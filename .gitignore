@@ -12,6 +12,7 @@ TestResults/
 !/docs/ARCHITECTURE.md
 !/docs/ICON-PACKS.md
 !/docs/CHANGELOG.md
+!/docs/TILING.md
 !/docs/reference/
 .validation/
 .build-tools/

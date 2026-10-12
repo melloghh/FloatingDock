@@ -17,9 +17,9 @@ internal sealed partial class SettingsWindow
     {
         var s = S;
         var packs = _app.Packs.ListPacks();
-        var combo = new ComboBox { Header = "Active icon pack", MinWidth = 300 };
+        var combo = new ComboBox { Header = L.Text("Active icon pack"), MinWidth = 300 };
         IconPackComboForDiagnostics=combo;
-        foreach (var p in packs) combo.Items.Add(p.Id == IconPackService.DefaultPackId ? "Системные иконки" : p.Id == IconPackService.CustomPackId ? $"Мои иконки  ({p.IconCount})" : $"{p.Name}  ({p.IconCount} icons)");
+        foreach (var p in packs) combo.Items.Add(p.Id == IconPackService.DefaultPackId ? L.Text("System icons") : p.Id == IconPackService.CustomPackId ? $"{L.Text("My icons")}  ({p.IconCount})" : $"{p.Name}  ({p.IconCount} icons)");
         int sel = packs.ToList().FindIndex(p => string.Equals(p.Id, s.ActiveIconPack, StringComparison.OrdinalIgnoreCase) || string.Equals(Path.GetFileName(p.Directory), s.ActiveIconPack, StringComparison.OrdinalIgnoreCase));
         combo.SelectedIndex = Math.Max(0, sel);
         combo.SelectionChanged += (_, _) =>
@@ -31,7 +31,7 @@ internal sealed partial class SettingsWindow
         };
 
         var info = Ui.Note(sel >= 0 && sel < packs.Count ? Describe(packs[sel]) : "");
-        var apply = Ui.Action("Применить пакет к приложениям дока", () =>
+        var apply = Ui.Action("Apply pack to dock applications", () =>
         {
             var pack=packs.ElementAtOrDefault(combo.SelectedIndex);
             if(pack is null)return;
@@ -48,8 +48,8 @@ internal sealed partial class SettingsWindow
         {
             var p = packs.ElementAtOrDefault(combo.SelectedIndex);
             if (p is null) return;
-            if (p.IsBuiltIn) { await Message("Icon packs", "Это папка системных или ваших отдельных иконок. Импортированные пакеты можно удалить."); return; }
-            var r = await Dialog("Delete icon pack", new TextBlock { Text = $"Delete “{p.Name}” and its {p.IconCount} icons from disk?", TextWrapping = TextWrapping.Wrap }, "Delete");
+            if (p.IsBuiltIn) { await Message("Icon packs", "Built-in icon folders cannot be deleted. Imported packs can be removed."); return; }
+            var r = await Dialog("Delete icon pack", new TextBlock { Text = L.Format("Delete “{0}” and its {1} icons from disk?",p.Name,p.IconCount), TextWrapping = TextWrapping.Wrap }, "Delete");
             if (r != ContentDialogResult.Primary) return;
             _app.Packs.Delete(Path.GetFileName(p.Directory));
             _app.Settings.Update(d => d.ActiveIconPack = "Default");
@@ -63,7 +63,7 @@ internal sealed partial class SettingsWindow
             Ui.Toggle("Use icon packs", s.UseIconPack, (d, v) => d.UseIconPack = v),
             Ui.Toggle("Prefer dark variants (name_dark.png)", s.PreferDarkVariants, (d, v) => d.PreferDarkVariants = v),
             Ui.Note("Individual icons set with Change icon take priority. Use Reset icon on an app to let the selected pack choose its icon automatically."),
-            Ui.Section("Pack", combo, info, apply, Ui.Note("Применение заменяет индивидуальные иконки только для приложений, найденных в пакете."), Ui.Row(import, export, delete), Ui.Row(open, reload),
+            Ui.Section("Pack", combo, info, apply, Ui.Note("Applying a pack resets individual icons only for apps found in the pack."), Ui.Row(import, export, delete), Ui.Row(open, reload),
                 Ui.Note("Drop PNG / ICO files named after the app (e.g. Firefox.png, Visual Studio Code.png) into the Custom folder: they are picked up automatically. The same icons are used by the Dock and the Launchpad.")),
             AppIconsSection());
     }
@@ -73,7 +73,7 @@ internal sealed partial class SettingsWindow
         var parts = new List<string>();
         if (!string.IsNullOrWhiteSpace(p.Version)) parts.Add("v" + p.Version);
         if (!string.IsNullOrWhiteSpace(p.Description)) parts.Add(p.Description);
-        if (p.Warnings.Count > 0) parts.Add($"{p.Warnings.Count} warning(s): {p.Warnings[0]}");
+        if (p.Warnings.Count > 0) parts.Add(L.Format("{0} warning(s): {1}",p.Warnings.Count,p.Warnings[0]));
         return parts.Count == 0 ? "" : string.Join(" · ", parts);
     }
 
@@ -92,9 +92,9 @@ internal sealed partial class SettingsWindow
         var panel = new StackPanel { Spacing = 6 };
         panel.Children.Add(new TextBlock { Text = $"{preview.Name}  v{preview.Version}", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
         if (!string.IsNullOrWhiteSpace(preview.Description)) panel.Children.Add(new TextBlock { Text = preview.Description, TextWrapping = TextWrapping.Wrap });
-        panel.Children.Add(new TextBlock { Text = $"{preview.IconCount} icons, e.g. {string.Join(", ", preview.IconNames.Take(8))}", TextWrapping = TextWrapping.Wrap, Opacity = 0.8 });
+        panel.Children.Add(new TextBlock { Text = L.Format("{0} icons, e.g. {1}",preview.IconCount,string.Join(", ",preview.IconNames.Take(8))), TextWrapping = TextWrapping.Wrap, Opacity = 0.8 });
         if (preview.Problems.Count > 0)
-            panel.Children.Add(new TextBlock { Text = "Problems:\n" + string.Join("\n", preview.Problems.Take(6)), TextWrapping = TextWrapping.Wrap, Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.OrangeRed) });
+            panel.Children.Add(new TextBlock { Text = L.Text(L.Text("Problems:")+"\n") + string.Join("\n", preview.Problems.Take(6)), TextWrapping = TextWrapping.Wrap, Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.OrangeRed) });
         if (await Dialog("Import icon pack", panel, "Import") != ContentDialogResult.Primary) return;
         try
         {
@@ -119,7 +119,7 @@ internal sealed partial class SettingsWindow
         {
             var folder = Path.GetFileName(pack.Directory);
             await Task.Run(() => _app.Packs.Export(folder, file.Path));
-            await Message("Export", $"Saved to {file.Path}");
+            await Message("Export", L.Format("Saved to {0}",file.Path));
         }
         catch (Exception ex) { await Message("Export failed", ex.Message); }
     }
@@ -145,10 +145,10 @@ internal sealed partial class SettingsWindow
                 row.Children.Add(icon);
                 var name = new TextBlock { Text = app.Name, VerticalAlignment = VerticalAlignment.Center };
                 Grid.SetColumn(name, 1); row.Children.Add(name);
-                var change = new Button { Content = "Change…" };
+                var change = new Button { Content = L.Text("Change…") };
                 change.Click += async (_, _) => await WindowSetup.PickIconAsync(_hwnd, app);
                 Grid.SetColumn(change, 2); row.Children.Add(change);
-                var reset = new Button { Content = "Reset", IsEnabled = _app.Overrides.Has(app.Key) };
+                var reset = new Button { Content = L.Text("Reset"), IsEnabled = _app.Overrides.Has(app.Key) };
                 reset.Click += (_, _) => _app.TryResetIcon(app.Key);
                 Grid.SetColumn(reset, 3); row.Children.Add(reset);
                 list.Children.Add(row);

@@ -54,6 +54,7 @@ internal sealed class DockWindow : IDisposable
     private readonly DockMotion _motion = new();
     private readonly MagnificationState _mag = new();
     private readonly FrameScheduler _frameClock;
+    private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer _hoverWatch;
     private readonly DockLayoutResult _layoutResult = new();
 
     private MonitorDescriptor _monitor;
@@ -94,6 +95,14 @@ internal sealed class DockWindow : IDisposable
     private IntPtr _prevForeground;
     private float _labelAlpha;
     private bool _diagnosticHover;
+    private (float X,float Y)? _hoverCursorForDiagnostics;
+    internal void SetHoverCursorForDiagnostics(bool inside)
+    {
+        float x=(_m.RestPlateLeft+_m.RestPlateRight)/2;
+        _hoverCursorForDiagnostics=(x,inside?_m.PlateTop+_s.DockHeight/2:_m.KeepZone.Y-20);
+        if(inside)BeginHover(x); // departure deliberately emits no native pointer event.
+    }
+    internal void ClearHoverCursorForDiagnostics(){_hoverCursorForDiagnostics=null;EndHover();}
     private bool _diagnosticStationary;
     private float? _diagnosticCursorX;
     private readonly List<double> _diagnosticFrameCosts = new();
@@ -111,6 +120,7 @@ internal sealed class DockWindow : IDisposable
     {
         _app = DockApp.Current;
         _frameClock = new FrameScheduler(action => _app.UiQueue.TryEnqueue(() => action()), OnRendering);
+        _hoverWatch=_app.UiQueue.CreateTimer();_hoverWatch.Interval=TimeSpan.FromMilliseconds(50);
         _vm = vm;
         _monitor = monitor;
         _s = _app.Settings.Current;
@@ -130,6 +140,8 @@ internal sealed class DockWindow : IDisposable
         _graphics.Content.Children.InsertAtTop(_itemsVisual);
 
         _compositionLabel = new CompositionLabel(_graphics, Invalidate);
+        _hoverWatch.Tick+=(_,_)=> { if(_disposed||IgnoreRealCursorForDiagnostics&&_hoverCursorForDiagnostics is null||_diagnosticHover||_dragging||_menuOpen||_kbMode)return;var point=CursorDip();if(point is null||!_m.KeepZone.Contains(point.Value.X,point.Value.Y))EndHover(); };
+        _preview.VisibilityChanged+=()=> { if(_disposed)return;if(_preview.Visible){_labelAlpha=0;_compositionLabel.Visual.Opacity=0;}Invalidate(); };
         _itemsVisual.Children.InsertAtTop(_compositionLabel.Visual);
         _window.Pointer += OnNativePointer;
         _window.KeyDown += OnKeyDown;
@@ -150,6 +162,7 @@ internal sealed class DockWindow : IDisposable
     internal bool IsAnimating => _looping;
     internal bool IsContextMenuOpen => _menuOpen;
     internal bool IsHovering => _mag.Hovering;
+    internal float LabelOpacity=>_compositionLabel.Visual.Opacity;
     internal int PlateRasterizations => _compositionPlate.Rasterizations;
     internal FloatingDock.Windows.Native.RECT? AnimationRectFor(IntPtr hwnd)
     {
@@ -625,6 +638,7 @@ internal sealed class DockWindow : IDisposable
 
     private (float X, float Y)? CursorDip()
     {
+        if(_hoverCursorForDiagnostics is { } diagnostic)return diagnostic;
         if (IgnoreRealCursorForDiagnostics) return null;
         var c = WindowStyler.CursorPos();
         if (c is null) return null;
@@ -697,6 +711,7 @@ internal sealed class DockWindow : IDisposable
     {
         bool snap = _mag.Zoom <= 0.001f;
         _mag.Hovering = true;
+        _hoverWatch.Start();
         _mag.SetCursor(cursorX, snap);
         _renderNeeded = true;
         StartLoop();
@@ -705,6 +720,8 @@ internal sealed class DockWindow : IDisposable
     private void EndHover()
     {
         _mag.Hovering = false;
+        _preview.ReleaseInteractionSuppression();
+        _hoverWatch.Stop();
         _hoverIndex = -1;
         _renderNeeded = true;
         StartLoop();
@@ -715,7 +732,7 @@ internal sealed class DockWindow : IDisposable
     private bool StepAutoHide(float dt, (float X, float Y)? cur)
     {
         bool forced = _suspended || _userHidden || _concealForFullscreen || _blockFullscreenReveal;
-        bool busy = !forced && (_mag.Hovering || _dragging || _menuOpen || _kbMode);
+        bool busy = !forced && (_mag.Hovering || _dragging || _menuOpen || _kbMode || _preview.PointerInside);
         if (busy) _idleFor = 0; else _idleFor += dt;
         float target = forced || EffectiveAutoHide && !busy && _idleFor > 0.55f ? 1f : 0f;
         if (_strip)
@@ -830,6 +847,7 @@ internal sealed class DockWindow : IDisposable
 
     private void UpdateLabel((float X, float Y)? cur)
     {
+        if(_preview.Visible){_labelAlpha=0;_compositionLabel.Visual.Opacity=0;return;}
         int idx = -1;
         bool show = _s.ShowLabels && (_mag.Hovering || _kbMode) && !_menuOpen && !_dragging && !_strip;
         if (show)
@@ -881,7 +899,7 @@ internal sealed class DockWindow : IDisposable
         var logical=Axis.ToLogical((float)(e.X/_scale),(float)(e.Y/_scale));
         float x=logical.X,y=logical.Y;
         if (e.Kind == DockPointerKind.Cancel) { CancelPress(); return; }
-        if (e.Kind == DockPointerKind.Leave) { StartLoop(); return; }
+        if (e.Kind == DockPointerKind.Leave) { if(!_dragging&&!_kbMode&&!_preview.PointerInside)EndHover();else StartLoop();return; }
         if (_menuOpen || _suspended || _userHidden || _captureHidden || _concealForFullscreen) return;
         if (_strip) { if (_s.RevealOnEdgeHover && e.Kind == DockPointerKind.Move) Reveal(); return; }
         switch (e.Kind)
@@ -992,6 +1010,7 @@ internal sealed class DockWindow : IDisposable
 
     private void ActivateEntry(DockEntry e)
     {
+        _preview.DismissForInteraction(e.Key);
         if(_visuals.TryGetValue(e.Key,out var visual))visual.Icon?.Pulse(_s.Edge);
         switch (e.Kind)
         {
@@ -1045,7 +1064,7 @@ internal sealed class DockWindow : IDisposable
             }
         }
         catch (Exception ex) { _app.Log.Error("window activation failed", ex); }
-        finally { _activatingApps.Remove(entry.Key); }
+        finally { _app.UiQueue.TryEnqueue(()=>_activatingApps.Remove(entry.Key)); }
     }
 
     private const int CmdOpen = 1, CmdPin = 2, CmdFolder = 3, CmdIcon = 4, CmdResetIcon = 5, CmdClose = 6, CmdSettings = 20, CmdLaunchpad = 21, CmdQuit = 22, CmdAddSeparator = 30, CmdRemoveSeparator = 31, CmdMoveSeparatorLeft = 32, CmdMoveSeparatorRight = 33;
@@ -1251,6 +1270,7 @@ internal sealed class DockWindow : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        _hoverWatch.Stop();
         _preview.Dispose();
         StopLoop();
         _frameClock.Dispose();

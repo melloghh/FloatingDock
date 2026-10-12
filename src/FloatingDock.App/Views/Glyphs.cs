@@ -1,3 +1,4 @@
+using FloatingDock.Core.Configuration;
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -52,11 +53,8 @@ internal static class Glyphs
 
     private static FrameworkElement LaunchpadGlyph()
     {
-        var g = Tile(new LinearGradientBrush
-        {
-            StartPoint = new global::Windows.Foundation.Point(0, 0), EndPoint = new global::Windows.Foundation.Point(1, 1),
-            GradientStops = { new GradientStop { Color = Color.FromArgb(255, 36, 39, 45), Offset = 0 }, new GradientStop { Color = Color.FromArgb(255, 8, 10, 14), Offset = 1 } },
-        });
+        var style = DockApp.Current.Settings.Current.LaunchpadIconStyle;
+        var g = style == LaunchpadIconStyle.WhiteSquares ? new Grid { Width=48,Height=48 } : Tile(new SolidColorBrush(style == LaunchpadIconStyle.ColorOnWhite ? Colors.White : Color.FromArgb(255,12,14,18)));
         var grid = new Grid { Width = 30, Height = 30, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
         for (int i = 0; i < 3; i++) { grid.RowDefinitions.Add(new RowDefinition()); grid.ColumnDefinitions.Add(new ColumnDefinition()); }
         Color[] pal = { Color.FromArgb(255, 255, 95, 86), Color.FromArgb(255, 255, 189, 46), Color.FromArgb(255, 39, 201, 63),
@@ -64,7 +62,7 @@ internal static class Glyphs
                         Color.FromArgb(255, 255, 140, 0), Color.FromArgb(255, 50, 173, 230), Color.FromArgb(255, 60, 60, 70) };
         for (int i = 0; i < 9; i++)
         {
-            var d = new Ellipse { Width = 7.5, Height = 7.5, Fill = new SolidColorBrush(pal[i]), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            var d = new Rectangle { Width = 7.5, Height = 7.5, RadiusX=1.5, RadiusY=1.5, Fill = new SolidColorBrush(style == LaunchpadIconStyle.WhiteSquares ? Colors.White : style == LaunchpadIconStyle.ColorOnWhite && i == 5 ? Color.FromArgb(255,180,180,190) : pal[i]), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
             Grid.SetRow(d, i / 3); Grid.SetColumn(d, i % 3);
             grid.Children.Add(d);
         }

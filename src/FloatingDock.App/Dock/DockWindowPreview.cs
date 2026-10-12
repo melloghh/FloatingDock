@@ -49,6 +49,9 @@ internal sealed class DockWindowPreview : IDisposable
     private bool _hidePending,_disposed,_layoutPending,_activating;
     private bool _diagnosticHold;
     private long _appeared;
+    private string? _dismissedKey;
+    private readonly Dictionary<long,bool> _minimized=new();
+    internal event Action? VisibilityChanged;
     internal IntPtr Handle=>_window is null?IntPtr.Zero:WindowSetup.Hwnd(_window);
     internal bool Visible=>Handle!=IntPtr.Zero&&NativeMethods.IsWindowVisible(Handle);
     internal int ThumbnailCount=>_thumbnails.Count;
@@ -70,6 +73,7 @@ internal sealed class DockWindowPreview : IDisposable
             }
             if(Visible)
             {
+                if(_thumbnails.Any(t=>_minimized.TryGetValue(t.Source.Hwnd,out var old)&&old!=NativeMethods.IsIconic(new IntPtr(t.Source.Hwnd)))) { Show();return; }
                 if(_thumbnails.Any(t=>!WindowActivator.IsLive(t.Source))) { Show();return; }
                 foreach(var t in _thumbnails)
                 {
@@ -96,6 +100,10 @@ internal sealed class DockWindowPreview : IDisposable
         if(_diagnosticHold&&!diagnostic)return;
         if(diagnostic)_diagnosticHold=true;
         if(_disposed)return;
+        if(!diagnostic&&!DockApp.Current.Settings.Current.ShowWindowPreviews){Hide();return;}
+        if(entry is null&&diagnostic)_dismissedKey=null;
+        else if(entry is not null&&_dismissedKey==entry.Key)return;
+        else if(entry is not null)_dismissedKey=null;
         if(entry is null||!entry.Windows.Any(WindowActivator.IsLive))
         {
             if(Visible&&!PointerInside&&!_hidePending){_hidePending=true;_deadline=Stopwatch.GetTimestamp()+Stopwatch.Frequency*3/10;_timer.Interval=TimeSpan.FromMilliseconds(50);_timer.Start();}
@@ -117,7 +125,7 @@ internal sealed class DockWindowPreview : IDisposable
         }
         _hidePending=false;
         if(_shownKey==entry.Key&&Visible){_timer.Interval=TimeSpan.FromMilliseconds(200);_timer.Start();return;}
-        HideSurface();_deadline=Stopwatch.GetTimestamp()+Stopwatch.Frequency*HoverDelayMs/1000;
+        HideSurface();_deadline=Stopwatch.GetTimestamp()+Stopwatch.Frequency*DockApp.Current.Settings.Current.PreviewDelayMs/1000;
         _timer.Interval=TimeSpan.FromMilliseconds(50);_timer.Start();
     }
     private void Show()
@@ -145,11 +153,11 @@ internal sealed class DockWindowPreview : IDisposable
             header.ColumnDefinitions.Add(new ColumnDefinition { Width=new GridLength(1,GridUnitType.Star) });
             header.ColumnDefinitions.Add(new ColumnDefinition { Width=GridLength.Auto });header.Children.Add(title);
             var close=new Button { Content=new FontIcon { Glyph="\uE8BB",FontSize=10 },Width=28,Height=28,MinWidth=28,MinHeight=28,Padding=new Thickness(0),BorderThickness=new Thickness(0),CornerRadius=new CornerRadius(8),Background=new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
-            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(close,"Закрыть "+title.Text);ToolTipService.SetToolTip(close,"Закрыть окно");
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(close,L.Text("Close")+" "+title.Text);ToolTipService.SetToolTip(close,L.Text("Close window"));
             Grid.SetColumn(close,1);header.Children.Add(close);_closeButtons.Add(close);
             var card=new StackPanel { Spacing=6 };card.Children.Add(header);
             var target=new Button { Content=new Grid { Width=248,Height=142 },Width=248,Height=142,MinWidth=0,MinHeight=0,Padding=new Thickness(0),BorderThickness=new Thickness(0),CornerRadius=new CornerRadius(10),Background=new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(12,255,255,255)) };
-            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(target,"Открыть "+title.Text);
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(target,L.Text("Open")+" "+title.Text);
             target.Click+=async(_,_)=>
             {
                 if(_activating)return;_activating=true;Hide();
@@ -178,12 +186,14 @@ internal sealed class DockWindowPreview : IDisposable
         _glass.AnimateOpacity(1,180,entering:true);
         foreach(var (source,target,title) in targets)
         {
+            _minimized[source.Hwnd]=NativeMethods.IsIconic(new IntPtr(source.Hwnd));
             int registered=DwmRegisterThumbnail(Handle,new IntPtr(source.Hwnd),out var thumbnail);
             if(registered!=0){DockApp.Current.Log.Warn("DWM thumbnail registration: "+registered.ToString("X"));continue;}
             _thumbnails.Add((thumbnail,source,target,title));
         }
         if(_thumbnails.Count==0){Hide();return;}
         _layoutPending=true;UpdateThumbnails();_timer.Interval=TimeSpan.FromMilliseconds(SurfaceMotion.Enabled?16:200);_timer.Start();
+        VisibilityChanged?.Invoke();
     }
     private void UpdateThumbnails()
     {
@@ -268,8 +278,10 @@ internal sealed class DockWindowPreview : IDisposable
         }
         if(_closeRequests.Count==0)_closeTimer.Stop();
     }
-    private void ClearThumbnails(){foreach(var t in _thumbnails)DwmUnregisterThumbnail(t.Thumbnail);_thumbnails.Clear();_closeButtons.Clear();_sourceSizes.Clear();_closingWindows.Clear();_restoringWindows.Clear();}
-    private void HideSurface(){if(_window is not null){_window.AppWindow.Hide();WindowStyler.Hide(Handle);_glass.SetVisible(false);}ClearThumbnails();_shownKey=null;}
+    private void ClearThumbnails(){foreach(var t in _thumbnails)DwmUnregisterThumbnail(t.Thumbnail);_thumbnails.Clear();_closeButtons.Clear();_sourceSizes.Clear();_closingWindows.Clear();_restoringWindows.Clear();_minimized.Clear();}
+    private void HideSurface(){bool wasVisible=Visible;if(_window is not null){_window.AppWindow.Hide();WindowStyler.Hide(Handle);_glass.SetVisible(false);}ClearThumbnails();_shownKey=null;if(wasVisible)VisibilityChanged?.Invoke();}
+    internal void DismissForInteraction(string key){bool hold=_diagnosticHold;Hide();_diagnosticHold=hold;_dismissedKey=key;}
+    internal void ReleaseInteractionSuppression()=>_dismissedKey=null;
     internal void Hide(){_timer.Stop();HideSurface();_entry=null;_hidePending=false;_diagnosticHold=false;}
     public void Dispose(){_disposed=true;_closeTimer.Stop();_closeRequests.Clear();Hide();_window?.Close();}
 }

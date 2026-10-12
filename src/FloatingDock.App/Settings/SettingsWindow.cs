@@ -30,14 +30,15 @@ internal sealed partial class SettingsWindow : IDisposable
             ["Menu Bar"] = MenuBarPage,
             ["Icon Packs"] = IconPacksPage,
             ["Launchpad"] = LaunchpadPage,
+            ["Search"] = SearchPage,
             ["Windows Taskbar"] = TaskbarPage,
             ["About"] = AboutPage,
         };
-        foreach (var name in _pages.Keys) _nav.MenuItems.Add(new NavigationViewItem { Content = name, Tag = name, Icon = new SymbolIcon(IconFor(name)) });
+        foreach (var name in _pages.Keys) _nav.MenuItems.Add(new NavigationViewItem { Content = L.Text(name), Tag = name, Icon = new SymbolIcon(IconFor(name)) });
         _nav.IsSettingsVisible = false;
         _nav.IsBackButtonVisible = NavigationViewBackButtonVisible.Collapsed;
         _nav.PaneDisplayMode = NavigationViewPaneDisplayMode.Left;
-        _nav.OpenPaneLength = 210;
+        _nav.OpenPaneLength = 230;
         _nav.SelectionChanged += (_, e) => { if (e.SelectedItemContainer?.Tag is string t) Navigate(t); };
         _scroll.Content = new Grid();
         _nav.Content = _scroll;
@@ -45,7 +46,7 @@ internal sealed partial class SettingsWindow : IDisposable
 
         // Settings is a standard framed window. An opaque root avoids feeding
         // old page/window pixels back through a whole-window blur surface.
-        _window = new Window { Title = "FloatingDock settings", Content = _nav };
+        _window = new Window { Title = L.Text("FloatingDock settings"), Content = _nav };
         _window.AppWindow.Resize(new global::Windows.Graphics.SizeInt32(980, 740));
         _window.Closed += (s, e) => { _app.Running.ExcludeOwnWindow(_hwnd); Cleanup(); _app.Settings.Changed -= OnSettingsChanged; Closed?.Invoke(_window, e); };
         try { _window.AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico")); } catch { }
@@ -53,7 +54,7 @@ internal sealed partial class SettingsWindow : IDisposable
         _nav.ActualThemeChanged += (_, _) => ApplyCaptionTheme();
         _app.Settings.Changed += OnSettingsChanged;
         _nav.Loaded += (_, _) => { if (_nav.SelectedItem is null) _nav.SelectedItem = _nav.MenuItems[0]; };
-        ApplyTheme();
+        _language=_app.Settings.Current.Language;ApplyTheme();
     }
 
     private static Symbol IconFor(string page) => page switch
@@ -65,12 +66,14 @@ internal sealed partial class SettingsWindow : IDisposable
         "Menu Bar" => Symbol.Clock,
         "Icon Packs" => Symbol.Pictures,
         "Launchpad" => Symbol.ViewAll,
+        "Search" => Symbol.Find,
         "Windows Taskbar" => Symbol.Street,
         _ => Symbol.Help,
     };
 
     public IntPtr Handle => _hwnd;
     public XamlRoot? XamlRoot => _nav.XamlRoot;
+    internal IReadOnlyList<string> NavigationLabels=>_nav.MenuItems.OfType<NavigationViewItem>().Select(i=>i.Content?.ToString()??"").ToArray();
 
     public void ShowSection(string? section)
     {
@@ -106,7 +109,15 @@ internal sealed partial class SettingsWindow : IDisposable
         FloatingDock.Windows.Native.NativeMethods.DwmSetWindowAttribute(_hwnd, 20, ref darkValue, sizeof(int));
     }
 
-    private void OnSettingsChanged(DockSettings s) => _app.UiQueue.TryEnqueue(ApplyTheme);
+    private InterfaceLanguage _language=InterfaceLanguage.English;
+    private void OnSettingsChanged(DockSettings s) => _app.UiQueue.TryEnqueue(()=>
+    {
+        ApplyTheme();
+        if(_language==s.Language)return;
+        _language=s.Language;_window.Title=L.Text("FloatingDock settings");
+        foreach(NavigationViewItem item in _nav.MenuItems)item.Content=L.Text((string)item.Tag);
+        Refresh();
+    });
 
     private void Navigate(string name)
     {
@@ -133,12 +144,12 @@ internal sealed partial class SettingsWindow : IDisposable
 
     private async Task<ContentDialogResult> Dialog(string title, UIElement content, string primary, string close = "Cancel")
     {
-        var d = new ContentDialog { Title = title, Content = content, PrimaryButtonText = primary, CloseButtonText = close, XamlRoot = _nav.XamlRoot, DefaultButton = ContentDialogButton.Primary };
+        var d = new ContentDialog { Title = L.Text(title), Content = content, PrimaryButtonText = L.Text(primary), CloseButtonText = L.Text(close), XamlRoot = _nav.XamlRoot, DefaultButton = ContentDialogButton.Primary };
         return await d.ShowAsync();
     }
 
     private async Task Message(string title, string text) =>
-        await new ContentDialog { Title = title, Content = new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap }, CloseButtonText = "OK", XamlRoot = _nav.XamlRoot }.ShowAsync();
+        await new ContentDialog { Title = L.Text(title), Content = new TextBlock { Text = L.Text(text), TextWrapping = TextWrapping.Wrap }, CloseButtonText = L.Text("OK"), XamlRoot = _nav.XamlRoot }.ShowAsync();
 }
 
 internal static class WindowActivatorShim

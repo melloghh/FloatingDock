@@ -116,6 +116,7 @@ internal sealed class DockHost : IDisposable
         if (_disposed) return;
         _capture.Observe(hwnd);
         _capture.Refresh();
+        if(_capture.IsActive)_app.Palette?.Hide();
         _app.TopBar?.SetCaptureHidden(_capture.IsActive);
         foreach (var w in _windows) w.SetCaptureHidden(_capture.IsActive);
         if (kind == FloatingDock.Windows.RunningApps.WindowEventKind.Foreground ||
@@ -195,6 +196,7 @@ internal sealed class DockHost : IDisposable
     {
         if (_disposed || HoldFullscreenStateForDiagnostics) return;
         _capture.Refresh();
+        if(_capture.IsActive)_app.Palette?.Hide();
         _app.TopBar?.SetCaptureHidden(_capture.IsActive);
         foreach (var w in _windows) w.SetCaptureHidden(_capture.IsActive);
         if (_windows.Any(w => w.IsContextMenuOpen)) return;

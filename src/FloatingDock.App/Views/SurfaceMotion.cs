@@ -9,7 +9,7 @@ namespace FloatingDock.UI.Views;
 internal static class SurfaceMotion
 {
     private static readonly global::Windows.UI.ViewManagement.UISettings Settings = new();
-    internal static bool Enabled => Settings.AnimationsEnabled;
+    internal static bool Enabled => Settings.AnimationsEnabled && DockApp.Current.Settings.Current.MenuAnimations;
     internal static int Duration(int milliseconds) => Enabled ? milliseconds : 0;
     internal static void Reset(Visual visual,float opacity=1,float scale=1)
     {
@@ -30,6 +30,16 @@ internal static class SurfaceMotion
         zoom.Duration=fade.Duration;zoom.StopBehavior=AnimationStopBehavior.LeaveCurrentValue;
         zoom.InsertExpressionKeyFrame(0,"this.StartingValue");zoom.InsertKeyFrame(1,new Vector3(scale,scale,1),ease);
         visual.StartAnimation("Opacity",fade);visual.StartAnimation("Scale",zoom);
+    }
+    internal static void SlideContent(FrameworkElement element,int milliseconds)
+    {
+        var visual=ElementCompositionPreview.GetElementVisual(element);visual.StopAnimation("Offset");
+        if(!Enabled){visual.Offset=Vector3.Zero;return;}
+        var compositor=visual.Compositor;
+        using var ease=compositor.CreateCubicBezierEasingFunction(new Vector2(.16f,1),new Vector2(.3f,1));
+        using var animation=compositor.CreateVector3KeyFrameAnimation();animation.Duration=TimeSpan.FromMilliseconds(milliseconds);
+        animation.InsertKeyFrame(0,new Vector3(0,-6,0));animation.InsertKeyFrame(1,Vector3.Zero,ease);
+        visual.StartAnimation("Offset",animation);
     }
     internal static void Enter(FrameworkElement element, int milliseconds=220,float initialScale=.985f)
     {

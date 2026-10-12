@@ -6,6 +6,8 @@ public enum DockAlignment { Center, Left, Right }
 public enum MonitorMode { Primary, All }
 public enum ThemeMode { Dark, Light, System }
 public enum IndicatorStyle { Dot, Bar }
+public enum InterfaceLanguage { English, Russian }
+public enum LaunchpadIconStyle { WhiteSquares, ColorOnDark, ColorOnWhite }
 public enum TaskbarMode
 {
     /// <summary>Do not touch the Windows taskbar.</summary>
@@ -43,6 +45,11 @@ public sealed class DockSettings
     public bool Border { get; set; } = true;
     public bool Blur { get; set; } = false;
     public ThemeMode Theme { get; set; } = ThemeMode.Dark;
+    public InterfaceLanguage Language { get; set; } = InterfaceLanguage.English;
+    public bool MenuAnimations { get; set; } = true;
+    public int MenuAnimationMs { get; set; } = 200;
+    public bool ShowWindowPreviews { get; set; } = true;
+    public int PreviewDelayMs { get; set; } = 750;
     public IndicatorStyle IndicatorStyle { get; set; } = IndicatorStyle.Dot;
     public bool ShowLabels { get; set; } = true;
 
@@ -80,6 +87,13 @@ public sealed class DockSettings
     public bool TopBarReserveSpace { get; set; } = true;
     public bool TopBarShowDate { get; set; } = false;
     public bool TopBarShowSeconds { get; set; } = false;
+    public int TopBarAnimationFps { get; set; } = 60;
+    public int TopBarHideMs { get; set; } = 220;
+    public int TopBarShowMs { get; set; } = 170;
+    public int TopBarHideDelayMs { get; set; } = 700;
+    public bool TopBarMediaEnabled { get; set; } = true;
+    public bool TopBarTrayEnabled { get; set; } = true;
+    public bool TopBarSearchEnabled { get; set; } = true;
 
     // ---- Icon packs ----
     public bool UseIconPack { get; set; } = true;
@@ -90,6 +104,11 @@ public sealed class DockSettings
     public int LaunchpadIconSize { get; set; } = 72;
     public int LaunchpadSpacing { get; set; } = 28;
     public string LaunchpadHotkey { get; set; } = "Ctrl+Alt+Space";
+    public LaunchpadIconStyle LaunchpadIconStyle { get; set; } = LaunchpadIconStyle.WhiteSquares;
+    public string SearchHotkey { get; set; } = "Ctrl+Alt+K";
+    public bool SearchFiles { get; set; } = true;
+    public string SearchFolders { get; set; } = "Desktop;Documents;Downloads";
+    public int SearchResultLimit { get; set; } = 30;
 
     // ---- Windows taskbar ----
     public TaskbarMode TaskbarMode { get; set; } = TaskbarMode.HideCompletely;
@@ -111,6 +130,13 @@ public sealed class DockSettings
         if (!Enum.IsDefined(Theme)) Theme = ThemeMode.Dark;
         if (!Enum.IsDefined(IndicatorStyle)) IndicatorStyle = IndicatorStyle.Dot;
         if (!Enum.IsDefined(TaskbarMode)) TaskbarMode = TaskbarMode.Leave;
+        if (!Enum.IsDefined(Language)) Language=InterfaceLanguage.English;
+        if (!Enum.IsDefined(LaunchpadIconStyle)) LaunchpadIconStyle=LaunchpadIconStyle.WhiteSquares;
+        TopBarAnimationFps=Math.Clamp(TopBarAnimationFps,30,144);
+        TopBarHideMs=Math.Clamp(TopBarHideMs,80,800);TopBarShowMs=Math.Clamp(TopBarShowMs,80,800);
+        TopBarHideDelayMs=Math.Clamp(TopBarHideDelayMs,100,3000);
+        MenuAnimationMs=Math.Clamp(MenuAnimationMs,80,600);PreviewDelayMs=Math.Clamp(PreviewDelayMs,200,2000);
+        SearchResultLimit=Math.Clamp(SearchResultLimit,5,100);SearchFolders??="";SearchHotkey??="";
         IconSize = Math.Clamp(IconSize, 24, 128);
         IconSpacing = Math.Clamp(IconSpacing, 0, 40);
         DockHeight = Math.Clamp(DockHeight, IconSize + 4, 200);

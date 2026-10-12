@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.1.0
+
+- Dismiss previews during dock-icon activation, retain suppression until the pointer leaves, and rebind DWM thumbnails after minimize/restore. Hide app labels while a preview is visible.
+- Exclude label-only headroom from hover retention and watch pointer departure even after the frame loop settles.
+- Add English/Russian interface selection, preview controls, finite menu transitions and configurable top-bar animation FPS, durations and hide delay. Remove the ineffective experimental blur control and group advanced dock geometry controls.
+- Replace Launchpad search with an Add application picker and offer white squares, colored squares on dark, and colored squares on white launcher icons.
+- Add a separate Ctrl+Alt+K command palette for applications, filenames and folders. Default file scopes are Desktop, Documents and Downloads; Windows Search queries and bounded fallback scans stay off the UI thread and support cancellation.
+- Add Windows media-session transport controls and a chevron for Explorer's real system-tray overflow, including Windows 11 XAML overflow and temporary taskbar visibility cleanup.
+- Document an optional GlazeWM IPC integration approach without enabling a tiling engine.
+
 ## 1.0.19
 
 - Keep the dock HWND stable when unpinned applications appear or disappear; animate the visible plate and slots within it.

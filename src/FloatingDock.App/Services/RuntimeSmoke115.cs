@@ -56,14 +56,14 @@ internal static partial class RuntimeSmoke
             checks["circleToggle"]=new { repeatedCycles=4,interruptedCloseSafe=true,captureDismissImmediate=true };
             await app.PrepareLaunchpadAsync();var launchpad=app.LaunchpadWin!;
             launchpad.Show();await Task.Delay(380);
-            Check(launchpad.SearchSize.Width<=260.5&&launchpad.SearchSize.Height is >=33 and <=35,"Launchpad search is not compact.");
+            Check(!launchpad.HasSearch&&launchpad.HasAddApplication,"Launchpad add button is missing or old search remains.");
             OwnWindowCapture.Capture(launchpad.Handle).Save(Path.Combine(app.Paths.Root,"launchpad-compact.png"));
             int bindings=Launchpad.LaunchpadTile.BindingChanges,rebuilds=launchpad.ViewRebuilds;
             launchpad.Hide();await Task.Delay(230);launchpad.Show();await Task.Delay(380);
             Check(Launchpad.LaunchpadTile.BindingChanges==bindings&&launchpad.ViewRebuilds==rebuilds,"Reopening Launchpad rebuilt unchanged tiles or its search view.");
             var process=Process.GetCurrentProcess();var cpu=process.TotalProcessorTime;var timer=Stopwatch.StartNew();await Task.Delay(2500);
             double oneCore=(process.TotalProcessorTime-cpu).TotalMilliseconds/timer.Elapsed.TotalMilliseconds*100;
-            checks["launchpadReuse"]=new { searchWidth=launchpad.SearchSize.Width,searchHeight=launchpad.SearchSize.Height,unchangedBindings=true,unchangedView=true,realizedTiles=launchpad.RealizedTileCount,idleMeasurementMs=timer.Elapsed.TotalMilliseconds,cpuPercentOfOneCore=oneCore,cpuPercentOfMachine=oneCore/Environment.ProcessorCount };
+            checks["launchpadReuse"]=new { hasSearch=launchpad.HasSearch,hasAddApplication=launchpad.HasAddApplication,unchangedBindings=true,unchangedView=true,realizedTiles=launchpad.RealizedTileCount,idleMeasurementMs=timer.Elapsed.TotalMilliseconds,cpuPercentOfOneCore=oneCore,cpuPercentOfMachine=oneCore/Environment.ProcessorCount };
             launchpad.Hide();await Task.Delay(40);launchpad.Show();await Task.Delay(50);launchpad.Hide();await Task.Delay(250);
             Check(!launchpad.IsOpen&&!WindowStyler.IsVisible(launchpad.Handle),"Interrupted Launchpad animation left a visible window.");
             launchpad.Show();await Task.Delay(380);Check(launchpad.IsOpen,"Launchpad could not reopen after interrupted transitions.");launchpad.Hide();await Task.Delay(350);

@@ -1,3 +1,4 @@
+using FloatingDock.Core.Configuration;
 using System.Numerics;
 using FloatingDock.Core.Models;
 using FloatingDock.UI.Views;
@@ -65,6 +66,11 @@ internal sealed class CompositionIcon : IDisposable
     {
         if (_disposed || _app is null) return;
         int generation = ++_generation;
+        if (_kind == GlyphKind.Launchpad)
+        {
+            _brush.Surface=null;_surface?.Dispose();_surface=null;
+            if(_fallback is not null){_content.Children.Remove(_fallback);_fallback.Dispose();_fallback=null;}
+        }
         if (_surface is null) ShowFallback();
         CompositionDrawingSurface? candidate = null;
         try
@@ -91,13 +97,14 @@ internal sealed class CompositionIcon : IDisposable
             var shape = _compositor.CreateSpriteShape(geometry); shape.FillBrush = _compositor.CreateColorBrush(color); visual.Shapes.Add(shape);
         }
         Color C(byte r, byte g, byte b) => Color.FromArgb(255, r, g, b);
-        Rect(0, 0, 48, 48, 11, _kind == GlyphKind.Start ? C(30, 90, 190) : _kind == GlyphKind.Launchpad ? C(12, 14, 18) : C(68, 95, 147));
+        var style=DockApp.Current.Settings.Current.LaunchpadIconStyle;
+        if(_kind!=GlyphKind.Launchpad||style!=LaunchpadIconStyle.WhiteSquares)Rect(0, 0, 48, 48, 11, _kind == GlyphKind.Start ? C(30, 90, 190) : _kind == GlyphKind.Launchpad ? style==LaunchpadIconStyle.ColorOnWhite?C(255,255,255):C(12,14,18) : C(68, 95, 147));
         if (_kind == GlyphKind.Start)
             for (int i = 0; i < 4; i++) Rect(12 + (i % 2) * 13, 12 + (i / 2) * 13, 11, 11, 1.5f, C(255, 255, 255));
         else if (_kind == GlyphKind.Launchpad)
         {
             Color[] colors = { C(255,95,86), C(255,189,46), C(39,201,63), C(10,132,255), C(175,82,222), C(255,255,255), C(255,140,0), C(50,173,230), C(60,60,70) };
-            for (int i = 0; i < 9; i++) Rect(10.75f + (i % 3) * 10, 10.75f + (i / 3) * 10, 6.5f, 6.5f, 2f, colors[i]);
+            for (int i = 0; i < 9; i++) Rect(10.75f + (i % 3) * 10, 10.75f + (i / 3) * 10, 6.5f, 6.5f, 1.5f, style==LaunchpadIconStyle.WhiteSquares?C(255,255,255):style==LaunchpadIconStyle.ColorOnWhite&&i==5?C(180,180,190):colors[i]);
         }
         else
         {

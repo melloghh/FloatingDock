@@ -1,6 +1,7 @@
 using FloatingDock.Core.Configuration;
 using FloatingDock.Core.Models;
 using FloatingDock.Windows.Shell;
+using FloatingDock.UI.Views;
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -26,6 +27,14 @@ internal sealed partial class SettingsWindow
         Ui.Toggle("Auto-hide — reveal at the top edge", S.TopBarAutoHide, (d, v) => d.TopBarAutoHide = v),
         Ui.Toggle("Keep maximized windows below the menu bar", S.TopBarReserveSpace, (d, v) => d.TopBarReserveSpace = v),
         Ui.Toggle("Show date next to the clock", S.TopBarShowDate, (d, v) => d.TopBarShowDate = v),
+        Ui.Toggle("Show media controls",S.TopBarMediaEnabled,(d,v)=>d.TopBarMediaEnabled=v),
+        Ui.Toggle("Show system tray arrow",S.TopBarTrayEnabled,(d,v)=>d.TopBarTrayEnabled=v),
+        Ui.Toggle("Show search button",S.TopBarSearchEnabled,(d,v)=>d.TopBarSearchEnabled=v),
+        Ui.Section("Motion",
+            Ui.Slider("Hide animation frame limit",30,144,S.TopBarAnimationFps,(d,v)=>d.TopBarAnimationFps=v," fps"),
+            Ui.Slider("Show duration",80,800,S.TopBarShowMs,(d,v)=>d.TopBarShowMs=v," ms"),
+            Ui.Slider("Hide duration",80,800,S.TopBarHideMs,(d,v)=>d.TopBarHideMs=v," ms"),
+            Ui.Slider("Hide delay",100,3000,S.TopBarHideDelayMs,(d,v)=>d.TopBarHideDelayMs=v," ms")),
         Ui.Toggle("Show seconds", S.TopBarShowSeconds, (d, v) => d.TopBarShowSeconds = v),
         Ui.Note("Current app on the left; network, sound, input language and clock on the right. Hidden during fullscreen and screen capture. Follows the Dock monitor setting."));
 
@@ -40,13 +49,13 @@ internal sealed partial class SettingsWindow
                 Ui.Slider("Icon spacing", 0, 40, s.IconSpacing, (d, v) => d.IconSpacing = v, " px"),
                 Ui.Slider("Dock height", 28, 200, s.DockHeight, (d, v) => d.DockHeight = v, " px")),
             Ui.Section("Position",
-                Ui.Combo("Положение дока", new[] { ("Снизу", DockEdge.Bottom), ("Слева", DockEdge.Left), ("Справа", DockEdge.Right) }, s.Edge, (d,v) => d.Edge=v),
+                Ui.Combo("Dock position", new[] { ("Bottom", DockEdge.Bottom), ("Left", DockEdge.Left), ("Right", DockEdge.Right) }, s.Edge, (d,v) => d.Edge=v),
                 Ui.Slider("Distance from the screen edge", 0, 200, s.BottomOffset, (d, v) => d.BottomOffset = v, " px"),
-                Ui.Combo("Width", new[] { ("Fit the icons", WidthMode.Auto), ("Fixed width", WidthMode.Fixed) }, s.WidthMode, (d, v) => d.WidthMode = v),
+                Ui.Advanced(Ui.Combo("Width", new[] { ("Fit the icons", WidthMode.Auto), ("Fixed width", WidthMode.Fixed) }, s.WidthMode, (d, v) => d.WidthMode = v),
                 Ui.Slider("Fixed width", 200, 3000, s.FixedWidth, (d, v) => d.FixedWidth = v, " px"),
                 Ui.Combo("Alignment", new[] { ("Center", DockAlignment.Center), ("Left", DockAlignment.Left), ("Right", DockAlignment.Right) }, s.Alignment, (d, v) => d.Alignment = v),
                 Ui.Slider("Offset along the edge", -1500, 1500, s.HorizontalOffset, (d, v) => d.HorizontalOffset = v, " px"),
-                Ui.Combo("Monitors", new[] { ("Primary monitor only", MonitorMode.Primary), ("Every monitor", MonitorMode.All) }, s.MonitorMode, (d, v) => d.MonitorMode = v)),
+                Ui.Combo("Monitors", new[] { ("Primary monitor only", MonitorMode.Primary), ("Every monitor", MonitorMode.All) }, s.MonitorMode, (d, v) => d.MonitorMode = v))),
             PinnedSection());
     }
 
@@ -69,7 +78,7 @@ internal sealed partial class SettingsWindow
                 void Add(int col, string glyph, string tip, Action a, bool enabled = true)
                 {
                     var b = new Button { Content = glyph, Padding = new Thickness(10, 3, 10, 3), IsEnabled = enabled };
-                    ToolTipService.SetToolTip(b, tip);
+                    ToolTipService.SetToolTip(b, L.Text(tip));
                     b.Click += (_, _) => a();
                     Grid.SetColumn(b, col);
                     row.Children.Add(b);
@@ -102,7 +111,7 @@ internal sealed partial class SettingsWindow
             var pins = await _app.Worker.Run(AppCatalog.ReadWindowsTaskbarPins);
             int n = 0;
             foreach (var p in pins) if (_app.Pinned.Add(p)) n++;
-            await Message("Pinned apps", n > 0 ? $"Imported {n} app(s)." : "No new pinned apps were found on the Windows taskbar.");
+            await Message("Pinned apps", n > 0 ? L.Format("Imported {0} app(s).",n) : "No new pinned apps were found on the Windows taskbar.");
         });
         return Ui.Section("Pinned apps", list, Ui.Row(add, import), Ui.Note("Drag icons in the Dock to reorder them, drag one out of the Dock to unpin it."));
     }
@@ -114,7 +123,7 @@ internal sealed partial class SettingsWindow
         var s = S;
         var colorBox = Ui.TextField("Background color (hex RGB)", s.BackgroundColor,
             t => ColorUtil.TryParseRgb(t, out _) ? null : "Use 6 hex digits, e.g. 1E1E1E", (d, v) => d.BackgroundColor = v.TrimStart('#').ToUpperInvariant());
-        var pickerBtn = new Button { Content = "Pick color…" };
+        var pickerBtn = new Button { Content = L.Text("Pick color…") };
         pickerBtn.Click += (_, _) =>
         {
             ColorUtil.TryParseRgb(S.BackgroundColor, out var rgb);
@@ -125,14 +134,15 @@ internal sealed partial class SettingsWindow
             fly.ShowAt(pickerBtn);
         };
         return Page("Appearance",
+            Ui.Combo("Interface language",new[]{("English",InterfaceLanguage.English),("Russian",InterfaceLanguage.Russian)},s.Language,(d,v)=>d.Language=v),
             Ui.Section("Background",
                 Ui.Row(colorBox, new Border { VerticalAlignment = VerticalAlignment.Bottom, Child = pickerBtn }),
                 Ui.Slider("Opacity", 0, 100, s.Opacity, (d, v) => d.Opacity = v, " %"),
                 Ui.Slider("Corner radius", 0, 60, s.CornerRadius, (d, v) => d.CornerRadius = v, " px"),
                 Ui.Toggle("Drop shadow", s.Shadow, (d, v) => d.Shadow = v),
                 Ui.Toggle("Thin border", s.Border, (d, v) => d.Border = v),
-                Ui.Toggle("Blur behind the dock (experimental)", s.Blur, (d, v) => d.Blur = v),
-                Ui.Note("Blur uses the DWM blur-behind API; Windows decides how it looks, it may be ignored on some systems.")),
+                Ui.Toggle("Animate menus",s.MenuAnimations,(d,v)=>d.MenuAnimations=v),
+                Ui.Slider("Menu animation duration",80,600,s.MenuAnimationMs,(d,v)=>d.MenuAnimationMs=v," ms")),
             Ui.Section("Theme & indicators",
                 Ui.Combo("Theme (settings, Launchpad menus)", new[] { ("Dark", ThemeMode.Dark), ("Light", ThemeMode.Light), ("Follow system", ThemeMode.System) }, s.Theme, (d, v) => d.Theme = v),
                 Ui.Combo("Running indicator", new[] { ("Dot", IndicatorStyle.Dot), ("Bar", IndicatorStyle.Bar) }, s.IndicatorStyle, (d, v) => d.IndicatorStyle = v),
@@ -178,6 +188,7 @@ internal sealed partial class SettingsWindow
                 Ui.Toggle("Auto-hide the dock", s.AutoHide, (d, v) => d.AutoHide = v),
                 Ui.Toggle("Reveal when the cursor touches the screen edge", s.RevealOnEdgeHover, (d, v) => d.RevealOnEdgeHover = v),
                 Ui.Toggle("Hide for fullscreen or maximized apps", s.HideOnFullscreen, (d, v) => d.HideOnFullscreen = v)),
+            Ui.Section("Window previews",Ui.Toggle("Show window previews on hover",s.ShowWindowPreviews,(d,v)=>d.ShowWindowPreviews=v),Ui.Slider("Preview delay",200,2000,s.PreviewDelayMs,(d,v)=>d.PreviewDelayMs=v," ms")),
             Ui.Section("Clicks & startup",
                 Ui.Toggle("Clicking the active app minimizes it", s.MinimizeOnRepeatClick, (d, v) => d.MinimizeOnRepeatClick = v),
                 Ui.Toggle("Start FloatingDock with Windows", s.StartWithWindows, (d, v) => d.StartWithWindows = v),
@@ -188,7 +199,7 @@ internal sealed partial class SettingsWindow
     {
         void Update()
         {
-            status.Text = _app.HotkeyRegistered.TryGetValue(hotkeyId, out var ok) && !ok && FieldHasText(field) ? "This shortcut is already used by another program." : "";
+            status.Text = _app.HotkeyRegistered.TryGetValue(hotkeyId, out var ok) && !ok && FieldHasText(field) ? L.Text("This shortcut is already used by another program.") : "";
             status.Foreground = new SolidColorBrush(Colors.OrangeRed);
         }
         async void OnChanged(DockSettings _) { await Task.Delay(250); _app.UiQueue.TryEnqueue(Update); }
@@ -221,7 +232,7 @@ internal sealed partial class SettingsWindow
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                 row.Children.Add(new TextBlock { Text = app.Name, VerticalAlignment = VerticalAlignment.Center });
-                var b = new Button { Content = "Remove" };
+                var b = new Button { Content = L.Text("Remove") };
                 var key = app.Key;
                 b.Click += (_, _) => _app.UserTiles.Remove(key);
                 Grid.SetColumn(b, 1);
@@ -235,6 +246,7 @@ internal sealed partial class SettingsWindow
         _pageCleanup.Add(() => _app.UserTiles.Changed -= Changed);
 
         return Page("Launchpad",
+            Ui.Combo("Launchpad icon",new[]{("White squares",LaunchpadIconStyle.WhiteSquares),("Color on dark",LaunchpadIconStyle.ColorOnDark),("Color on white",LaunchpadIconStyle.ColorOnWhite)},s.LaunchpadIconStyle,(d,v)=>{d.LaunchpadIconStyle=v;_app.TryResetIcon(Dock.SpecialApps.Launchpad);}),
             Ui.Section("Tiles",
                 Ui.Slider("Icon size", 32, 160, s.LaunchpadIconSize, (d, v) => d.LaunchpadIconSize = v, " px"),
                 Ui.Slider("Spacing", 4, 120, s.LaunchpadSpacing, (d, v) => d.LaunchpadSpacing = v, " px")),
@@ -280,7 +292,7 @@ internal sealed partial class SettingsWindow
             Ui.Section("Maintenance",
                 Ui.Action("Reset all settings to defaults", async () =>
                 {
-                    var r = await Dialog("Reset settings", new TextBlock { Text = "All dock settings return to their defaults. Pinned apps, Launchpad tiles and icons are kept." }, "Reset");
+                    var r = await Dialog("Reset settings", new TextBlock { Text = L.Text("All dock settings return to their defaults. Pinned apps, Launchpad tiles and icons are kept.") }, "Reset");
                     if (r != ContentDialogResult.Primary) return;
                     var defaults = new DockSettings();
                     _app.Settings.Update(d =>

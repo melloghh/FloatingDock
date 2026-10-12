@@ -33,7 +33,8 @@ internal sealed class LaunchpadWindow : IDisposable
     private readonly Grid _root = new() { Background = new SolidColorBrush(global::Windows.UI.Color.FromArgb(92, 8, 10, 16)), AllowDrop = true };
     private readonly Grid _content = new();
     private readonly Border _shell=new() { CornerRadius=new CornerRadius(28),Padding=new Thickness(28),Background=new SolidColorBrush(global::Windows.UI.Color.FromArgb(164,18,21,27)),BorderThickness=new Thickness(1),BorderBrush=new SolidColorBrush(global::Windows.UI.Color.FromArgb(26,255,255,255)),HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Center };
-    private readonly TextBox _search = new();
+    private readonly Button _addButton = new() { Content = new SymbolIcon(Symbol.Add), Width=40, Height=40, CornerRadius=new CornerRadius(12), BorderThickness=new Thickness(0) };
+    private readonly TextBlock _headingTitle=new(),_headingNote=new();
     private readonly Button _focusSink = new() { Width = 1, Height = 1, Opacity = 0, IsTabStop = false, IsHitTestVisible = false, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top };
     private readonly Button _settingsButton = new() { Content = new SymbolIcon(Symbol.Setting), Width=40,Height=40,CornerRadius=new CornerRadius(12),Background=new SolidColorBrush(global::Windows.UI.Color.FromArgb(12,255,255,255)),BorderThickness=new Thickness(0) };
     private readonly Button _refreshButton = new() { Content = new SymbolIcon(Symbol.Refresh), Width=40,Height=40,CornerRadius=new CornerRadius(12),Background=new SolidColorBrush(global::Windows.UI.Color.FromArgb(12,255,255,255)),BorderThickness=new Thickness(0) };
@@ -44,13 +45,10 @@ internal sealed class LaunchpadWindow : IDisposable
     private readonly Border _toast = new() { Opacity = 0, IsHitTestVisible = false };
     private readonly TextBlock _toastText = new() { Foreground = new SolidColorBrush(Colors.White), FontSize = 14 };
     private readonly Visual _contentVisual;
-    private readonly AppSearchIndex _index = new(Array.Empty<AppRef>());
     private readonly DispatcherQueueTimer _toastTimer;
-    private readonly DispatcherQueueTimer _searchTimer;
     private readonly DispatcherQueueTimer _transitionTimer;
     private readonly GlassBackdrop _glass=new();
     private int _allVersion, _viewVersion = -1;
-    private string? _lastViewQuery;
 
     private List<AppRef>? _catalog;
     private DateTime _catalogLoaded = DateTime.MinValue;
@@ -69,10 +67,6 @@ internal sealed class LaunchpadWindow : IDisposable
     public LaunchpadWindow()
     {
         _s = _app.Settings.Current;
-        _searchTimer = _app.UiQueue.CreateTimer();
-        _searchTimer.Interval = TimeSpan.FromMilliseconds(75);
-        _searchTimer.IsRepeating = false;
-        _searchTimer.Tick += (_, _) => RebuildView();
         _transitionTimer=_app.UiQueue.CreateTimer();_transitionTimer.IsRepeating=false;
         _transitionTimer.Tick+=(_,_)=> { if(_closing)FinishHide();else FinishOpening(); };
         BuildTree();
@@ -93,12 +87,12 @@ internal sealed class LaunchpadWindow : IDisposable
         _app.Settings.Changed += OnSettings;
         _app.Icons.IconsChanged += OnIconsChanged;
         _root.KeyDown += OnKeyDown;
-        _root.CharacterReceived += OnCharacterReceived;
         _root.Tapped += OnBackgroundTapped;
         _root.PointerPressed += (_, _) => { if (_visible && !_closing) _backgroundPressGeneration = _visibilityGeneration; };
         _root.DragOver += OnDragOver;
         _root.Drop += OnDrop;
         _root.Loaded += (_, _) => { if (_visible && _opening) BeginOpening(_visibilityGeneration); };
+        _addButton.Click += async (_, _) => await AddApplicationAsync();
         _settingsButton.Click += (_, _) => OpenSettings();
         _refreshButton.Click += async (_, _) => await RefreshCatalogAsync(force: true);
     }
@@ -110,26 +104,15 @@ internal sealed class LaunchpadWindow : IDisposable
         _content.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         _content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
-        _search.PlaceholderText = "Поиск приложений";
-        _search.MinWidth=120;_search.MaxWidth=260;
-        _search.Height=34;_search.MinHeight=34;_search.VerticalAlignment=VerticalAlignment.Center;
-        _search.Padding=new Thickness(12,5,12,5);
-        _search.FontSize = 13;
-        _search.HorizontalAlignment = HorizontalAlignment.Stretch;
-        _search.Margin = new Thickness(24,0,24,0);
-        _search.Background=new SolidColorBrush(global::Windows.UI.Color.FromArgb(16,255,255,255));
-        _search.BorderThickness=new Thickness(0);
-        _search.CornerRadius = new CornerRadius(11);
-        _search.TextChanged += (_, _) => { _searchTimer.Stop(); _searchTimer.Start(); };
-        _search.Tapped += (_, e) => e.Handled = true;
         var header=new Grid { Height=48,Margin=new Thickness(0,0,0,20) };
         header.ColumnDefinitions.Add(new ColumnDefinition { Width=GridLength.Auto });header.ColumnDefinitions.Add(new ColumnDefinition { Width=new GridLength(1,GridUnitType.Star) });header.ColumnDefinitions.Add(new ColumnDefinition { Width=GridLength.Auto });
         var heading=new StackPanel { VerticalAlignment=VerticalAlignment.Center,Spacing=4 };
-        heading.Children.Add(new TextBlock { Text="Приложения",FontSize=23,FontWeight=Microsoft.UI.Text.FontWeights.SemiBold,Foreground=new SolidColorBrush(Colors.White) });
-        heading.Children.Add(new TextBlock { Text="Закреплено в меню «Пуск»",FontSize=12,Foreground=new SolidColorBrush(global::Windows.UI.Color.FromArgb(255,169,177,192)) });
-        header.Children.Add(heading);Grid.SetColumn(_search,1);header.Children.Add(_search);
+        _headingTitle.Text=L.Text("Apps");_headingTitle.FontSize=23;_headingTitle.FontWeight=Microsoft.UI.Text.FontWeights.SemiBold;_headingTitle.Foreground=new SolidColorBrush(Colors.White);
+        _headingNote.Text=L.Text("Windows Start pins and your apps");_headingNote.FontSize=12;_headingNote.Foreground=new SolidColorBrush(global::Windows.UI.Color.FromArgb(255,169,177,192));
+        heading.Children.Add(_headingTitle);heading.Children.Add(_headingNote);
+        header.Children.Add(heading);
         var actions=new StackPanel { Orientation=Orientation.Horizontal,Spacing=8,VerticalAlignment=VerticalAlignment.Center };
-        actions.Children.Add(_refreshButton);actions.Children.Add(_settingsButton);Grid.SetColumn(actions,2);header.Children.Add(actions);_content.Children.Add(header);
+        actions.Children.Add(_addButton);actions.Children.Add(_refreshButton);actions.Children.Add(_settingsButton);Grid.SetColumn(actions,2);header.Children.Add(actions);_content.Children.Add(header);
 
         _repeater.Layout = _layout;
         _repeater.Background = new SolidColorBrush(Colors.Transparent);
@@ -163,11 +146,14 @@ internal sealed class LaunchpadWindow : IDisposable
         Grid.SetRowSpan(_toast, 2);
 
         Grid.SetRowSpan(_focusSink, 2); _root.Children.Add(_focusSink);
-        ToolTipService.SetToolTip(_settingsButton, "FloatingDock settings");
-        ToolTipService.SetToolTip(_refreshButton, "Refresh Windows Start pins");
+        ToolTipService.SetToolTip(_settingsButton, L.Text("FloatingDock settings"));
+        ToolTipService.SetToolTip(_refreshButton, L.Text("Refresh Windows Start pins"));
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(_settingsButton, "FloatingDock settings");
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(_refreshButton, "Refresh Windows Start pins");
         _settingsButton.Tapped += (_, e) => e.Handled = true;
+        ToolTipService.SetToolTip(_addButton,L.Text("Add application"));
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(_addButton,L.Text("Add application"));
+        _addButton.Tapped += (_,e)=>e.Handled=true;
         _refreshButton.Tapped += (_, e) => e.Handled = true;
     }
 
@@ -210,18 +196,36 @@ internal sealed class LaunchpadWindow : IDisposable
     internal int RealizedTileCount => Tiles().Count();
     internal IReadOnlyList<LaunchpadTile> TilesForDiagnostics=>Tiles().ToArray();
     internal int ViewRebuilds { get; private set; }
-    internal (double Width,double Height) SearchSize => (_search.ActualWidth,_search.ActualHeight);
+    internal bool HasSearch => false;
+    internal bool HasAddApplication => _addButton.IsEnabled;
     internal float ContentOpacity => _contentVisual.Opacity;
     internal bool HasSettingsShortcut => _settingsButton.IsEnabled;
     internal bool IsPrepared => _preparation?.IsCompletedSuccessfully == true;
     internal int ExportedStartPins { get; private set; }
-    internal string SearchSampleName => _all.FirstOrDefault()?.Name ?? "";
-    internal async Task<int> SearchForSmokeAsync(string query)
+    internal int ViewCount => _view.Count;
+
+    private async Task AddApplicationAsync()
     {
-        _search.Text = query;
-        // TextChanged is queued by WinUI; inspect after the UI dispatcher processes it.
-        await Task.Delay(150);
-        return _view.Count;
+        if (_disposed || !_visible || _closing) return;
+        _modal++;
+        try
+        {
+            var picker = new global::Windows.Storage.Pickers.FileOpenPicker();
+            picker.FileTypeFilter.Add(".lnk"); picker.FileTypeFilter.Add(".exe");
+            WinRT.Interop.InitializeWithWindow.Initialize(picker,_hwnd);
+            var file = await picker.PickSingleFileAsync();
+            if (file is null || _disposed) return;
+            await AddApplicationPathAsync(file.Path);
+        }
+        catch(Exception ex) { _app.Log.Warn("Launchpad add failed: "+ex.Message); if(!_disposed)ShowToast(L.Text("Could not add application.")); }
+        finally { _modal--; if(!_disposed&&_visible&&!_closing)WindowStyler.BringToFront(_hwnd); }
+    }
+    internal async Task<bool> AddApplicationPathAsync(string path)
+    {
+        var result=await _app.Worker.Run(()=>UserTileImporter.Import(path,_app.Paths.AppLibraryShortcutsDir,key=>_app.UserTiles.Contains(key)));
+        if(_disposed)return false;
+        if(result.Status==TileImportStatus.Added&&result.App is not null)return _app.UserTiles.Add(result.App);
+        ShowToast(L.Text(result.Status==TileImportStatus.Duplicate?"Already added.":"This file type is not supported."));return false;
     }
 
     public void Show()
@@ -240,7 +244,6 @@ internal sealed class LaunchpadWindow : IDisposable
         WindowStyler.SetBounds(_hwnd, mon.Bounds.Left, mon.Bounds.Top, mon.Bounds.Width, mon.Bounds.Height);
         SetPanelBounds(mon);
 
-        _search.Text = "";
         if (_catalog is null && _allVersion==0) RebuildAll();
         else RebuildView();
         foreach (var tile in Tiles()) tile.Bind(tile.App!, _s.LaunchpadIconSize, TileMetrics().Width, _scale);
@@ -345,7 +348,6 @@ internal sealed class LaunchpadWindow : IDisposable
         _window.AppWindow.Hide();
         WindowStyler.Hide(_hwnd);
         _glass.SetVisible(false);StopTransition();
-        _searchTimer.Stop();
         _app.Dock.SetSuspended(false);
     }
 
@@ -371,26 +373,6 @@ internal sealed class LaunchpadWindow : IDisposable
         if (Program.IsSmokeTest) _app.Log.Info($"Launchpad activation {e.WindowActivationState}, opening={_opening}, visible={_visible}, foreground={WindowStyler.Foreground()}, hwnd={_hwnd}");
         if (e.WindowActivationState == WindowActivationState.Deactivated && _visible && !_closing && !_opening && _modal == 0)
             _ = HideAfterStableDeactivationAsync(_visibilityGeneration);
-    }
-
-    private void OnCharacterReceived(UIElement sender, CharacterReceivedRoutedEventArgs e)
-    {
-        if (!_visible || _closing || _modal > 0 || e.Character < 32 || e.Character == 127 || _root.XamlRoot is null || ReferenceEquals(FocusManager.GetFocusedElement(_root.XamlRoot), _search)) return;
-        StartTypingSearch(char.ConvertFromUtf32((int)e.Character));
-        e.Handled = true;
-    }
-
-    private void StartTypingSearch(string text)
-    {
-        _search.Focus(FocusState.Programmatic);
-        _search.Text += text;
-        _search.SelectionStart = _search.Text.Length;
-    }
-
-    internal bool TypeSearchForSmoke(string text)
-    {
-        StartTypingSearch(text);
-        return _search.Text.EndsWith(text, StringComparison.Ordinal) && _search.FocusState != FocusState.Unfocused;
     }
 
     private async Task HideAfterStableDeactivationAsync(int generation)
@@ -433,25 +415,24 @@ internal sealed class LaunchpadWindow : IDisposable
         var rest = (_catalog ?? new()).Where(a => !userKeys.Contains(a.Key)).ToList();
         _all = user.Concat(rest).ToList();
         _allVersion++;
-        _index.Rebuild(_all);
         RebuildView();
     }
 
     private void RebuildView()
     {
-        _searchTimer.Stop();
-        var q = _search.Text;
-        if (_viewVersion == _allVersion && _lastViewQuery == q) return;
-        _viewVersion = _allVersion; _lastViewQuery = q;
+        if (_viewVersion == _allVersion) return;
+        _viewVersion = _allVersion;
         ViewRebuilds++;
-        _view = string.IsNullOrWhiteSpace(q) ? _all : _index.Search(q).ToList();
+        _view = _all;
         _repeater.ItemsSource = _view;
-        _empty.Text = _view.Count > 0 ? "" : _catalog is null ? "Loading Windows Start pins…" : string.IsNullOrWhiteSpace(q) ? "Pin apps in Windows Start or drop a .lnk / .exe here" : $"No results for “{q}”";
+        _empty.Text = _view.Count > 0 ? "" : L.Text(_catalog is null ? "Loading Windows Start pins…" : "Pin apps in Windows Start or add an application");
     }
 
     private void OnTilesChanged() => _app.UiQueue.TryEnqueue(() => { if (!_disposed) RebuildAll(); });
     private void OnSettings(DockSettings s) => _app.UiQueue.TryEnqueue(() =>
     {
+        _headingTitle.Text=L.Text("Apps");_headingNote.Text=L.Text("Windows Start pins and your apps");
+        ToolTipService.SetToolTip(_addButton,L.Text("Add application"));
         bool layoutChanged = _s.LaunchpadIconSize != s.LaunchpadIconSize || _s.LaunchpadSpacing != s.LaunchpadSpacing;
         _s = s;
         if (_visible && layoutChanged)
@@ -514,29 +495,29 @@ internal sealed class LaunchpadWindow : IDisposable
         e.Handled = true;
         if (sender is not LaunchpadTile { App: { } app }) return;
         bool isUser = _app.UserTiles.Contains(app.Key);
-        bool searching = !string.IsNullOrWhiteSpace(_search.Text);
+        bool searching = false;
         bool pinned = _app.Pinned.Contains(app.Key);
         var userKeys = _app.UserTiles.Snapshot().Select(a => a.Key).ToList();
         int ix = userKeys.IndexOf(app.Key);
 
         var items = new List<MenuItemSpec>
         {
-            new(CmdOpen, "Open"),
-            new(CmdPin, pinned ? "Unpin from Dock" : "Pin to Dock"),
+            new(CmdOpen, L.Text("Open")),
+            new(CmdPin, pinned ? L.Text("Unpin from Dock") : L.Text("Pin to Dock")),
         };
         if (isUser)
         {
-            items.Add(new(CmdRemove, "Remove from Launchpad"));
+            items.Add(new(CmdRemove, L.Text("Remove from Launchpad")));
             if (!searching)
             {
-                items.Add(new(CmdLeft, "Move earlier", Disabled: ix <= 0));
-                items.Add(new(CmdRight, "Move later", Disabled: ix >= userKeys.Count - 1));
+                items.Add(new(CmdLeft, L.Text("Move earlier"), Disabled: ix <= 0));
+                items.Add(new(CmdRight, L.Text("Move later"), Disabled: ix >= userKeys.Count - 1));
             }
         }
         items.Add(MenuItemSpec.Separator);
-        items.Add(new(CmdIcon, "Change icon…"));
-        items.Add(new(CmdResetIcon, "Reset icon", Disabled: !_app.Overrides.Has(app)));
-        items.Add(new(CmdFolder, "Open file location", Disabled: ShellLauncher.LocationOf(app) is null));
+        items.Add(new(CmdIcon, L.Text("Change icon…")));
+        items.Add(new(CmdResetIcon, L.Text("Reset icon"), Disabled: !_app.Overrides.Has(app)));
+        items.Add(new(CmdFolder, L.Text("Open file location"), Disabled: ShellLauncher.LocationOf(app) is null));
 
         _modal++;
         int cmd;
@@ -627,7 +608,6 @@ internal sealed class LaunchpadWindow : IDisposable
         _transitionTimer.Stop();
         StopTransition();
         _toastTimer.Stop();
-        _searchTimer.Stop();
         _app.UserTiles.Changed -= OnTilesChanged;
         _app.Settings.Changed -= OnSettings;
         _app.Icons.IconsChanged -= OnIconsChanged;

@@ -21,7 +21,7 @@ namespace FloatingDock.UI;
 /// <summary>Composition root: creates every service once and wires them together. Everything here runs on the UI thread unless noted.</summary>
 public sealed partial class DockApp : Application
 {
-    public const int HotkeyLaunchpad = 1, HotkeyRestoreTaskbar = 2, HotkeyDockFocus = 3;
+    public const int HotkeyLaunchpad = 1, HotkeyRestoreTaskbar = 2, HotkeyDockFocus = 3, HotkeySearch = 4;
 
     private static DockApp? _current;
     private static TaskbarController? _emergencyTaskbar;
@@ -56,6 +56,7 @@ public sealed partial class DockApp : Application
     internal TrayIcon Tray { get; private set; } = null!;
     internal DockHost Dock { get; private set; } = null!;
     internal MenuBar.MenuBarHost? TopBar { get; private set; }
+    internal Search.CommandPaletteWindow? Palette { get; private set; }
     internal LaunchpadWindow? LaunchpadWin { get; private set; }
     internal SettingsWindow? SettingsWin { get; private set; }
     internal IntPtr MessageHandle => Msg.Handle;
@@ -236,6 +237,8 @@ public sealed partial class DockApp : Application
         {
             try { if (Environment.ProcessPath is { } exe) Autostart.Set(s.StartWithWindows, exe); } catch (Exception ex) { Log.Warn("autostart failed: " + ex.Message); }
         }
+        if(old is not null && old.LaunchpadIconStyle!=s.LaunchpadIconStyle)Icons.Invalidate();
+        if(old is null || old.SearchHotkey!=s.SearchHotkey)RegisterHotkey(HotkeySearch,s.SearchHotkey);
         if (old is null || old.LaunchpadHotkey != s.LaunchpadHotkey) RegisterHotkey(HotkeyLaunchpad, s.LaunchpadHotkey);
         if (old is null || old.RestoreTaskbarHotkey != s.RestoreTaskbarHotkey) RegisterHotkey(HotkeyRestoreTaskbar, s.RestoreTaskbarHotkey);
         if (old is null || old.DockFocusHotkey != s.DockFocusHotkey) RegisterHotkey(HotkeyDockFocus, s.DockFocusHotkey);
@@ -256,6 +259,7 @@ public sealed partial class DockApp : Application
     {
         switch (id)
         {
+            case HotkeySearch: ToggleSearch(); break;
             case HotkeyLaunchpad: ToggleLaunchpad(); break;
             case HotkeyRestoreTaskbar: RestoreTaskbarNow(); break;
             case HotkeyDockFocus: Dock.FocusDock(); break;
@@ -312,6 +316,16 @@ public sealed partial class DockApp : Application
     }
 
     // ------------------------------------------------------------------ commands
+
+    internal async Task<bool> OpenSystemTrayAsync(int x,int y,int right,int bottom)
+    {
+        _taskbarTimer?.Stop();
+        try { return await Task.Run(()=>SystemTrayOverflow.TryOpen(x,y,right,bottom)); }
+        catch(Exception ex){Log.Warn("System tray unavailable: "+ex.Message);return false;}
+        finally { if(!_shuttingDown&&Settings.Current.TaskbarMode!=TaskbarMode.Leave)_taskbarTimer?.Start(); }
+    }
+
+    internal void ToggleSearch() { Palette ??=new Search.CommandPaletteWindow();Palette.Toggle(); }
 
     internal async void ToggleLaunchpad()
     {
@@ -445,6 +459,7 @@ public sealed partial class DockApp : Application
         try { _packWatcher?.Dispose(); } catch { }
         try { Dock.Dispose(); } catch { }
         try { TopBar?.Dispose(); } catch { }
+        try { Palette?.Dispose(); } catch { }
         try { LaunchpadWin?.Dispose(); } catch { }
         try { SettingsWin?.Close(); } catch { }
         try { Tray.Dispose(); } catch { }

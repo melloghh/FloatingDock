@@ -1,3 +1,4 @@
+using FloatingDock.UI.Services;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using FloatingDock.UI.Views;
@@ -65,7 +66,7 @@ internal sealed class MenuBarMenus : IDisposable
         if(kind==FloatingDock.Windows.RunningApps.WindowEventKind.Foreground&&ActiveKind is not null&&!_showing&&NativeMethods.GetForegroundWindow()!=PopupHandle&&!PointerOverAnchor())Close();
     }
     private static SolidColorBrush Brush(byte a,byte r,byte g,byte b)=>new(ColorHelper.FromArgb(a,r,g,b));
-    private static TextBlock Text(string text,double size=13,bool secondary=false)=>new() { Text=text,FontSize=size,TextWrapping=TextWrapping.Wrap,Foreground=secondary?Brush(255,169,177,192):Brush(255,246,247,251) };
+    private static TextBlock Text(string text,double size=13,bool secondary=false)=>new() { Text=L.Text(text),FontSize=size,TextWrapping=TextWrapping.Wrap,Foreground=secondary?Brush(255,169,177,192):Brush(255,246,247,251) };
     private static StackPanel Panel()=>new() { Width=300,Spacing=12 };
     private static Grid Header(string title,string glyph)
     {
@@ -116,8 +117,10 @@ internal sealed class MenuBarMenus : IDisposable
             _glass.SetVisible(true);SurfaceVisible=true;
             // The HWND backdrop does not share the XAML transform. Keep the
             // border and blur at identical bounds throughout the opacity fade.
-            SurfaceMotion.Enter(_popupRoot,200,initialScale:1);
-            _glass.AnimateOpacity(1,200,entering:true);
+            int duration=DockApp.Current.Settings.Current.MenuAnimationMs;
+            SurfaceMotion.Enter(_popupRoot,duration,initialScale:1);
+            SurfaceMotion.SlideContent(content,duration);
+            _glass.AnimateOpacity(1,SurfaceMotion.Duration(duration),entering:true);
             _opened(true);_popupWindow.Activate();WindowStyler.BringToFront(PopupHandle);
             _lastForeground=NativeMethods.GetForegroundWindow();_dismissTimer.Start();
             int generation=_generation;
@@ -139,6 +142,7 @@ internal sealed class MenuBarMenus : IDisposable
         if(ActiveKind is null&&!immediately)return;
         ActiveKind=null;_generation++;_audioTimer.Stop();_dismissTimer.Stop();_resizePopup=null;
         _closeTimer.Stop();
+        MediaButtons=Array.Empty<Button>();MediaReady=false;
         VolumeSlider=null;MuteButton=null;LanguageButtons=Array.Empty<Button>();
         if(_popupRoot is not null)_popupRoot.IsHitTestVisible=false;
         if(_popupWindow is not null)
@@ -146,8 +150,10 @@ internal sealed class MenuBarMenus : IDisposable
             if(immediately||!SurfaceMotion.Enabled)HidePopup();
             else
             {
-                SurfaceMotion.Animate(Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(_popupRoot!),0,1,130);
-                _glass.AnimateOpacity(0,130);
+                int duration=Math.Max(60,DockApp.Current.Settings.Current.MenuAnimationMs*2/3);
+                _closeTimer.Interval=TimeSpan.FromMilliseconds(duration+20);
+                SurfaceMotion.Animate(Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(_popupRoot!),0,1,duration);
+                _glass.AnimateOpacity(0,duration);
                 // Native input callbacks do not necessarily carry a SynchronizationContext.
                 // Finish on the owning dispatcher, never on Task.Delay's worker continuation.
                 _closeTimer.Start();
@@ -182,12 +188,13 @@ internal sealed class MenuBarMenus : IDisposable
         if(ActiveKind=="main") { Close();return; }
         var app=DockApp.Current;var panel=Panel();panel.Spacing=5;
         void Add(string name,string glyph,Action action,bool selected=false)=>panel.Children.Add(Row(name,"",glyph,()=> { Close(immediately:true);action(); },selected));
+        Add("Search","\uE721",app.ToggleSearch);
         Add("Launchpad","\uE80A",app.ToggleLaunchpad);
-        Add("Настройки дока","\uE713",()=>app.ShowSettings());
+        Add(L.Text("FloatingDock settings"),"\uE713",()=>app.ShowSettings());
         panel.Children.Add(Divider());
-        Add("Автоскрытие верхней панели","\uE890",()=>app.Settings.Update(s=>s.TopBarAutoHide=!s.TopBarAutoHide),app.Settings.Current.TopBarAutoHide);
-        Add("Скрыть верхнюю панель","\uE8F4",()=>app.Settings.Update(s=>s.TopBarEnabled=false));
-        panel.Children.Add(Divider());Add("Выйти из FloatingDock","\uE7E8",app.Shutdown);
+        Add(L.Text("Auto-hide menu bar"),"\uE890",()=>app.Settings.Update(s=>s.TopBarAutoHide=!s.TopBarAutoHide),app.Settings.Current.TopBarAutoHide);
+        Add(L.Text("Hide menu bar"),"\uE8F4",()=>app.Settings.Update(s=>s.TopBarEnabled=false));
+        panel.Children.Add(Divider());Add(L.Text("Quit FloatingDock"),"\uE7E8",app.Shutdown);
         Show(anchor,panel,"main");
     }
     private bool PointerOverAnchor()
@@ -199,29 +206,82 @@ internal sealed class MenuBarMenus : IDisposable
         double scale=_anchor.XamlRoot.RasterizationScale,x=bounds.Left+p.X*scale,y=bounds.Top+p.Y*scale;
         return cursor.X>=x&&cursor.X<x+_anchor.ActualWidth*scale&&cursor.Y>=y&&cursor.Y<y+_anchor.ActualHeight*scale;
     }
+    internal IMediaController MediaSource { get; set; } = new MediaController();
+    internal IReadOnlyList<Button> MediaButtons { get; private set; } = Array.Empty<Button>();
+    internal bool MediaReady { get; private set; }
+    internal void Media(Button anchor)
+    {
+        if(ActiveKind=="media"){Close();return;}
+        var panel=Panel();panel.Children.Add(Header("Media","\uE8D6"));
+        var title=Text("Searching…",17);title.FontWeight=Microsoft.UI.Text.FontWeights.SemiBold;
+        var artist=Text("",13,true);var source=Text("",11,true);
+        panel.Children.Add(title);panel.Children.Add(artist);panel.Children.Add(source);
+        var controls=new StackPanel { Orientation=Orientation.Horizontal,Spacing=10,HorizontalAlignment=HorizontalAlignment.Center };
+        Button Button(string glyph,string label)
+        {
+            var button=new Button { Content=new FontIcon { Glyph=glyph,FontSize=20 },Width=64,Height=44,CornerRadius=new CornerRadius(12),IsEnabled=false };
+            AutomationProperties.SetName(button,L.Text(label));ToolTipService.SetToolTip(button,L.Text(label));controls.Children.Add(button);return button;
+        }
+        var previous=Button("\uE892","Previous");var toggle=Button("\uE768","Play / pause");var next=Button("\uE893","Next");panel.Children.Add(controls);
+        var status=Text("",12,true);panel.Children.Add(status);Show(anchor,panel,"media");
+        int generation=_generation;bool reading=false,acting=false;
+        MediaReady=false;MediaButtons=new[]{previous,toggle,next};
+        bool Current()=>ActiveKind=="media"&&generation==_generation;
+        async Task Read()
+        {
+            if(reading||acting||!Current())return;reading=true;
+            try
+            {
+                var state=await MediaSource.ReadAsync();if(!Current())return;
+                title.Text=state is null?L.Text("No active media session"):state.Title;
+                artist.Text=state?.Artist??"";source.Text=state?.Source??"";
+                previous.IsEnabled=state?.Previous==true;toggle.IsEnabled=state?.Toggle==true;next.IsEnabled=state?.Next==true;
+                ((FontIcon)toggle.Content).Glyph=state?.Playing==true?"\uE769":"\uE768";status.Text="";
+            }
+            catch(Exception) { if(Current()){title.Text=L.Text("Media controls are unavailable.");previous.IsEnabled=toggle.IsEnabled=next.IsEnabled=false;} }
+            finally { reading=false;if(Current()){MediaReady=true;_resizePopup?.Invoke();} }
+        }
+        async Task Act(string command)
+        {
+            if(acting||!Current())return;acting=true;
+            try { if(!await MediaSource.ControlAsync(command)&&Current())status.Text=L.Text("Media controls are unavailable."); }
+            catch(Exception){if(Current())status.Text=L.Text("Media controls are unavailable.");}
+            finally { acting=false;if(Current())await Read(); }
+        }
+        previous.Click+=async(_,_)=>await Act("previous");toggle.Click+=async(_,_)=>await Act("toggle");next.Click+=async(_,_)=>await Act("next");
+        if(_audioTick is not null)_audioTimer.Tick-=_audioTick;
+        _audioTick=async(_,_)=>await Read();_audioTimer.Tick+=_audioTick;_audioTimer.Start();_=Read();
+    }
+    internal void TrayUnavailable(Button anchor)
+    {
+        var panel=Panel();panel.Children.Add(Header("System tray","\uE70D"));
+        panel.Children.Add(Text("Windows did not expose its tray arrow. Keep Explorer running and enable hidden tray icons in Windows settings.",13,true));
+        panel.Children.Add(Row("Windows taskbar","More settings","\uE713",()=> { Close();ShellLauncher.Execute("ms-settings:taskbar",null,null); }));
+        Show(anchor,panel,"tray");
+    }
     internal void Sound(Button anchor)
     {
         if(ActiveKind=="sound") { Close();return; }
-        var panel=Panel();panel.Children.Add(Header("Звук","\uE767"));
+        var panel=Panel();panel.Children.Add(Header(L.Text("Sound"),"\uE767"));
         var number=Text("—",27);number.FontWeight=Microsoft.UI.Text.FontWeights.SemiBold;
-        panel.Children.Add(number);panel.Children.Add(Text("Громкость устройства вывода",12,true));
+        panel.Children.Add(number);panel.Children.Add(Text(L.Text("Output device volume"),12,true));
         var slider=new Slider { Minimum=0,Maximum=100,StepFrequency=1,SmallChange=1,LargeChange=10,HorizontalAlignment=HorizontalAlignment.Stretch };
-        AutomationProperties.SetName(slider,"Громкость");panel.Children.Add(slider);
-        var mute=new ToggleButton { Content="Выключить звук",CornerRadius=new CornerRadius(8),HorizontalAlignment=HorizontalAlignment.Stretch };
+        AutomationProperties.SetName(slider,L.Text("Volume"));panel.Children.Add(slider);
+        var mute=new ToggleButton { Content=L.Text("Mute"),CornerRadius=new CornerRadius(8),HorizontalAlignment=HorizontalAlignment.Stretch };
         panel.Children.Add(mute);var status=Text("",12,true);panel.Children.Add(status);
         bool syncing=false, pointerOver=false;
         slider.PointerEntered+=(_,_)=>pointerOver=true;slider.PointerExited+=(_,_)=>pointerOver=false;
         void Read()
         {
-            try { var state=SystemAudio.Read();syncing=true;slider.Value=Math.Round(state.Volume*100);mute.IsChecked=state.Muted;number.Text=$"{Math.Round(state.Volume*100)}%";mute.Content=state.Muted?"Включить звук":"Выключить звук";slider.IsEnabled=mute.IsEnabled=true;status.Text=""; }
-            catch(Exception) { slider.IsEnabled=mute.IsEnabled=false;status.Text="Устройство вывода звука недоступно."; }
+            try { var state=SystemAudio.Read();syncing=true;slider.Value=Math.Round(state.Volume*100);mute.IsChecked=state.Muted;number.Text=$"{Math.Round(state.Volume*100)}%";mute.Content=state.Muted?L.Text("Unmute"):L.Text("Mute");slider.IsEnabled=mute.IsEnabled=true;status.Text=""; }
+            catch(Exception) { slider.IsEnabled=mute.IsEnabled=false;status.Text=L.Text("Output device unavailable."); }
             finally { syncing=false; }
         }
         Read();
-        slider.ValueChanged+=(_,_)=> { if(syncing||ActiveKind!="sound")return;try { SystemAudio.SetVolume((float)slider.Value/100);number.Text=$"{slider.Value:0}%"; }catch(Exception){status.Text="Не удалось изменить громкость.";} };
-        void MuteChanged(object sender,RoutedEventArgs args) { if(syncing||ActiveKind!="sound")return;try { SystemAudio.SetMuted(mute.IsChecked==true);Read(); }catch(Exception){status.Text="Не удалось переключить звук.";} }
+        slider.ValueChanged+=(_,_)=> { if(syncing||ActiveKind!="sound")return;try { SystemAudio.SetVolume((float)slider.Value/100);number.Text=$"{slider.Value:0}%"; }catch(Exception){status.Text=L.Text("Could not change volume.");} };
+        void MuteChanged(object sender,RoutedEventArgs args) { if(syncing||ActiveKind!="sound")return;try { SystemAudio.SetMuted(mute.IsChecked==true);Read(); }catch(Exception){status.Text=L.Text("Could not toggle mute.");} }
         mute.Checked+=MuteChanged;mute.Unchecked+=MuteChanged;
-        panel.Children.Add(Divider());panel.Children.Add(Row("Устройства звука","Дополнительные настройки","\uE713",()=> { Close();ShellLauncher.Execute("ms-settings:sound",null,null); }));
+        panel.Children.Add(Divider());panel.Children.Add(Row(L.Text("Sound devices"),L.Text("More settings"),"\uE713",()=> { Close();ShellLauncher.Execute("ms-settings:sound",null,null); }));
         Show(anchor,panel,"sound");VolumeSlider=slider;MuteButton=mute;
         // Detach the preceding menu's closure; no timer survives light-dismiss.
         if(_audioTick is not null)_audioTimer.Tick-=_audioTick;
@@ -237,32 +297,32 @@ internal sealed class MenuBarMenus : IDisposable
         LanguageTarget=target;
         uint thread=NativeMethods.GetWindowThreadProcessId(target,out _);
         var current=InputLanguages.GetKeyboardLayout(thread);
-        var panel=Panel();panel.Children.Add(Header("Язык ввода","\uE8C1"));panel.Children.Add(Text("Раскладка текущего приложения",12,true));
+        var panel=Panel();panel.Children.Add(Header(L.Text("Input language"),"\uE8C1"));panel.Children.Add(Text(L.Text("Current application keyboard layout"),12,true));
         var rows=new StackPanel { Spacing=4 };var buttons=new List<Button>();
         foreach(var language in InputLanguages.Installed())
         {
-            var row=Row(language.Name,language.Tag,"\uE765",()=> { Close();NativeMethods.SetForegroundWindow(target);if(!InputLanguages.Request(target,language.Handle))DockApp.Current.Notify("Язык ввода","Приложение не приняло смену раскладки.",true); },language.Handle==current);
+            var row=Row(language.Name,language.Tag,"\uE765",()=> { Close();NativeMethods.SetForegroundWindow(target);if(!InputLanguages.Request(target,language.Handle))DockApp.Current.Notify(L.Text("Input language"),L.Text("The application did not accept the keyboard layout."),true); },language.Handle==current);
             rows.Children.Add(row);buttons.Add(row);
         }
-        if(buttons.Count==0)rows.Children.Add(Text("Нет доступных раскладок",13,true));
+        if(buttons.Count==0)rows.Children.Add(Text(L.Text("No keyboard layouts available"),13,true));
         panel.Children.Add(new ScrollViewer { Content=rows,MaxHeight=300,HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled });
-        panel.Children.Add(Divider());panel.Children.Add(Text("Переключение также доступно через Win + Пробел",12,true));
+        panel.Children.Add(Divider());panel.Children.Add(Text(L.Text("You can also switch using Win + Space"),12,true));
         Show(anchor,panel,"language");LanguageButtons=buttons;
     }
     internal void Network(Button anchor)
     {
         if(ActiveKind=="network") { Close();return; }
         NetworkReady=false;NetworkSummary="";
-        int generation=-1;var panel=Panel();panel.Children.Add(Header("Сеть","\uE701"));
-        var state=Text("Проверяем подключение…",13,true);panel.Children.Add(state);
+        int generation=-1;var panel=Panel();panel.Children.Add(Header(L.Text("Network"),"\uE701"));
+        var state=Text(L.Text("Checking connection…"),13,true);panel.Children.Add(state);
         var list=new StackPanel { Spacing=5 };panel.Children.Add(new ScrollViewer { Content=list,MaxHeight=320,HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled });
         var status=Text("",12,true);panel.Children.Add(status);panel.Children.Add(Divider());
-        panel.Children.Add(Row("Обновить сети","Поиск Wi-Fi поблизости","\uE72C",()=>_=Refresh(true)));
-        panel.Children.Add(Row("Все сети Windows","Подключить новую сеть с паролем","\uE774",()=> { Close();ShellLauncher.Execute("ms-availablenetworks:",null,null); }));
+        panel.Children.Add(Row(L.Text("Refresh networks"),L.Text("Find nearby Wi-Fi"),"\uE72C",()=>_=Refresh(true)));
+        panel.Children.Add(Row(L.Text("Windows networks"),L.Text("Connect to a new network with a password"),"\uE774",()=> { Close();ShellLauncher.Execute("ms-availablenetworks:",null,null); }));
         Show(anchor,panel,"network");generation=_generation;_=Refresh(true);
         async Task Refresh(bool scan)
         {
-            status.Text="Обновление…";
+            status.Text=L.Text("Refreshing…");
             try
             {
                 var result=await Task.Run(()=>
@@ -271,7 +331,7 @@ internal sealed class MenuBarMenus : IDisposable
                     return (adapters,wireless:WirelessNetworks.Read(scan));
                 });
                 if(generation!=_generation||ActiveKind!="network")return;
-                list.Children.Clear();state.Text=result.adapters.Length>0?"Подключение активно":"Нет активного подключения";
+                list.Children.Clear();state.Text=result.adapters.Length>0?L.Text("Connected"):L.Text("No active connection");
                 foreach(var a in result.adapters)
                 {
                     var info=new StackPanel { Spacing=4,Margin=new Thickness(10) };
@@ -281,39 +341,39 @@ internal sealed class MenuBarMenus : IDisposable
                 if(result.wireless.Networks.Count>0) { list.Children.Add(Divider());list.Children.Add(Text("WI-FI",11,true)); }
                 foreach(var network in result.wireless.Networks)
                 {
-                    string detail=!network.Available?"Сохранённая сеть · подключить":network.Connected?"Подключено · "+network.Signal+"%":(network.Secured?"Защищённая сеть":"Открытая сеть")+" · "+network.Signal+"%";
+                    string detail=!network.Available?L.Text("Saved network · connect"):network.Connected?L.Text("Connected · ")+network.Signal+"%":(network.Secured?L.Text("Secured network"):L.Text("Open network"))+" · "+network.Signal+"%";
                     list.Children.Add(Row(network.Name,detail,"\uE701",async ()=>
                     {
                         if(!network.Connected&&network.Profile.Length==0) { Close();ShellLauncher.Execute("ms-availablenetworks:",null,null);return; }
-                        status.Text=network.Connected?"Отключение…":"Подключение…";
+                        status.Text=network.Connected?L.Text("Disconnecting…"):L.Text("Connecting…");
                         try { await Task.Run(()=> { if(network.Connected)WirelessNetworks.Disconnect(network);else WirelessNetworks.ConnectSaved(network); });await Task.Delay(1200);if(generation==_generation)await Refresh(false); }
-                        catch(Exception ex) { if(generation==_generation)status.Text="Не удалось: "+ex.Message; }
+                        catch(Exception ex) { if(generation==_generation)status.Text=L.Text("Failed: ")+ex.Message; }
                     },network.Connected));
                 }
-                if(result.wireless.Networks.Count==0&&result.wireless.Error is null)list.Children.Add(Text("Доступных Wi-Fi сетей нет. Если поиск ещё идёт, нажмите «Обновить сети».",12,true));
+                if(result.wireless.Networks.Count==0&&result.wireless.Error is null)list.Children.Add(Text(L.Text("No Wi-Fi networks found. If scanning is still running, choose Refresh networks."),12,true));
                 status.Text=result.wireless.Error??"";NetworkSummary=state.Text;NetworkReady=true;_resizePopup?.Invoke();
                 if(result.wireless.Error is not null&&result.wireless.Networks.All(n=>!n.Available))
-                    list.Children.Add(Row("Разрешить поиск Wi-Fi","Доступ к списку ближайших сетей","\uE72E",async ()=>
+                    list.Children.Add(Row(L.Text("Allow Wi-Fi scanning"),L.Text("Access nearby network list"),"\uE72E",async ()=>
                     {
-                        status.Text="Запрашиваем разрешение Windows…";
+                        status.Text=L.Text("Requesting Windows permission…");
                         try
                         {
                             var access=await global::Windows.Devices.WiFi.WiFiAdapter.RequestAccessAsync();
                             if(access==global::Windows.Devices.WiFi.WiFiAccessStatus.Allowed)await Refresh(true);
-                            else { status.Text="Windows требует включить доступ к местоположению для поиска Wi-Fi.";ShellLauncher.Execute("ms-settings:privacy-location",null,null); }
+                            else { status.Text=L.Text("Windows requires location access for Wi-Fi scanning.");ShellLauncher.Execute("ms-settings:privacy-location",null,null); }
                         }
-                        catch(Exception) { status.Text="Разрешите поиск Wi-Fi в параметрах местоположения Windows.";ShellLauncher.Execute("ms-settings:privacy-location",null,null); }
+                        catch(Exception) { status.Text=L.Text("Allow Wi-Fi scanning in Windows location settings.");ShellLauncher.Execute("ms-settings:privacy-location",null,null); }
                     }));
             }
-            catch(Exception ex) { if(generation==_generation) { status.Text="Не удалось получить сети: "+ex.Message;NetworkSummary=status.Text;NetworkReady=true;_resizePopup?.Invoke(); } }
+            catch(Exception ex) { if(generation==_generation) { status.Text=L.Text("Could not get networks: ")+ex.Message;NetworkSummary=status.Text;NetworkReady=true;_resizePopup?.Invoke(); } }
         }
     }
     internal void Calendar(Button anchor)
     {
         if(ActiveKind=="calendar") { Close();return; }
-        var panel=Panel();panel.Children.Add(Header("Календарь","\uE787"));panel.Children.Add(Text(DateTime.Now.ToString("D"),12,true));
+        var panel=Panel();panel.Children.Add(Header(L.Text("Calendar"),"\uE787"));panel.Children.Add(Text(DateTime.Now.ToString("D"),12,true));
         panel.Children.Add(new CalendarView { Width=300,SelectionMode=CalendarViewSelectionMode.None,RequestedTheme=ElementTheme.Dark });
-        panel.Children.Add(Divider());panel.Children.Add(Row("Дата и время","Дополнительные настройки","\uE713",()=> { Close();ShellLauncher.Execute("ms-settings:dateandtime",null,null); }));
+        panel.Children.Add(Divider());panel.Children.Add(Row(L.Text("Date and time"),L.Text("More settings"),"\uE713",()=> { Close();ShellLauncher.Execute("ms-settings:dateandtime",null,null); }));
         Show(anchor,panel,"calendar");
     }
     public void Dispose() { DockApp.Current.Running.NativeWindowChanged-=OnForegroundChanged;Close(immediately:true);if(_audioTick is not null)_audioTimer.Tick-=_audioTick;_popupWindow?.Close();_popupWindow=null; }
