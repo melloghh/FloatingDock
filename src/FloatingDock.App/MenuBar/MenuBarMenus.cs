@@ -118,9 +118,19 @@ internal sealed class MenuBarMenus : IDisposable
             // The HWND backdrop does not share the XAML transform. Keep the
             // border and blur at identical bounds throughout the opacity fade.
             int duration=DockApp.Current.Settings.Current.MenuAnimationMs;
-            SurfaceMotion.Enter(_popupRoot,duration,initialScale:1);
-            SurfaceMotion.SlideContent(content,duration);
-            _glass.AnimateOpacity(1,SurfaceMotion.Duration(duration),entering:true);
+            int openingGeneration=_generation;
+            void AnimateOpening()
+            {
+                if(openingGeneration!=_generation||ActiveKind!=kind)return;
+                SurfaceMotion.Enter(_popupRoot,duration,initialScale:1);SurfaceMotion.SlideContent(content,duration);
+                _glass.AnimateOpacity(1,SurfaceMotion.Duration(duration),entering:true);
+            }
+            if(_popupRoot.IsLoaded)AnimateOpening();
+            else
+            {
+                RoutedEventHandler? loaded=null;
+                loaded=(_,_)=>{_popupRoot.Loaded-=loaded;AnimateOpening();};_popupRoot.Loaded+=loaded;
+            }
             _opened(true);_popupWindow.Activate();WindowStyler.BringToFront(PopupHandle);
             _lastForeground=NativeMethods.GetForegroundWindow();_dismissTimer.Start();
             int generation=_generation;
@@ -214,8 +224,8 @@ internal sealed class MenuBarMenus : IDisposable
         if(ActiveKind=="media"){Close();return;}
         var panel=Panel();panel.Children.Add(Header("Media","\uE8D6"));
         var title=Text("Searching…",17);title.FontWeight=Microsoft.UI.Text.FontWeights.SemiBold;
-        var artist=Text("",13,true);var source=Text("",11,true);
-        panel.Children.Add(title);panel.Children.Add(artist);panel.Children.Add(source);
+        var artist=Text("",13,true);
+        panel.Children.Add(title);panel.Children.Add(artist);
         var controls=new StackPanel { Orientation=Orientation.Horizontal,Spacing=10,HorizontalAlignment=HorizontalAlignment.Center };
         Button Button(string glyph,string label)
         {
@@ -234,7 +244,7 @@ internal sealed class MenuBarMenus : IDisposable
             {
                 var state=await MediaSource.ReadAsync();if(!Current())return;
                 title.Text=state is null?L.Text("No active media session"):state.Title;
-                artist.Text=state?.Artist??"";source.Text=state?.Source??"";
+                artist.Text=state?.Artist??"";
                 previous.IsEnabled=state?.Previous==true;toggle.IsEnabled=state?.Toggle==true;next.IsEnabled=state?.Next==true;
                 ((FontIcon)toggle.Content).Glyph=state?.Playing==true?"\uE769":"\uE768";status.Text="";
             }
@@ -257,6 +267,42 @@ internal sealed class MenuBarMenus : IDisposable
         var panel=Panel();panel.Children.Add(Header("System tray","\uE70D"));
         panel.Children.Add(Text("Windows did not expose its tray arrow. Keep Explorer running and enable hidden tray icons in Windows settings.",13,true));
         panel.Children.Add(Row("Windows taskbar","More settings","\uE713",()=> { Close();ShellLauncher.Execute("ms-settings:taskbar",null,null); }));
+        Show(anchor,panel,"tray");
+    }
+    internal IReadOnlyList<TrayItem> TrayItems { get; private set; }=Array.Empty<TrayItem>();
+    internal void Tray(Button anchor,IReadOnlyList<TrayItem> items)
+    {
+        TrayItems=items;var panel=Panel();panel.Children.Add(Header("System tray","\uE70D"));
+        var grid=new Grid { ColumnSpacing=8,RowSpacing=8 };
+        for(int c=0;c<6;c++)grid.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});
+        for(int r=0;r<(items.Count+5)/6;r++)grid.RowDefinitions.Add(new(){Height=GridLength.Auto});
+        for(int i=0;i<items.Count;i++)
+        {
+            var item=items[i];var button=new Button { Width=42,Height=42,Padding=new Thickness(9),CornerRadius=new CornerRadius(10),BorderThickness=new Thickness(0),Background=Brush(10,255,255,255),Content=new FontIcon { Glyph="\uE71D",FontSize=20 } };
+            ToolTipService.SetToolTip(button,item.Name);AutomationProperties.SetName(button,item.Name);
+            if(item.Icon is not null)_=LoadIcon();
+            async Task LoadIcon()
+            {
+                try
+                {
+                    using var stream=new global::Windows.Storage.Streams.InMemoryRandomAccessStream();
+                    using(var writer=new global::Windows.Storage.Streams.DataWriter(stream)){writer.WriteBytes(item.Icon!);await writer.StoreAsync();writer.DetachStream();}
+                    stream.Seek(0);var bitmap=new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();await bitmap.SetSourceAsync(stream);
+                    button.Content=new Image { Source=bitmap,Width=24,Height=24,Stretch=Stretch.Uniform };
+                }
+                catch(Exception){}
+            }
+            async Task Activate(bool context)
+            {
+                Close(immediately:true);
+                if(!await DockApp.Current.ActivateTrayItemAsync(item,context))DockApp.Current.Notify(L.Text("System tray"),L.Text("Tray icon is no longer available."),true);
+            }
+            button.Click+=async(_,_)=>await Activate(false);
+            button.RightTapped+=async(_,e)=>{e.Handled=true;await Activate(true);};
+            Grid.SetRow(button,i/6);Grid.SetColumn(button,i%6);grid.Children.Add(button);
+        }
+        panel.Children.Add(grid);
+        panel.Children.Add(Text(items.Count==0?"No tray icons available. Keep Explorer running.":"Click to open · Right-click for options",12,true));
         Show(anchor,panel,"tray");
     }
     internal void Sound(Button anchor)

@@ -7,9 +7,15 @@ namespace FloatingDock.Windows.Shell;
 public sealed record FileSearchHit(string Path,string Name,bool IsFolder);
 public sealed record FileSearchResult(IReadOnlyList<FileSearchHit> Hits,bool UsedFallback,bool Limited);
 
-/// <summary>Filename-only, scoped search. Uses the Windows index; bounded enumeration handles unindexed folders.</summary>
+/// <summary>Small in-memory filename index for personal folders. No disk access per keystroke.</summary>
 public static class FileSearch
 {
+    private sealed record Entry(FileSearchHit Hit,string Normalized);
+    private sealed record Snapshot(Entry[] Entries,long Created,bool Limited);
+    private static readonly object Gate=new();
+    private static readonly Dictionary<string,Snapshot> Cache=new(StringComparer.OrdinalIgnoreCase);
+    private static readonly HashSet<string> Extensions=new(".lnk;.url;.txt;.md;.pdf;.doc;.docx;.xls;.xlsx;.ppt;.pptx;.odt;.ods;.rtf;.csv;.jpg;.jpeg;.png;.webp;.gif;.svg;.bmp;.heic;.mp3;.wav;.flac;.m4a;.ogg;.mp4;.mkv;.mov;.webm;.zip;.7z;.rar".Split(';'),StringComparer.OrdinalIgnoreCase);
+    private static readonly HashSet<string> Excluded=new(".git;node_modules;bin;obj;.validation;.build-tools;.cache;AppData;target;packages;vendor".Split(';'),StringComparer.OrdinalIgnoreCase);
     [DllImport("shell32.dll")] private static extern int SHGetKnownFolderPath(in Guid id,uint flags,IntPtr token,out IntPtr path);
     private static string Downloads()
     {
@@ -20,95 +26,85 @@ public static class FileSearch
     public static string? ValidateFolders(string value)
     {
         foreach(var token in value.Split(';',StringSplitOptions.RemoveEmptyEntries|StringSplitOptions.TrimEntries))
-            if(token is not ("Desktop" or "Documents" or "Downloads") && (!Path.IsPathFullyQualified(token)||token.IndexOfAny(Path.GetInvalidPathChars())>=0))
-                return "Use Desktop;Documents;Downloads or absolute folder paths.";
+            if(token is not ("Desktop" or "Downloads")&&(!Path.IsPathFullyQualified(token)||token.IndexOfAny(Path.GetInvalidPathChars())>=0))
+                return "Use Desktop;Downloads or absolute folder paths.";
         return null;
     }
     public static IReadOnlyList<string> ResolveFolders(string value)
     {
         var paths=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        string documents=Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
         foreach(var token in value.Split(';',StringSplitOptions.RemoveEmptyEntries|StringSplitOptions.TrimEntries))
         {
-            var path=token switch { "Desktop"=>Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),"Documents"=>Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),"Downloads"=>Downloads(),_=>token };
-            try { if(Path.IsPathFullyQualified(path)&&Directory.Exists(path))paths.Add(Path.TrimEndingDirectorySeparator(Path.GetFullPath(path))); }catch(ArgumentException){}
+            if(token.Equals("Documents",StringComparison.OrdinalIgnoreCase))continue;
+            var path=token switch { "Desktop"=>Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),"Downloads"=>Downloads(),_=>token };
+            try
+            {
+                if(!Path.IsPathFullyQualified(path))continue;
+                path=Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+                if(documents.Length>0&&(path.Equals(documents,StringComparison.OrdinalIgnoreCase)||path.StartsWith(documents+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase)))continue;
+                paths.Add(path);
+            }
+            catch(ArgumentException){}
         }
-        return paths.ToArray();
+        return paths.Order(StringComparer.OrdinalIgnoreCase).ToArray();
     }
-    private static bool Inside(string path,string root)=>path.StartsWith(Path.EndsInDirectorySeparator(root)?root:root+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase);
+    // Kept for callers constructing a Windows Search query; the palette uses the bounded cache instead.
     public static string BuildQuery(string query,IReadOnlyList<string> roots,int limit)
     {
-        // LIKE supports wildcards. Quotes are SQL-escaped; scopes are constructed from validated paths.
         string Q(string text)=>"'"+text.Replace("'","''",StringComparison.Ordinal)+"'";
         var scopes=roots.Select(path=>"SCOPE="+Q(new Uri(Path.GetFullPath(path)+Path.DirectorySeparatorChar).AbsoluteUri));
         return $"SELECT TOP {Math.Clamp(limit,1,100)} System.ItemPathDisplay, System.ItemNameDisplay FROM SYSTEMINDEX WHERE System.FileName LIKE {Q("%"+query.Replace("%","",StringComparison.Ordinal).Replace("_","",StringComparison.Ordinal)+"%")} AND ({string.Join(" OR ",scopes)}) ORDER BY System.ItemNameDisplay";
     }
-    public static FileSearchResult Search(string query,string folders,int limit,CancellationToken ct)
+    public static void Invalidate(){lock(Gate)Cache.Clear();}
+    public static FileSearchResult Search(string query,string folders,int limit,CancellationToken ct,int depth=1)
     {
         ct.ThrowIfCancellationRequested();
-        var roots=ResolveFolders(folders);
-        if(query.Trim().Length<2||roots.Count==0)return new(Array.Empty<FileSearchHit>(),false,false);
-        object? connection=null,recordset=null;
-        var indexed=new List<FileSearchHit>();bool fallback=false;
-        try
+        if(query.Trim().Length<2)return new(Array.Empty<FileSearchHit>(),false,false);
+        var roots=ResolveFolders(folders);depth=Math.Clamp(depth,0,3);
+        if(roots.Count==0)return new(Array.Empty<FileSearchHit>(),false,false);
+        var key=depth+"|"+string.Join('|',roots);Snapshot snapshot;
+        lock(Gate)
         {
-            var type=Type.GetTypeFromProgID("ADODB.Connection")??throw new InvalidOperationException("Windows Search provider unavailable.");
-            dynamic db=connection=Activator.CreateInstance(type)!;
-            db.ConnectionTimeout=2;db.CommandTimeout=2;
-            db.Open("Provider=Search.CollatorDSO;Extended Properties='Application=Windows';");
             ct.ThrowIfCancellationRequested();
-            object affected;dynamic rows=recordset=db.Execute(BuildQuery(query,roots,limit),out affected,0);
-            if(!(bool)rows.EOF)
+            if(!Cache.TryGetValue(key,out snapshot!)||Stopwatch.GetElapsedTime(snapshot.Created).TotalSeconds>=30)
             {
-                object[,] values=rows.GetRows(limit);
-                for(int i=0;i<values.GetLength(1);i++)
-                {
-                    ct.ThrowIfCancellationRequested();
-                    string path=Convert.ToString(values[0,i])??"",name=Convert.ToString(values[1,i])??"";
-                    if(roots.Any(root=>Inside(path,root))&&(File.Exists(path)||Directory.Exists(path)))indexed.Add(new(path,name,Directory.Exists(path)));
-                }
+                snapshot=Scan(roots,depth,ct);
+                if(Cache.Count>=4)Cache.Clear();
+                Cache[key]=snapshot;
             }
         }
-        catch(OperationCanceledException){throw;}
-        catch(Exception){fallback=true;}
-        finally
-        {
-            if(recordset is not null){try{((dynamic)recordset).Close();}catch{}Marshal.FinalReleaseComObject(recordset);}
-            if(connection is not null){try{((dynamic)connection).Close();}catch{}Marshal.FinalReleaseComObject(connection);}
-        }
-        // Unindexed folders are common. Fill remaining slots with a bounded walk, never following junctions.
-        if(indexed.Count>=limit)return new(indexed,false,false);
-        var found=new Dictionary<string,FileSearchHit>(StringComparer.OrdinalIgnoreCase);
-        foreach(var hit in indexed)found[hit.Path]=hit;
-        var queue=new Queue<string>(roots);int visited=0;var clock=Stopwatch.StartNew();
-        var needle=AppSearchIndex.Normalize(query);
-        bool limited=false;
-        while(queue.Count>0&&found.Count<limit)
+        ct.ThrowIfCancellationRequested();var needle=AppSearchIndex.Normalize(query);
+        return new(snapshot.Entries.Where(e=>e.Normalized.Contains(needle,StringComparison.Ordinal))
+            .OrderBy(e=>e.Normalized.StartsWith(needle,StringComparison.Ordinal)?0:1).ThenBy(e=>e.Hit.Name,StringComparer.CurrentCultureIgnoreCase)
+            .Take(Math.Clamp(limit,1,100)).Select(e=>e.Hit).ToArray(),false,snapshot.Limited);
+    }
+    private static Snapshot Scan(IReadOnlyList<string> roots,int depth,CancellationToken ct)
+    {
+        var entries=new List<Entry>();var queue=new Queue<(string Path,int Depth)>(roots.Select(r=>(r,0)));
+        string documents=Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+        int visited=0;var clock=Stopwatch.StartNew();bool limited=false;
+        while(queue.TryDequeue(out var folder))
         {
             ct.ThrowIfCancellationRequested();
-            if(visited>=25000||clock.ElapsedMilliseconds>=2000){limited=true;break;}
-            string folder=queue.Dequeue();
             try
             {
-                foreach(var path in Directory.EnumerateFileSystemEntries(folder))
+                if((new DirectoryInfo(folder.Path).Attributes&FileAttributes.ReparsePoint)!=0)continue;
+                foreach(var info in new DirectoryInfo(folder.Path).EnumerateFileSystemInfos())
                 {
                     ct.ThrowIfCancellationRequested();
-                    if(++visited>=25000||clock.ElapsedMilliseconds>=2000){limited=true;break;}
-                    try
-                    {
-                        var attr=File.GetAttributes(path);
-                        if((attr&(FileAttributes.ReparsePoint|FileAttributes.System|FileAttributes.Hidden))!=0)continue;
-                        string name=Path.GetFileName(path);bool directory=(attr&FileAttributes.Directory)!=0;
-                        if(directory&&name is ".git" or "node_modules" or "bin" or "obj" or ".validation" or ".build-tools" or ".cache")continue;
-                        if(AppSearchIndex.Normalize(name).Contains(needle,StringComparison.Ordinal))found.TryAdd(path,new(path,name,directory));
-                        if(found.Count>=limit)break;
-                        if(directory)queue.Enqueue(path);
-                    }
-                    catch(IOException){}catch(UnauthorizedAccessException){}
+                    if(++visited>3000||clock.ElapsedMilliseconds>=150){limited=true;break;}
+                    if((info.Attributes&(FileAttributes.ReparsePoint|FileAttributes.Hidden|FileAttributes.System))!=0||Excluded.Contains(info.Name))continue;
+                    if(documents.Length>0&&info.FullName.Equals(documents,StringComparison.OrdinalIgnoreCase))continue;
+                    bool directory=(info.Attributes&FileAttributes.Directory)!=0;
+                    if((directory&&folder.Depth==0)||(!directory&&Extensions.Contains(info.Extension)))
+                        entries.Add(new(new(info.FullName,info.Name,directory),AppSearchIndex.Normalize(info.Name)));
+                    if(directory&&folder.Depth<depth)queue.Enqueue((info.FullName,folder.Depth+1));
                 }
             }
             catch(IOException){}catch(UnauthorizedAccessException){}
             if(limited)break;
         }
-        return new(found.Values.OrderBy(h=>AppSearchIndex.Normalize(h.Name).StartsWith(needle,StringComparison.Ordinal)?0:1).ThenBy(h=>h.Name,StringComparer.CurrentCultureIgnoreCase).Take(limit).ToArray(),fallback||indexed.Count==0,limited);
+        return new(entries.ToArray(),Stopwatch.GetTimestamp(),limited);
     }
 }

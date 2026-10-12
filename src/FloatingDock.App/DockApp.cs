@@ -53,6 +53,7 @@ public sealed partial class DockApp : Application
     internal RunningAppsService Running { get; private set; } = null!;
     internal TaskbarController Taskbar { get; private set; } = null!;
     internal MessageWindow Msg { get; private set; } = null!;
+    internal TilingManager Tiling { get; private set; } = null!;
     internal TrayIcon Tray { get; private set; } = null!;
     internal DockHost Dock { get; private set; } = null!;
     internal MenuBar.MenuBarHost? TopBar { get; private set; }
@@ -140,11 +141,12 @@ public sealed partial class DockApp : Application
         Msg.DisplayChanged += () => UiQueue.TryEnqueue(ScheduleDisplayRefresh);
         Msg.WorkAreaOrSettingsChanged += () => UiQueue.TryEnqueue(ScheduleDisplayRefresh);
         Msg.TaskbarCreated += () => UiQueue.TryEnqueue(OnExplorerRestarted);
-        Msg.SessionEnding += () => { try { Taskbar.Restore(); Settings.Flush(); } catch { /* the session is ending; the next start recovers from the record */ } };
+        Msg.SessionEnding += () => { try { Tiling?.EmergencyRestore();Taskbar.Restore(); Settings.Flush(); } catch { /* the session is ending; the next start recovers from the record */ } };
 
         _single.ListenForSignals(() => UiQueue.TryEnqueue(() => ShowSettings()), () => UiQueue.TryEnqueue(Shutdown));
 
         Dock = new DockHost(this);
+        Tiling=new TilingManager(this);
         TopBar = new MenuBar.MenuBarHost(this);
         Running.Start();
         Dock.Start();
@@ -167,22 +169,8 @@ public sealed partial class DockApp : Application
         if (firstRun) _ = SeedPinnedFromWindowsTaskbarAsync();
         if (args.Any(a => a.Equals("--settings", StringComparison.OrdinalIgnoreCase))) ShowSettings();
         Log.Info("started");
-        if (!Program.IsSmokeTest) _ = WarmStartPinsAsync();
+        // Start pins and the launchpad are loaded on demand; no background PowerShell/UI warm-up.
         if (Program.IsSmokeTest) UiQueue.TryEnqueue(async () => await RuntimeSmoke.RunAsync(this));
-    }
-
-    private async Task WarmStartPinsAsync()
-    {
-        try
-        {
-            await Task.Delay(500);
-            if (_shuttingDown) return;
-            await StartPins.GetAsync();
-            if (_shuttingDown) return;
-            LaunchpadWin ??= new LaunchpadWindow();
-            await LaunchpadWin.PrepareAsync();
-        }
-        catch (Exception ex) { Log.Warn("Start pins will load on demand: " + ex.Message); }
     }
 
     private async Task SeedPinnedFromWindowsTaskbarAsync()
@@ -222,6 +210,7 @@ public sealed partial class DockApp : Application
 
     private void ApplySystemSettings(DockSettings? old, DockSettings s)
     {
+        Tiling.Apply(s);
         if (old is null || old.UseIconPack != s.UseIconPack || old.ActiveIconPack != s.ActiveIconPack || old.PreferDarkVariants != s.PreferDarkVariants)
         {
             Resolver.Configure(s.UseIconPack, s.ActiveIconPack, s.PreferDarkVariants);
@@ -257,6 +246,7 @@ public sealed partial class DockApp : Application
 
     private void OnHotkey(int id)
     {
+        if(Tiling.HandleHotkey(id))return;
         switch (id)
         {
             case HotkeySearch: ToggleSearch(); break;
@@ -317,14 +307,20 @@ public sealed partial class DockApp : Application
 
     // ------------------------------------------------------------------ commands
 
-    internal async Task<bool> OpenSystemTrayAsync(int x,int y,int right,int bottom)
+    internal async Task<IReadOnlyList<TrayItem>> ReadTrayItemsAsync()
     {
         _taskbarTimer?.Stop();
-        try { return await Task.Run(()=>SystemTrayOverflow.TryOpen(x,y,right,bottom)); }
-        catch(Exception ex){Log.Warn("System tray unavailable: "+ex.Message);return false;}
-        finally { if(!_shuttingDown&&Settings.Current.TaskbarMode!=TaskbarMode.Leave)_taskbarTimer?.Start(); }
+        try{return await Worker.Run(SystemTrayOverflow.ReadItems);}
+        catch(Exception ex){Log.Warn("Tray icons unavailable: "+ex.Message);return Array.Empty<TrayItem>();}
+        finally{if(!_shuttingDown&&Settings.Current.TaskbarMode!=TaskbarMode.Leave)_taskbarTimer?.Start();}
     }
-
+    internal async Task<bool> ActivateTrayItemAsync(TrayItem item,bool context)
+    {
+        _taskbarTimer?.Stop();
+        try{return await Worker.Run(()=>SystemTrayOverflow.ActivateItem(item,context));}
+        catch(Exception ex){Log.Warn("Tray action failed: "+ex.Message);return false;}
+        finally{if(!_shuttingDown&&Settings.Current.TaskbarMode!=TaskbarMode.Leave)_taskbarTimer?.Start();}
+    }
     internal void ToggleSearch() { Palette ??=new Search.CommandPaletteWindow();Palette.Toggle(); }
 
     internal async void ToggleLaunchpad()
@@ -463,6 +459,7 @@ public sealed partial class DockApp : Application
         try { LaunchpadWin?.Dispose(); } catch { }
         try { SettingsWin?.Close(); } catch { }
         try { Tray.Dispose(); } catch { }
+        try { Tiling.Dispose(); } catch { }
         try { Running.Dispose(); } catch { }
         try { Msg.Dispose(); } catch { }
         try { Worker.Dispose(); } catch { }
@@ -478,6 +475,7 @@ public sealed partial class DockApp : Application
     internal static void EmergencyRestore(Exception? ex)
     {
         TryLog("FATAL", ex);
+        try { _current?.Tiling?.EmergencyRestore(); } catch { }
         try { _emergencyTaskbar?.Restore(); } catch { /* the record on disk lets the next start recover */ }
     }
 }

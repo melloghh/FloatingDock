@@ -12,7 +12,7 @@ public sealed class InterfaceFeaturesTests
         var settings=SettingsStore.Load(d.File("config.json"));
         Assert.Equal(37,settings.IconSize);Assert.True(settings.AutoHide);
         Assert.Equal(InterfaceLanguage.English,settings.Language);Assert.Equal(LaunchpadIconStyle.WhiteSquares,settings.LaunchpadIconStyle);
-        Assert.Equal("Ctrl+Alt+K",settings.SearchHotkey);Assert.Equal("Desktop;Documents;Downloads",settings.SearchFolders);
+        Assert.Equal("Ctrl+Alt+K",settings.SearchHotkey);Assert.Equal("Desktop;Downloads",settings.SearchFolders);
     }
     [Fact] public void NewAnimationAndSearchValuesAreClamped()
     {

@@ -5,7 +5,7 @@ using FloatingDock.Windows.Native;
 namespace FloatingDock.Windows.Integration;
 
 /// <summary>Invokes Explorer's real overflow chevron through UI Automation. Explorer owns all icon callbacks.</summary>
-public static unsafe class SystemTrayOverflow
+public static unsafe partial class SystemTrayOverflow
 {
     private static IntPtr _temporarilyShownShell;
     private static IntPtr _returnFocus;

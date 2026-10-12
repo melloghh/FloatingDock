@@ -28,6 +28,15 @@ internal static partial class RuntimeSmoke
         string? error = null;
         try
         {
+            if(Environment.GetCommandLineArgs().Contains("--test-only-ui121"))
+            {
+                await CheckUi121Async(app,checks);Check(Program.UiFailureCount==0,"XAML failure in optimization/tiling checks.");success=true;return;
+            }
+            if(Environment.GetCommandLineArgs().Contains("--test-only-render121"))
+            {
+                app.Settings.Update(s=>s.AnimationFps=144);await Task.Delay(300);
+                await CheckDockRenderingAsync(app,checks);Check(Program.UiFailureCount==0,"XAML failure in rendering checks.");success=true;return;
+            }
             // Explorer applies auto-hide/work-area changes asynchronously at first start.
             await Task.Delay(Program.TestDefaultSettings ? 1800 : 600);
             if(Environment.GetCommandLineArgs().Contains("--test-only-tray120"))
@@ -1117,6 +1126,9 @@ internal static partial class RuntimeSmoke
                 checks["animationWithoutLabels"] = dock.EndRenderDiagnostics();
             }
             finally { app.Settings.Update(s => s.ShowLabels = originalLabels); }
+            await Task.Delay(350);
+            dock.BeginRenderDiagnostics();await Task.Delay(6000);
+            checks["warmAnimationWithLabels"]=dock.EndRenderDiagnostics();
         }
         finally { dock.EndRenderDiagnostics(); probe.Close(); }
         await Task.Delay(1200);

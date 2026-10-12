@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.2.0
+
+- Replace per-keystroke recursive file scans with a bounded 30-second filename cache. Remove Documents from effective scopes, restrict personal file types and top-level folders, and add depth/refresh controls.
+- Cache application search, allocate Launchpad on demand, avoid Shell identity resolution on title changes, and reduce language polling and redundant compositor writes.
+- Refine the palette with explicit keyboard selection, lightweight result rows and clearer input/footer styling.
+- Render live Explorer notification buttons in FloatingDock's tray menu with Windows icon snapshots and stable UI Automation runtime IDs. Route invocation/context requests to Explorer without injection.
+- Remove media source identifiers and start finite content translations after XAML loads, keeping native blur and borders aligned.
+- Add independent opt-in C# tiling: per-monitor workspaces, split ratios/direction, focus/move/resize, floating/exclusion rules, minimum-size guards, drag handling, workspace buttons and finite window transitions. Restore positions on pause/disable/exit; inactive windows remain accessible through the dock.
+- Add owned-window native checks, real tray callback tests, rendered-selection checks and cache/layout regression tests.
+
 ## 1.1.0
 
 - Dismiss previews during dock-icon activation, retain suppression until the pointer leaves, and rebind DWM thumbnails after minimize/restore. Hide app labels while a preview is visible.

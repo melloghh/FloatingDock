@@ -114,6 +114,7 @@ internal sealed class DockHost : IDisposable
     private void OnNativeWindowChanged(FloatingDock.Windows.RunningApps.WindowEventKind kind, IntPtr hwnd)
     {
         if (_disposed) return;
+        if(kind is FloatingDock.Windows.RunningApps.WindowEventKind.Renamed or FloatingDock.Windows.RunningApps.WindowEventKind.MoveStart or FloatingDock.Windows.RunningApps.WindowEventKind.MinimizeStart or FloatingDock.Windows.RunningApps.WindowEventKind.MinimizeEnd)return;
         _capture.Observe(hwnd);
         _capture.Refresh();
         if(_capture.IsActive)_app.Palette?.Hide();

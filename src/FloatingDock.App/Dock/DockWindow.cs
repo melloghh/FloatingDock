@@ -105,6 +105,7 @@ internal sealed class DockWindow : IDisposable
     internal void ClearHoverCursorForDiagnostics(){_hoverCursorForDiagnostics=null;EndHover();}
     private bool _diagnosticStationary;
     private float? _diagnosticCursorX;
+    private Vector3 _lastHideOffset;
     private readonly List<double> _diagnosticFrameCosts = new();
     private readonly List<double> _diagnosticFrameIntervals = new();
     private double _diagnosticElapsed;
@@ -752,7 +753,7 @@ internal sealed class DockWindow : IDisposable
     {
         float dist = _m.WindowHeight + ExtraBottomDip - _m.PlateTop + 4;
         var offset = Axis.HideOffset(Magnification.Smooth01(_hide) * dist);
-        _graphics.Content.Offset = offset;
+        if(_lastHideOffset!=offset){_graphics.Content.Offset=offset;_lastHideOffset=offset;}
     }
 
     private void EnterStrip()

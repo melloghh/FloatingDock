@@ -10,7 +10,7 @@ public sealed class FileSearchTests
         Assert.Contains("SELECT TOP 100",sql);Assert.Contains("note'' OR 1=1",sql);Assert.Contains("SCOPE='file:",sql);Assert.DoesNotContain("note' OR",sql);
     }
     [Fact] public void RelativeRootsAreRejected()
-    { Assert.NotNull(FileSearch.ValidateFolders("Documents;../../"));Assert.Null(FileSearch.ValidateFolders(@"Desktop;Documents;Downloads;C:\Custom")); }
+    { Assert.NotNull(FileSearch.ValidateFolders("Documents;../../"));Assert.Null(FileSearch.ValidateFolders(@"Desktop;Downloads;C:\Custom"));Assert.Empty(FileSearch.ResolveFolders("Documents")); }
     [Fact] public void SearchFindsUnicodeFilesInOnlyTheSelectedRoot()
     {
         var root=Path.Combine(Path.GetTempPath(),"FloatingDock-search-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(root);

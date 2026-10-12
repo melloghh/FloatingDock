@@ -12,8 +12,9 @@ FloatingDock brings a compact desktop interface to Windows: animated icon magnif
 - **Pinned and running apps.** Launch, switch and minimize applications from one place. Steam helper windows are grouped with the main client.
 - **Live previews.** Hover after a configurable delay, click a thumbnail to open its window, or use its close button. Closing fades the preview before sending a normal window-close request.
 - **Launchpad.** Windows Start pins and apps you add with the + button or by dropping a shortcut. Three built-in launcher icon styles.
-- **A rounded menu bar.** Active application, network, volume, input language, battery when available, clock and calendar. Media playback controls, Explorer’s real system-tray overflow and search. Configurable auto-hide FPS, timing and work-area reservation.
-- **Search palette.** `Ctrl+Alt+K` searches installed apps, filenames and folders in Desktop, Documents and Downloads. Customize scopes in Settings → Search.
+- **A rounded menu bar.** Active application, network, volume, input language, battery when available, clock and calendar. Media playback controls, a FloatingDock menu of real Windows notification icons and search. Configurable auto-hide FPS, timing and work-area reservation.
+- **Search palette.** `Ctrl+Alt+K` searches apps and familiar personal file types in Desktop and Downloads. A bounded 30-second filename cache avoids scanning on every keystroke; Documents and build noise are excluded. Configure scopes and depth in Settings → Search.
+- **Built-in tiling.** Opt-in split layouts, workspaces per monitor, directional focus/move/resize, floating rules, finite animations and position restoration. Configure Settings → Tiling manager; see [controls and limits](docs/TILING.md). No separate window manager is required.
 - **Interface language.** English by default; switch to Russian in Settings → Appearance.
 - **Your own icons.** PNG/ICO overrides and imported ZIP packs shared by the dock and Launchpad. Decorative icon packs are not bundled.
 - **Local glass effects.** App-owned blur works independently of the Windows transparency toggle; transitions respect the system animation preference.
@@ -85,9 +86,9 @@ GitHub Actions builds and tests the Windows x64 project and uploads the portable
 
 See [Architecture](docs/ARCHITECTURE.md), [Icon-pack format](docs/ICON-PACKS.md) and [Changelog](docs/CHANGELOG.md).
 
-Version **1.1.0** includes the 1.0.17–1.0.19 geometry and backdrop fixes. Local desktop suites cover previews, menu lifetime, language changes, Launchpad, media commands, search cancellation and prior dock/fullscreen behavior. File search is filename-only; unindexed scans are bounded and may return partial results. Testing across multiple physical monitors and DPI combinations is limited. Launchpad has no folders or pages.
+Version **1.2.0** includes the 1.0.17–1.0.19 geometry and backdrop fixes. Local desktop suites cover previews, menu lifetime, language changes, Launchpad, media commands, search cancellation, owned-window tiling and prior dock/fullscreen behavior. File search caches personal filenames; bounded snapshots may return partial results. Tray compatibility depends on Explorer accessibility and Windows icon snapshots, which may lag a state change. Testing across multiple physical monitors and DPI combinations is limited. Launchpad has no folders or pages.
 
-For an optional window-manager integration, see the [tiling proposal](docs/TILING.md).
+For built-in window management, see [tiling controls and limits](docs/TILING.md).
 
 ## License and credits
 

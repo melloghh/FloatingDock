@@ -2,7 +2,7 @@ using FloatingDock.Windows.Native;
 
 namespace FloatingDock.Windows.RunningApps;
 
-public enum WindowEventKind { Created, Destroyed, Shown, Hidden, Renamed, Cloaked, Uncloaked, Foreground, MinimizeStart, MinimizeEnd, LocationChanged }
+public enum WindowEventKind { Created, Destroyed, Shown, Hidden, Renamed, Cloaked, Uncloaked, Foreground, MinimizeStart, MinimizeEnd, LocationChanged,MoveStart,MoveEnd }
 
 /// <summary>Event-driven window notifications (SetWinEventHook). Must be created on a thread with a message loop (the UI thread); no polling.</summary>
 public sealed class WinEventWatcher : IDisposable
@@ -20,10 +20,11 @@ public sealed class WinEventWatcher : IDisposable
         _processId = processId; _includeOwn = includeOwn;
         _proc = OnEvent;
         Hook(NativeMethods.EVENT_OBJECT_CREATE, NativeMethods.EVENT_OBJECT_HIDE);      // create, destroy, show, hide
-        if (!includeOwn) Hook(NativeMethods.EVENT_OBJECT_LOCATIONCHANGE, NativeMethods.EVENT_OBJECT_NAMECHANGE);
+        Hook(NativeMethods.EVENT_OBJECT_LOCATIONCHANGE, NativeMethods.EVENT_OBJECT_NAMECHANGE);
         Hook(NativeMethods.EVENT_OBJECT_CLOAKED, NativeMethods.EVENT_OBJECT_UNCLOAKED);
         Hook(NativeMethods.EVENT_SYSTEM_FOREGROUND, NativeMethods.EVENT_SYSTEM_FOREGROUND);
         Hook(NativeMethods.EVENT_SYSTEM_MINIMIZESTART, NativeMethods.EVENT_SYSTEM_MINIMIZEEND);
+        Hook(0x000A,0x000B); // EVENT_SYSTEM_MOVESIZESTART / END
     }
 
     private void Hook(uint min, uint max)
@@ -35,7 +36,7 @@ public sealed class WinEventWatcher : IDisposable
     private void OnEvent(IntPtr hook, uint evt, IntPtr hwnd, int idObject, int idChild, uint thread, uint time)
     {
         if (_disposed || hwnd == IntPtr.Zero) return;
-        if (evt != NativeMethods.EVENT_SYSTEM_FOREGROUND && evt != NativeMethods.EVENT_SYSTEM_MINIMIZESTART && evt != NativeMethods.EVENT_SYSTEM_MINIMIZEEND)
+        if (evt != NativeMethods.EVENT_SYSTEM_FOREGROUND && evt != NativeMethods.EVENT_SYSTEM_MINIMIZESTART && evt != NativeMethods.EVENT_SYSTEM_MINIMIZEEND && evt is not (0x000A or 0x000B))
             if (idObject != NativeMethods.OBJID_WINDOW || idChild != 0) return;      // only whole-window events
         var kind = evt switch
         {
@@ -45,6 +46,8 @@ public sealed class WinEventWatcher : IDisposable
             NativeMethods.EVENT_OBJECT_HIDE => WindowEventKind.Hidden,
             NativeMethods.EVENT_OBJECT_NAMECHANGE => WindowEventKind.Renamed,
             NativeMethods.EVENT_OBJECT_LOCATIONCHANGE => WindowEventKind.LocationChanged,
+            0x000A=>WindowEventKind.MoveStart,
+            0x000B=>WindowEventKind.MoveEnd,
             NativeMethods.EVENT_OBJECT_CLOAKED => WindowEventKind.Cloaked,
             NativeMethods.EVENT_OBJECT_UNCLOAKED => WindowEventKind.Uncloaked,
             NativeMethods.EVENT_SYSTEM_FOREGROUND => WindowEventKind.Foreground,

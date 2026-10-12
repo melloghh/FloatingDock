@@ -97,6 +97,8 @@ public sealed class RunningAppsService : IDisposable
         switch (kind)
         {
             case WindowEventKind.LocationChanged:
+            case WindowEventKind.MoveStart:
+            case WindowEventKind.MoveEnd:
                 return; // Only overlay/fullscreen tracking needs geometry events, never redo shell identity for a moving window.
             case WindowEventKind.Destroyed:
             case WindowEventKind.Cloaked:
@@ -111,7 +113,13 @@ public sealed class RunningAppsService : IDisposable
                 if (_windows.TryGetValue(id, out var w)) { _windows[id] = w with { IsMinimized = kind == WindowEventKind.MinimizeStart }; ScheduleChanged(); }
                 break;
             case WindowEventKind.Renamed:
-                if (_windows.ContainsKey(id) && !TryReidentify(hwnd)) Evaluate(hwnd, int.MaxValue, refresh: true);      // refresh the title only; no retries
+                if (_windows.TryGetValue(id,out var named) && !TryReidentify(hwnd))
+                {
+                    // Browser/media titles change often. Identity is already resolved:
+                    // avoid reopening the process and querying Shell/property stores.
+                    var title=NativeMethods.GetTitle(hwnd);
+                    if(named.Title!=title){_windows[id]=named with{Title=title};ScheduleChanged();}
+                }
                 break;
             default:                                                              // created / shown / hidden / uncloaked
                 if (!TryReidentify(hwnd)) Evaluate(hwnd, 0);

@@ -78,6 +78,7 @@ internal sealed class CompositionDockPlate : IDisposable
 
     internal void SetBounds(float left, float top, float width, float height)
     {
+        left=MathF.Round(left*8)/8;top=MathF.Round(top*8)/8;width=MathF.Round(width*8)/8;height=MathF.Round(height*8)/8;
         var bounds = (left, top, width, height); if (_lastBounds == bounds) return; _lastBounds = bounds;
         _plate.Offset = _shadowVisual.Offset = new Vector3(left, top, 0);
         _plate.Size = _shadowVisual.Size = new Vector2(width, height);

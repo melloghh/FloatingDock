@@ -5,8 +5,8 @@ src/
   FloatingDock.Core      net10.0, no OS dependency, unit-tested
   FloatingDock.Windows   net10.0-windows, Win32 / COM / Shell, no UI framework
   FloatingDock.App       WinUI 3 (Windows App SDK), code-only UI
-tests/FloatingDock.Core.Tests   xUnit (190 tests)
-tests/FloatingDock.Windows.Tests   xUnit (13 tests)
+tests/FloatingDock.Core.Tests   xUnit
+tests/FloatingDock.Windows.Tests   xUnit
 ```
 
 ## Core (pure logic)
@@ -14,6 +14,7 @@ tests/FloatingDock.Windows.Tests   xUnit (13 tests)
 * `Geometry` – the magnification maths. `Magnification` (bell curve + its integral), `MagnificationState` (hover envelope, cursor smoothing), `WindowMetrics` (the window size depends only on the *set* of icons and the settings — never on the cursor — so the window and its hover zone never move while icons grow), `DockLayout` (positions, hit-testing), `DockMotion` (appear / leave / reorder animations).
 * `Services` – `DockEntryReconciler` (pinned + running + special items → slots), `AppListStore` (pinned apps and Launchpad tiles), `AppSearchIndex`, `HotkeyParser`.
 * `Icons` – pack loading, name matching, ZIP import/export with path-traversal checks, overrides, resolver.
+* `Tiling` – independent split trees, ratios, directional navigation, gap geometry and temporary pruning of minimized tiles. Native ownership/restoration lives in `NativeTilingSession`; `TilingManager` coalesces events and drives finite transitions. See [tiling controls and limits](TILING.md).
 
 ## Windows layer
 Shell work (icons, AppsFolder, shortcut resolving) runs on **one dedicated STA thread** (`ShellWorker`). Running apps come from a `SetWinEventHook` watcher (create / destroy / show / hide / cloak / foreground / minimize) with a 30 s safety-net rescan — no polling loop. UWP windows are resolved through the AUMID of the real app behind `ApplicationFrameHost`.

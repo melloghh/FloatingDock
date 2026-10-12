@@ -39,9 +39,11 @@ internal sealed class MenuBarHost : IDisposable
         _app.Running.NativeWindowChanged+=OnNativeWindowChanged;
         _app.Msg.TaskbarCreated+=OnExplorerRestart;
         _app.Msg.InputLanguageChanged+=OnLanguageChanged;
+        _app.Tiling.StateChanged+=OnTilingChanged;
         ApplySettings();
     }
     private void OnLanguageChanged()=>_app.UiQueue.TryEnqueue(()=> { foreach(var bar in _bars.Values)bar.RefreshLanguage(); });
+    private void OnTilingChanged(){foreach(var bar in _bars.Values)bar.RefreshWorkspaces();}
     private void OnExplorerRestart() { _reservation.Release(); ApplySettings(); }
     private void OnNativeWindowChanged(FloatingDock.Windows.RunningApps.WindowEventKind kind,IntPtr hwnd)
     {
@@ -102,7 +104,7 @@ internal sealed class MenuBarHost : IDisposable
     internal void SetSuspended(bool hidden) { foreach(var b in _bars.Values) b.SetSuspended(hidden); }
     public void Dispose()
     {
-        _disposed=true;_app.Running.Changed-=OnRunning;_app.Running.NativeWindowChanged-=OnNativeWindowChanged;_app.Msg.TaskbarCreated-=OnExplorerRestart;_app.Msg.InputLanguageChanged-=OnLanguageChanged;
+        _disposed=true;_app.Running.Changed-=OnRunning;_app.Running.NativeWindowChanged-=OnNativeWindowChanged;_app.Msg.TaskbarCreated-=OnExplorerRestart;_app.Msg.InputLanguageChanged-=OnLanguageChanged;_app.Tiling.StateChanged-=OnTilingChanged;
         _geometryTimer.Stop();_reservation.Dispose();foreach(var b in _bars.Values) b.Dispose();_bars.Clear();
     }
 }
@@ -121,11 +123,12 @@ internal sealed class MenuBarWindow : IDisposable
     private readonly FontIcon _network=new() { Glyph="\uE839",FontSize=15 };
     private readonly Button _batteryButton, _clockButton;
     private readonly Button _networkButton, _soundButton, _languageButton, _mediaButton, _searchButton, _trayButton;
-    private readonly DispatcherQueueTimer _trayTimer;
     private bool _trayOpen;
     private int _trayGeneration;
     private readonly MenuBarMenus _menus;
     private readonly Button _mainButton;
+    private readonly StackPanel _workspaces=new(){Orientation=Orientation.Horizontal,Spacing=3,HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Center};
+    private readonly List<Button> _workspaceButtons=new();
     private IntPtr? _diagnosticLanguageTarget;
     internal MenuBarMenus Menus => _menus;
     internal void OpenMenuForDiagnostics(string kind,IntPtr target=default)
@@ -171,12 +174,11 @@ internal sealed class MenuBarWindow : IDisposable
         var ring=new Ellipse { Width=12,Height=12,Stroke=new SolidColorBrush(Colors.White),StrokeThickness=2 };
         _mainButton=ActionButton(ring,"FloatingDock menu",ShowMenu);left.Children.Add(_mainButton);left.Children.Add(_name);
         _root.Children.Add(left);
+        Grid.SetColumn(_workspaces,1);_root.Children.Add(_workspaces);
         var right=new StackPanel { Orientation=Orientation.Horizontal,Spacing=3,Margin=new Thickness(0,0,8,0),VerticalAlignment=VerticalAlignment.Center };
         _searchButton=ActionButton(new FontIcon { Glyph="\uE721",FontSize=14 },"Search",_app.ToggleSearch);right.Children.Add(_searchButton);
         _mediaButton=ActionButton(new FontIcon { Glyph="\uE8D6",FontSize=15 },"Media",()=>_menus.Media(_mediaButton!));right.Children.Add(_mediaButton);
         _trayButton=ActionButton(new FontIcon { Glyph="\uE70D",FontSize=13 },"System tray",async()=>await OpenTrayAsync());right.Children.Add(_trayButton);
-        _trayTimer=_app.UiQueue.CreateTimer();_trayTimer.Interval=TimeSpan.FromMilliseconds(150);
-        _trayTimer.Tick+=(_,_)=> { if(!SystemTrayOverflow.Visible){SystemTrayOverflow.ReleaseTemporaryTaskbar();_trayOpen=false;_trayTimer.Stop();_lastHover=DateTime.UtcNow;} };
         _batteryButton=ActionButton(_battery,"Battery settings",()=>Open("ms-settings:batterysaver"));
         right.Children.Add(_batteryButton);
         _networkButton=ActionButton(_network,"Network",()=> { _menus.Network(_networkButton!); });right.Children.Add(_networkButton);
@@ -189,7 +191,7 @@ internal sealed class MenuBarWindow : IDisposable
         WindowSetup.MakeBorderless(_window);Handle=WindowSetup.Hwnd(_window);WindowStyler.MakeOverlayWindow(Handle,noActivate:true);
         _root.PointerEntered+=(_,_)=> { if(IgnoreRealCursorForDiagnostics)return;_hover=true;Reveal(); };
         _root.PointerExited+=(_,_)=> { if(IgnoreRealCursorForDiagnostics)return;_hover=false;_lastHover=DateTime.UtcNow; };
-        _languageTimer=_app.UiQueue.CreateTimer();_languageTimer.Interval=TimeSpan.FromMilliseconds(150);_languageTimer.Tick+=(_,_)=>RefreshLanguage();
+        _languageTimer=_app.UiQueue.CreateTimer();_languageTimer.Interval=TimeSpan.FromMilliseconds(1000);_languageTimer.Tick+=(_,_)=>RefreshLanguage();
         _clockTimer=_app.UiQueue.CreateTimer();_clockTimer.Interval=TimeSpan.FromSeconds(1);_clockTimer.Tick+=(_,_)=>RefreshClock();
         _edgeTimer=_app.UiQueue.CreateTimer();_edgeTimer.Interval=TimeSpan.FromMilliseconds(100);_edgeTimer.Tick+=(_,_)=>CheckEdge();
         _slideTimer=_app.UiQueue.CreateTimer();_slideTimer.Interval=TimeSpan.FromMilliseconds(16);_slideTimer.Tick+=(_,_)=>Slide();
@@ -199,28 +201,24 @@ internal sealed class MenuBarWindow : IDisposable
     private Button ActionButton(UIElement content,string tip,Action action)
     {
         var b=new Button { Content=content,Height=24,MinWidth=28,VerticalAlignment=VerticalAlignment.Center,Padding=new Thickness(7,0,7,0),BorderThickness=new Thickness(0),Background=new SolidColorBrush(Colors.Transparent),Foreground=new SolidColorBrush(Colors.White),CornerRadius=new CornerRadius(8) };
-        ToolTipService.SetToolTip(b,L.Text(tip));b.Click+=(_,_)=> { if(!IgnoreRealCursorForDiagnostics)action(); };return b;
+        ToolTipService.SetToolTip(b,L.Text(tip));b.Click+=(_,_)=> { if(!IgnoreRealCursorForDiagnostics){if(b!=_trayButton)CloseTray();action();} };return b;
     }
     internal Task OpenTrayForDiagnostics()=>OpenTrayAsync();
-    internal bool TrayVisible=>_trayOpen&&SystemTrayOverflow.Visible;
+    internal bool TrayVisible=>_menus.ActiveKind=="tray"&&_menus.SurfaceVisible;
     private async Task OpenTrayAsync()
     {
-        if(_trayOpen){CloseTray();return;}
+        if(_trayOpen||_menus.ActiveKind=="tray"){CloseTray();return;}
         _menus.Close(immediately:true);_app.Palette?.Hide();_trayOpen=true;Reveal();int generation=++_trayGeneration;
-        var point=_trayButton.TransformToVisual(_root).TransformPoint(new global::Windows.Foundation.Point());
-        int x=Monitor.Bounds.Left+(int)((SideInsetDip+point.X)*Monitor.Scale),y=ShownTop+(int)((HeightDip+6)*Monitor.Scale);
-        bool opened=await _app.OpenSystemTrayAsync(x,y,Monitor.Bounds.Right-8,Monitor.Bounds.Bottom-8);
-        if(Program.IsSmokeTest)_app.Log.Info($"Tray open result={opened}, nativeVisible={SystemTrayOverflow.Visible}, generation={generation}/{_trayGeneration}, capture={_capture}, suspended={_suspended}, fullscreen={_fullscreen}, diagnostic={SystemTrayOverflow.LastDiagnostic}");
-        if(Program.IsSmokeTest&&!opened)File.WriteAllLines(System.IO.Path.Combine(_app.Paths.Root,"tray-live-tree.txt"),SystemTrayOverflow.LastDiscovery);
-        if(_disposed||generation!=_trayGeneration||_capture||_suspended||_fullscreen||!_settings.TopBarEnabled){if(opened)SystemTrayOverflow.Dismiss();return;}
-        _trayOpen=opened&&SystemTrayOverflow.Visible;
-        if(_trayOpen)_trayTimer.Start();else _menus.TrayUnavailable(_trayButton);
+        var items=await _app.ReadTrayItemsAsync();
+        if(_disposed||generation!=_trayGeneration||_capture||_suspended||_fullscreen||!_settings.TopBarEnabled)return;
+        _trayOpen=false;_menus.Tray(_trayButton,items);
     }
-    private void CloseTray(){_trayGeneration++;if(_trayOpen)SystemTrayOverflow.Dismiss();_trayOpen=false;_trayTimer.Stop();}
+    private void CloseTray(){_trayGeneration++;if(_menus.ActiveKind=="tray")_menus.Close(immediately:true);_trayOpen=false;}
     private void Open(string uri) { if(!ShellLauncher.Execute(uri,null,null)) _app.Log.Warn("Could not open "+uri); }
     internal void Apply(DockSettings s,MonitorDescriptor m)
     {
         _settings=s;Monitor=m;
+        RefreshWorkspaces();
         _slideTimer.Interval=TimeSpan.FromMilliseconds(1000d/s.TopBarAnimationFps);
         _mediaButton.Visibility=s.TopBarMediaEnabled?Visibility.Visible:Visibility.Collapsed;
         _trayButton.Visibility=s.TopBarTrayEnabled?Visibility.Visible:Visibility.Collapsed;
@@ -238,6 +236,28 @@ internal sealed class MenuBarWindow : IDisposable
         UpdateLanguageTimer();Target(!_hover&&!_menuOpen&&(s.TopBarAutoHide||_fullscreen)); // settings changes cancel any prior slide target
     }
     internal void SetAppName(string name) { if(_name.Text!=name)_name.Text=name; }
+    internal void RefreshWorkspaces()
+    {
+        var settings=_app.Settings.Current;var session=_app.Tiling.Session;
+        _workspaces.Visibility=settings.TilingEnabled&&settings.TilingShowWorkspaces&&session is not null&&Monitor.Bounds.Width/Monitor.Scale>=1000?Visibility.Visible:Visibility.Collapsed;
+        if(_workspaces.Visibility==Visibility.Collapsed)return;
+        if(_workspaceButtons.Count!=settings.TilingWorkspaces)
+        {
+            _workspaces.Children.Clear();_workspaceButtons.Clear();
+            for(int workspace=1;workspace<=settings.TilingWorkspaces;workspace++)
+            {
+                int target=workspace;var button=ActionButton(new TextBlock {Text=workspace.ToString(),FontSize=11},L.Format("Workspace {0}",workspace),()=>_app.Tiling.SwitchWorkspace(target,Monitor.DeviceName));
+                _workspaceButtons.Add(button);_workspaces.Children.Add(button);
+            }
+        }
+        int active=session!.ActiveWorkspace(Monitor.DeviceName);
+        for(int i=0;i<_workspaceButtons.Count;i++)
+        {
+            bool selected=i+1==active;
+            if(_workspaceButtons[i].Tag is bool previous&&previous==selected)continue;
+            _workspaceButtons[i].Tag=selected;_workspaceButtons[i].Background=new SolidColorBrush(selected?ColorHelper.FromArgb(45,255,255,255):Colors.Transparent);
+        }
+    }
     private void RefreshClock()
     {
         if(_disposed)return;

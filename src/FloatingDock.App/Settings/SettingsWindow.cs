@@ -31,6 +31,7 @@ internal sealed partial class SettingsWindow : IDisposable
             ["Icon Packs"] = IconPacksPage,
             ["Launchpad"] = LaunchpadPage,
             ["Search"] = SearchPage,
+            ["Tiling manager"] = TilingPage,
             ["Windows Taskbar"] = TaskbarPage,
             ["About"] = AboutPage,
         };
@@ -67,6 +68,7 @@ internal sealed partial class SettingsWindow : IDisposable
         "Icon Packs" => Symbol.Pictures,
         "Launchpad" => Symbol.ViewAll,
         "Search" => Symbol.Find,
+        "Tiling manager" => Symbol.ViewAll,
         "Windows Taskbar" => Symbol.Street,
         _ => Symbol.Help,
     };

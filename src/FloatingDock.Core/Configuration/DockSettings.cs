@@ -8,6 +8,7 @@ public enum ThemeMode { Dark, Light, System }
 public enum IndicatorStyle { Dot, Bar }
 public enum InterfaceLanguage { English, Russian }
 public enum LaunchpadIconStyle { WhiteSquares, ColorOnDark, ColorOnWhite }
+public enum TilingModifier { Alt,CtrlAltWin }
 public enum TaskbarMode
 {
     /// <summary>Do not touch the Windows taskbar.</summary>
@@ -107,8 +108,18 @@ public sealed class DockSettings
     public LaunchpadIconStyle LaunchpadIconStyle { get; set; } = LaunchpadIconStyle.WhiteSquares;
     public string SearchHotkey { get; set; } = "Ctrl+Alt+K";
     public bool SearchFiles { get; set; } = true;
-    public string SearchFolders { get; set; } = "Desktop;Documents;Downloads";
+    public string SearchFolders { get; set; } = "Desktop;Downloads";
+    public int SearchDepth { get; set; } = 1;
     public int SearchResultLimit { get; set; } = 30;
+    // ---- Built-in, opt-in tiling ----
+    public bool TilingEnabled { get; set; }
+    public bool TilingShowWorkspaces { get; set; }=true;
+    public int TilingWorkspaces { get; set; } = 5;
+    public int TilingGap { get; set; } = 8;
+    public int TilingOuterGap { get; set; } = 12;
+    public int TilingAnimationMs { get; set; } = 160;
+    public TilingModifier TilingModifier { get; set; } = TilingModifier.Alt;
+    public string TilingExcludedApps { get; set; } = "FloatingDock.exe;Taskmgr.exe;SnippingTool.exe;ScreenClippingHost.exe";
 
     // ---- Windows taskbar ----
     public TaskbarMode TaskbarMode { get; set; } = TaskbarMode.HideCompletely;
@@ -137,6 +148,10 @@ public sealed class DockSettings
         TopBarHideDelayMs=Math.Clamp(TopBarHideDelayMs,100,3000);
         MenuAnimationMs=Math.Clamp(MenuAnimationMs,80,600);PreviewDelayMs=Math.Clamp(PreviewDelayMs,200,2000);
         SearchResultLimit=Math.Clamp(SearchResultLimit,5,100);SearchFolders??="";SearchHotkey??="";
+        SearchDepth=Math.Clamp(SearchDepth,0,3);
+        TilingWorkspaces=Math.Clamp(TilingWorkspaces,1,9);TilingGap=Math.Clamp(TilingGap,0,40);TilingOuterGap=Math.Clamp(TilingOuterGap,0,80);TilingAnimationMs=Math.Clamp(TilingAnimationMs,0,400);
+        if(!Enum.IsDefined(TilingModifier))TilingModifier=TilingModifier.Alt;TilingExcludedApps??="";
+        SearchFolders=string.Join(';',SearchFolders.Split(';',StringSplitOptions.RemoveEmptyEntries|StringSplitOptions.TrimEntries).Where(t=>!t.Equals("Documents",StringComparison.OrdinalIgnoreCase)));
         IconSize = Math.Clamp(IconSize, 24, 128);
         IconSpacing = Math.Clamp(IconSpacing, 0, 40);
         DockHeight = Math.Clamp(DockHeight, IconSize + 4, 200);
