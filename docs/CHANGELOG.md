@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.18
+
+- Anchor side docks to the physical monitor edge so work-area changes do not shift them vertically during auto-hide.
+- Exclude separators from pinned-app and individual-icon settings and icon-pack application.
+- Reorder visible apps while preserving stored separator positions; retain divider rendering and drag support in the dock.
+- Add repeated native hide/reveal checks with changing work areas and app-reordering persistence tests.
+
 ## 1.0.17
 
 - Clip quick-menu windows and their blur to the same rounded bounds, including asynchronous resizing.

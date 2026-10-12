@@ -285,7 +285,10 @@ internal sealed class DockWindow : IDisposable
         _winH = (int)Math.Ceiling(viewport.Height * _scale);
         float anchorLeft = _m.RestPlateLeft, anchorRight = _m.RestPlateRight;
         var b = _monitor.Bounds;
-        int start = Vertical ? _monitor.WorkArea.Top : b.Left, end = Vertical ? _monitor.WorkArea.Bottom : b.Right;
+        // AppBar/taskbar reservations can change while a panel hides or reveals.
+        // Anchor along the physical monitor edge so a side dock only slides on X.
+        // BaseEdge still respects the taskbar on the perpendicular axis.
+        int start = Vertical ? b.Top : b.Left, end = Vertical ? b.Bottom : b.Right;
         double along = _s.Alignment switch
         {
             DockAlignment.Left when !_gp.FixedWidth => start + (12 + _s.HorizontalOffset - anchorLeft) * _scale,

@@ -36,7 +36,7 @@ internal sealed partial class SettingsWindow
             var pack=packs.ElementAtOrDefault(combo.SelectedIndex);
             if(pack is null)return;
             _app.Settings.Update(d=> { d.ActiveIconPack=Path.GetFileName(pack.Directory);d.UseIconPack=true; });
-            foreach(var app in _app.Pinned.Snapshot().Concat(_app.UserTiles.Snapshot()))
+            foreach(var app in _app.Pinned.Snapshot().Concat(_app.UserTiles.Snapshot()).Where(app=>!app.IsSeparator))
                 if(pack.Find(app.IconNames(),S.PreferDarkVariants) is not null)_app.Overrides.ResetForApp(app);
             _app.Icons.Invalidate();Refresh();
         });
@@ -131,7 +131,7 @@ internal sealed partial class SettingsWindow
         void Fill()
         {
             list.Children.Clear();
-            var apps = _app.Pinned.Snapshot().Concat(_app.UserTiles.Snapshot()).GroupBy(a => a.Key).Select(g => g.First()).ToList();
+            var apps = _app.Pinned.Snapshot().Concat(_app.UserTiles.Snapshot()).Where(app=>!app.IsSeparator).GroupBy(a => a.Key).Select(g => g.First()).ToList();
             if (apps.Count == 0) list.Children.Add(Ui.Note("Pin apps to the Dock or add Launchpad tiles to set their icons here."));
             foreach (var app in apps)
             {

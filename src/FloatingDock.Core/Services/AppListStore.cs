@@ -105,6 +105,25 @@ public sealed class AppListStore
         return Finish(failure);
     }
 
+    /// <summary>Moves within the visible app list, keeping persisted divider slots in place.</summary>
+    public bool MoveApplication(string key,int newIndex)
+    {
+        Exception? failure;
+        lock(_gate)
+        {
+            var apps=_apps.Where(a=>!a.IsSeparator).ToList();
+            int from=apps.FindIndex(a=>a.Key==key);
+            if(from<0)return false;
+            newIndex=Math.Clamp(newIndex,0,apps.Count-1);
+            if(from==newIndex)return false;
+            var item=apps[from];apps.RemoveAt(from);apps.Insert(newIndex,item);
+            var next=new List<AppRef>(_apps);int appIndex=0;
+            for(int i=0;i<next.Count;i++)if(!next[i].IsSeparator)next[i]=apps[appIndex++];
+            failure=Commit(next);
+        }
+        return Finish(failure);
+    }
+
     public bool ReplaceAll(IEnumerable<AppRef> apps)
     {
         Exception? failure;

@@ -56,7 +56,7 @@ internal sealed partial class SettingsWindow
         void Fill()
         {
             list.Children.Clear();
-            var pinned = _app.Pinned.Snapshot();
+            var pinned = _app.Pinned.Snapshot().Where(app=>!app.IsSeparator).ToList();
             if (pinned.Count == 0) list.Children.Add(Ui.Note("Nothing is pinned yet."));
             for (int i = 0; i < pinned.Count; i++)
             {
@@ -74,8 +74,8 @@ internal sealed partial class SettingsWindow
                     Grid.SetColumn(b, col);
                     row.Children.Add(b);
                 }
-                Add(1, "▲", "Move left", () => _app.Pinned.Move(app.Key, index - 1), index > 0);
-                Add(2, "▼", "Move right", () => _app.Pinned.Move(app.Key, index + 1), index < pinned.Count - 1);
+                Add(1, "▲", "Move left", () => _app.Pinned.MoveApplication(app.Key, index - 1), index > 0);
+                Add(2, "▼", "Move right", () => _app.Pinned.MoveApplication(app.Key, index + 1), index < pinned.Count - 1);
                 Add(3, "✕", "Unpin", () => _app.Pinned.Remove(app.Key));
                 list.Children.Add(row);
             }
