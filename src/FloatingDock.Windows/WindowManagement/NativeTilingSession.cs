@@ -56,6 +56,7 @@ public sealed class NativeTilingSession : IDisposable
     public bool IsManaged(long id)=>_members.ContainsKey(id);
     public bool NeedsRestoredPlacement(long id)=>_members.TryGetValue(id,out var member)&&member.PendingRestore&&!NativeMethods.IsIconic(new(id))&&!IsZoomed(new(id));
     public bool HasBeenPlaced(long id)=>_members.TryGetValue(id,out var member)&&member.Placed;
+    public bool IsUserMinimized(long id)=>_members.TryGetValue(id,out var member)&&member.UserMinimized;
     public void ReleaseFailedPlacement(long id)
     {
         if(!_members.TryGetValue(id,out var m))return;
@@ -69,8 +70,14 @@ public sealed class NativeTilingSession : IDisposable
     public bool NeedsInitialPlacement(long id)=>_members.TryGetValue(id,out var member)&&member.InitialPlacementPending&&!member.Floating&&!member.UserMinimized&&member.Workspace==ActiveWorkspace(member.Monitor);
     public void FinishInitialPlacement(long id){if(_members.TryGetValue(id,out var member))member.InitialPlacementPending=false;}
     public bool CanFollowActivation(long id)=>_members.TryGetValue(id,out var member)&&(!member.MinimizedByUs||member.RestoredExternally);
-    public void ObserveNativeMinimize(long id)
-    {if(_members.TryGetValue(id,out var member))member.MinimizeOutstanding=false;}
+    public TileRect? LastPlacement(long id)=>_members.TryGetValue(id,out var member)?member.LastRequest:null;
+    public bool ObserveNativeMinimize(long id)
+    {
+        if(!_members.TryGetValue(id,out var member))return false;
+        member.MinimizeOutstanding=false;
+        if(member.MinimizedByUs||member.UserMinimized)return false;
+        member.UserMinimized=true;member.PendingRestore=false;return true;
+    }
     public void ObserveNativeRestore(long id)
     {
         if(!_members.TryGetValue(id,out var member))return;
@@ -113,13 +120,14 @@ public sealed class NativeTilingSession : IDisposable
     public bool Reconcile(IReadOnlyList<WindowInfo> windows,long foreground)
     {
         if(_disposed)return false;
-        RefreshMonitors();bool changed=false;
-        var live=windows.Select(w=>w.Hwnd).ToHashSet();
+        bool changed=false;
+        if(_monitors.Count==0)RefreshMonitors();
+        var live=windows.ToDictionary(w=>w.Hwnd);
         foreach(var (id,member) in _members.ToArray())
         {
             if(!Owns(id,member)){Tree(member).Remove(id);_members.Remove(id);changed=true;continue;}
-            var info=windows.FirstOrDefault(w=>w.Hwnd==id);
-            bool hidden=(!live.Contains(id)&&!member.MinimizedByUs)||!NativeMethods.IsWindowVisible(new(id));
+            var info=live.GetValueOrDefault(id);
+            bool hidden=(!live.ContainsKey(id)&&!member.MinimizedByUs)||!NativeMethods.IsWindowVisible(new(id));
             if(hidden!=member.Hidden)
             {
                 member.Hidden=hidden;if(hidden)Tree(member).Remove(id);else if(!member.Floating)AddBalanced(id,member);

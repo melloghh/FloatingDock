@@ -13,7 +13,7 @@ public static class WindowActivator
     public enum ActivationResult { Activated, Minimized, NoLiveWindow, Denied }
 
     /// <summary>Verifies current HWND/PID, restores asynchronously and activates a modal popup when its owner is disabled.</summary>
-    public static async Task<ActivationResult> ActivateOrMinimizeAsync(IReadOnlyList<WindowInfo> windows, bool minimizeIfActive)
+    public static async Task<ActivationResult> ActivateOrMinimizeAsync(IReadOnlyList<WindowInfo> windows, bool minimizeIfActive,Func<IntPtr,bool>? minimize=null)
     {
         var live = windows.Where(w => IsLive(w)).Select(w => w.Hwnd).ToHashSet();
         if (live.Count == 0) return ActivationResult.NoLiveWindow;
@@ -22,7 +22,7 @@ public static class WindowActivator
         long root = (owner == IntPtr.Zero ? foreground : owner).ToInt64();
         if (minimizeIfActive && live.Contains(root) && !NativeMethods.IsIconic(new IntPtr(root)))
         {
-            NativeMethods.ShowWindowAsync(new IntPtr(root), NativeMethods.SW_MINIMIZE);
+            if(minimize?.Invoke(new(root))!=true)NativeMethods.ShowWindowAsync(new IntPtr(root), NativeMethods.SW_MINIMIZE);
             return ActivationResult.Minimized;
         }
         IntPtr target = IntPtr.Zero;

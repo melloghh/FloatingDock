@@ -1063,7 +1063,7 @@ internal sealed class DockWindow : IDisposable
             _app.Tiling.PrepareActivation(entry.Windows);
             var item = _motion.Items.FirstOrDefault(i => i.Key == entry.Key);
             if (item is not null && AnimationRectFor(item) is { } rect) _app.Dock.RememberAnimationOrigin(entry.Windows, rect);
-            var result = await WindowActivator.ActivateOrMinimizeAsync(entry.Windows, _s.MinimizeOnRepeatClick);
+            var result = await WindowActivator.ActivateOrMinimizeAsync(entry.Windows, _s.MinimizeOnRepeatClick,_app.Tiling.MinimizeToDock);
             if (result == WindowActivator.ActivationResult.NoLiveWindow)
             {
                 _app.Running.FullScan();

@@ -28,6 +28,8 @@ internal static partial class RuntimeSmoke
         string? error = null;
         try
         {
+            if(Environment.GetCommandLineArgs().Contains("--test-only-ui141"))
+            {await CheckUi140Async(app,checks);await CheckUi141Async(app,checks);Check(Program.UiFailureCount==0,"XAML failure in minimize/capture/search checks.");success=true;return;}
             if(Environment.GetCommandLineArgs().Contains("--test-only-ui140"))
             {await CheckUi140Async(app,checks);Check(Program.UiFailureCount==0,"XAML failure in compositor checks.");success=true;return;}
             if(Environment.GetCommandLineArgs().Contains("--test-only-ui130"))

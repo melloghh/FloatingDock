@@ -17,6 +17,7 @@ public sealed class AppPaths
 
     public string Root { get; }
     public string ConfigFile => Path.Combine(Root, "config.json");
+    public string SearchUsageFile => Path.Combine(Root, "search-usage.json");
     public string PinnedFile => Path.Combine(Root, "pinned.json");
     public string IconOverridesFile => Path.Combine(Root, "icon-overrides.json");
     public string TaskbarStateFile => Path.Combine(Root, "taskbar-state.json");

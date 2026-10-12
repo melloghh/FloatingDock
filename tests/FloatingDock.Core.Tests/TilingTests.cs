@@ -5,6 +5,17 @@ using Xunit;
 namespace FloatingDock.Core.Tests;
 public sealed class TilingTests
 {
+    [Fact] public void MinimumConstraintIsReleasedWhenEqualWidthsFitAgain()
+    {
+        var tree=new TileTree();var mins=new Dictionary<long,(int Width,int Height)>{{1,(480,600)},{2,(800,600)}};
+        var narrow=new TileRect(0,0,1400,900);
+        Assert.True(tree.AddBalanced(1,0,narrow,8,12,mins));Assert.True(tree.AddBalanced(2,1,narrow,8,12,mins));
+        Assert.True(tree.Layout(narrow)[2].Width>tree.Layout(narrow)[1].Width);
+        var wide=new TileRect(0,0,1920,1080);Assert.True(tree.AddBalanced(1,0,wide,8,12,mins));
+        var layout=tree.Layout(wide);Assert.InRange(Math.Abs(layout[1].Width-layout[2].Width),0,1);
+        tree.Resize(1,TileDirection.Right);Assert.True(tree.AddBalanced(1,0,wide,8,12,mins));
+        Assert.True(tree.Layout(wide)[1].Width>tree.Layout(wide)[2].Width);
+    }
     [Fact] public void RestoringAnExistingTallMemberReflowsItsMinimumAgain()
     {
         var tree=new TileTree();var bounds=new TileRect(0,0,1920,1080);var minima=new Dictionary<long,(int Width,int Height)>{{1,(480,600)},{2,(800,600)},{3,(400,250)},{4,(480,400)}};

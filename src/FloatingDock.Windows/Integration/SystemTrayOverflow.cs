@@ -19,6 +19,7 @@ public static unsafe partial class SystemTrayOverflow
     [DllImport("user32.dll")] private static extern bool PostMessage(IntPtr hwnd,uint message,IntPtr wparam,IntPtr lparam);
     [StructLayout(LayoutKind.Sequential)] private struct GuiThreadInfo { public int Size,Flags;public IntPtr Active,Focus,Capture,MenuOwner,MoveSize,Caret;public RECT CaretRect; }
     [DllImport("user32.dll")] private static extern bool GetGUIThreadInfo(uint thread,ref GuiThreadInfo info);
+    [DllImport("user32.dll",EntryPoint="SendMessageTimeoutW")] private static extern IntPtr CancelMode(IntPtr hwnd,uint message,IntPtr w,IntPtr l,uint flags,uint timeout,out UIntPtr result);
     private static void* Slot(IntPtr instance,int index)=>((void**)*(void**)instance)[index];
     private static int Get(IntPtr self,int slot,out IntPtr result)
     { IntPtr value=default;int hr=((delegate* unmanaged[Stdcall]<IntPtr,IntPtr*,int>)Slot(self,slot))(self,&value);result=value;return hr; }
@@ -98,7 +99,8 @@ public static unsafe partial class SystemTrayOverflow
         // the user's active application. Explorer performs its normal light-dismiss.
         PostMessage(target,0x100,new IntPtr(0x1B),IntPtr.Zero);
         PostMessage(target,0x101,new IntPtr(0x1B),IntPtr.Zero);
-        PostMessage(hwnd,0x001F,IntPtr.Zero,IntPtr.Zero);
+        CancelMode(target,0x001F,IntPtr.Zero,IntPtr.Zero,2,25,out _);
+        if(target!=hwnd)CancelMode(hwnd,0x001F,IntPtr.Zero,IntPtr.Zero,2,25,out _);
         if(NativeMethods.GetForegroundWindow()==hwnd&&NativeMethods.IsWindowVisible(_returnFocus)&&!NativeMethods.IsIconic(_returnFocus))NativeMethods.SetForegroundWindow(_returnFocus);
         ShowWindow(hwnd,0); // capture/fullscreen dismissal must remove native pixels immediately.
         ReleaseTemporaryTaskbar();

@@ -80,6 +80,16 @@ internal static partial class RuntimeSmoke
             Check(nativeChanges==0&&ids.All(id=>Matches(id,targets[id])),"An app visibly moved through intermediate native bounds.");
             foreach(var (id,r) in targets){Check(r.Width>=minima[id].Width&&r.Height>=minima[id].Height,"Mixed layout violated a minimum size.");foreach(var other in targets.Where(p=>p.Key!=id))Check(r.X+r.Width<=other.Value.X+16||other.Value.X+other.Value.Width<=r.X+16||r.Y+r.Height<=other.Value.Y+16||other.Value.Y+other.Value.Height<=r.Y+16,"Mixed windows overlap.");}
             RestoredOpacity();checks["fourMixedMinimumWindows"]=new{count=4,openingFrames=opening.Distinct().Count(),nativeIntermediateChanges=nativeChanges,playerMinimum="800x600"};
+            if(Environment.GetCommandLineArgs().Contains("--test-only-ui141"))
+            {
+                NativeMethods.ShowWindowAsync(new(playerId),NativeMethods.SW_MINIMIZE);
+                await Wait(()=>NativeMethods.IsIconic(new(playerId))&&app.Tiling.PresentationsForDiagnostics.ContainsKey(playerId),"A user minimize did not animate to the dock.");
+                await Wait(()=>!app.Tiling.Animating&&session.Targets().Count==3,"A user-minimized window continued occupying a tile.");
+                RestoredOpacity();
+                NativeMethods.ShowWindowAsync(new(playerId),NativeMethods.SW_RESTORE);
+                await Wait(()=>!app.Tiling.Animating&&session.Targets().Count==4&&ids.All(id=>Matches(id,session.Targets()[id])),"User restore did not reflow the remaining windows.");
+                RestoredOpacity();checks["userMinimizeAndRestore"]=true;
+            }
             // A real app can apply its saved geometry well after the startup gate.
             session.Move(playerId,session.Targets()[playerId]);
             NativeMethods.SetWindowPos(new(playerId),IntPtr.Zero,mon.WorkArea.Left+100,mon.WorkArea.Top+100,1000,750,NativeMethods.SWP_NOZORDER|NativeMethods.SWP_NOACTIVATE);

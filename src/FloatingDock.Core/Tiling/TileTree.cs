@@ -16,10 +16,11 @@ public sealed class TileTree
         public Node? First,Second;
         public bool Horizontal=true;
         public double Ratio=.5;
+        public double PreferredRatio=.5;
         public bool Leaf=>First is null;
     }
     private Node? _root;
-    private static Node? Copy(Node? n)=>n is null?null:new(){Window=n.Window,Horizontal=n.Horizontal,Ratio=n.Ratio,First=Copy(n.First),Second=Copy(n.Second)};
+    private static Node? Copy(Node? n)=>n is null?null:new(){Window=n.Window,Horizontal=n.Horizontal,Ratio=n.Ratio,PreferredRatio=n.PreferredRatio,First=Copy(n.First),Second=Copy(n.Second)};
     public IReadOnlyList<long> Windows { get { var result=new List<long>();Walk(_root,n=>{if(n.Leaf)result.Add(n.Window);});return result; } }
     private static void Walk(Node? node,Action<Node> visit){if(node is null)return;visit(node);Walk(node.First,visit);Walk(node.Second,visit);}
     private Node? Find(long id){Node? result=null;Walk(_root,n=>{if(n.Leaf&&n.Window==id)result=n;});return result;}
@@ -57,7 +58,7 @@ public sealed class TileTree
             var a=Minimum(n.First);var b=Minimum(n.Second);
             if(a.Width==0)return Fit(n.Second,r);if(b.Width==0)return Fit(n.First,r);
             int available=(n.Horizontal?r.Width:r.Height)-space;
-            int first=Math.Clamp((int)Math.Round(available*n.Ratio),n.Horizontal?a.Width:a.Height,available-(n.Horizontal?b.Width:b.Height));
+            int first=Math.Clamp((int)Math.Round(available*n.PreferredRatio),n.Horizontal?a.Width:a.Height,available-(n.Horizontal?b.Width:b.Height));
             n.Ratio=first/(double)available;
             return n.Horizontal?Fit(n.First,r with{Width=first})&&Fit(n.Second,r with{Width=available-first}):Fit(n.First,r with{Height=first})&&Fit(n.Second,r with{Height=available-first});
         }
@@ -82,7 +83,8 @@ public sealed class TileTree
             {
                 int count=windows.Length-index;if(count==1)return new(){Window=windows[index]};
                 int first=Math.Max(1,(length-space*(count-1))/count);
-                return new(){Horizontal=horizontal,Ratio=Math.Clamp(first/(double)Math.Max(1,length-space),.001,.999),First=new(){Window=windows[index]},Second=Build(index+1,Math.Max(1,length-first-space))};
+                double ratio=Math.Clamp(first/(double)Math.Max(1,length-space),.001,.999);
+                return new(){Horizontal=horizontal,Ratio=ratio,PreferredRatio=ratio,First=new(){Window=windows[index]},Second=Build(index+1,Math.Max(1,length-first-space))};
             }
             _root=Build(0,Math.Max(1,(horizontal?bounds.Width:bounds.Height)-2*margin));
             if(Fits())return true;
@@ -141,6 +143,7 @@ public sealed class TileTree
         if(target is null)return;
         double sign=direction is TileDirection.Right or TileDirection.Down?1:-1;
         target.Ratio=Math.Clamp(target.Ratio+amount*sign*(first?1:-1),.15,.85);
+        target.PreferredRatio=target.Ratio;
     }
     public IReadOnlyDictionary<long,TileRect> Layout(TileRect bounds,int gap=8,int outer=12,IReadOnlySet<long>? visible=null)
     {

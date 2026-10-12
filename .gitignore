@@ -30,5 +30,6 @@ config.json
 pinned.json
 icon-overrides.json
 taskbar-state.json
+search-usage.json
 *.bak
 *.corrupt*

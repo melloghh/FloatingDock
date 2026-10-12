@@ -70,14 +70,13 @@ public sealed class WindowTransitionSurface : IDisposable
     private static readonly WindowProc Proc=(h,m,w,l)=>m==0x84?new(-1):m==0x21?new(3):NativeMethods.DefWindowProc(h,m,w,l);
     private const string ClassName="FloatingDock.TileTransition";
     private static bool _registered;
-    private static readonly byte[] TransparentPixels=new byte[65536];
     private IntPtr _thumbnail;
     private WindowOpacityLease? _lease;
     public IntPtr Handle { get; private set; }
     public TileRect Bounds { get; private set; }
     public byte Opacity { get; private set; }=255;
     private readonly int _x,_y;
-    private static bool InitializeTransparentViewport(IntPtr window,int x,int y,int width,int height)
+    private static unsafe bool InitializeTransparentViewport(IntPtr window,int x,int y,int width,int height)
     {
         long bytes=(long)width*height*4;if(bytes<=0||bytes>128*1024*1024)return false;
         var memory=CreateCompatibleDC(IntPtr.Zero);
@@ -86,10 +85,7 @@ public sealed class WindowTransitionSurface : IDisposable
         try
         {
             if(bitmap==IntPtr.Zero||pixels==IntPtr.Zero)return false;
-            // Reuse a small zero block instead of allocating a monitor-sized
-            // managed bitmap (and triggering LOH collections at every switch).
-            for(int offset=0;offset<bytes;offset+=TransparentPixels.Length)
-                Marshal.Copy(TransparentPixels,0,IntPtr.Add(pixels,offset),(int)Math.Min(TransparentPixels.Length,bytes-offset));
+            NativeMemory.Clear((void*)pixels,(nuint)bytes);
             previous=SelectObject(memory,bitmap);
             var position=new POINT {X=x,Y=y};var origin=new POINT();var size=new SIZE(width,height);var blend=new Blend {Alpha=255,Format=1};
             return UpdateLayeredWindow(window,IntPtr.Zero,position,size,memory,origin,0,blend,2);

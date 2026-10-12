@@ -18,6 +18,9 @@ internal sealed class DockHost : IDisposable
     private readonly AppBarReservation _appBar = new();
     private readonly DispatcherQueueTimer _fullscreenTimer;
     private readonly CaptureOverlayMonitor _capture = new();
+    private readonly CaptureShortcutWatcher _captureShortcut;
+    private readonly DispatcherQueueTimer _captureStartup;
+    private long _capturePendingUntil;
     private readonly Dictionary<long, (FloatingDock.Core.Models.WindowInfo Window, FloatingDock.Windows.Native.RECT Rect, long Until)> _animationOrigins = new();
     private readonly List<(FloatingDock.Core.Models.AppRef App, FloatingDock.Windows.Native.RECT Rect, long Until)> _launchOrigins = new();
     private bool _userHidden, _suspended;
@@ -29,6 +32,14 @@ internal sealed class DockHost : IDisposable
     public DockHost(DockApp app)
     {
         _app = app;
+        _captureStartup=app.UiQueue.CreateTimer();_captureStartup.Interval=TimeSpan.FromMilliseconds(100);
+        _captureStartup.Tick+=(_,_)=>
+        {
+            _capture.Scan();
+            if(_capture.IsActive||System.Diagnostics.Stopwatch.GetTimestamp()>=_capturePendingUntil){_capturePendingUntil=0;_captureStartup.Stop();}
+            UpdateCaptureVisibility();
+        };
+        _captureShortcut=new(BeginCaptureShortcut);
         _appBar.Log = app.Log.Warn;
         if (Environment.GetCommandLineArgs().Contains("--diagnostic-input")) _capture.Diagnostics = app.Log.Info;
         _fullscreenTimer = app.UiQueue.CreateTimer();
@@ -118,11 +129,24 @@ internal sealed class DockHost : IDisposable
         if(kind is FloatingDock.Windows.RunningApps.WindowEventKind.Renamed or FloatingDock.Windows.RunningApps.WindowEventKind.MoveStart or FloatingDock.Windows.RunningApps.WindowEventKind.MinimizeStart or FloatingDock.Windows.RunningApps.WindowEventKind.MinimizeEnd)return;
         _capture.Observe(hwnd);
         _capture.Refresh();
-        if(_capture.IsActive)_app.Palette?.Hide();
-        _app.TopBar?.SetCaptureHidden(_capture.IsActive);
-        foreach (var w in _windows) w.SetCaptureHidden(_capture.IsActive);
+        UpdateCaptureVisibility();
         if (kind == FloatingDock.Windows.RunningApps.WindowEventKind.Foreground ||
             kind == FloatingDock.Windows.RunningApps.WindowEventKind.LocationChanged && hwnd == FloatingDock.Windows.Native.NativeMethods.GetForegroundWindow()) CheckFullscreen();
+    }
+    internal void BeginCaptureShortcut()
+    {
+        if(_disposed)return;
+        _capturePendingUntil=System.Diagnostics.Stopwatch.GetTimestamp()+System.Diagnostics.Stopwatch.Frequency*2;
+        FloatingDock.Windows.Integration.SystemTrayOverflow.Dismiss();
+        _app.Tiling.HidePresentationsForCapture();
+        UpdateCaptureVisibility();_captureStartup.Start();
+    }
+    private void UpdateCaptureVisibility()
+    {
+        bool hidden=_capture.IsActive||System.Diagnostics.Stopwatch.GetTimestamp()<_capturePendingUntil;
+        if(hidden)_app.Palette?.Hide();
+        _app.TopBar?.SetCaptureHidden(hidden);
+        foreach(var w in _windows)w.SetCaptureHidden(hidden);
     }
 
     private void OnIconsChanged()
@@ -201,9 +225,7 @@ internal sealed class DockHost : IDisposable
     {
         if (_disposed || HoldFullscreenStateForDiagnostics) return;
         _capture.Refresh();
-        if(_capture.IsActive)_app.Palette?.Hide();
-        _app.TopBar?.SetCaptureHidden(_capture.IsActive);
-        foreach (var w in _windows) w.SetCaptureHidden(_capture.IsActive);
+        UpdateCaptureVisibility();
         if (_windows.Any(w => w.IsContextMenuOpen)) return;
         bool enabled = _app.Settings.Current.HideOnFullscreen;
         uint pid = (uint)Environment.ProcessId;
@@ -249,6 +271,7 @@ internal sealed class DockHost : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        _captureShortcut.Dispose();_captureStartup.Stop();
         _app.Msg.AnimationRectProvider = null;
         _animationOrigins.Clear();
         _fullscreenTimer.Stop();

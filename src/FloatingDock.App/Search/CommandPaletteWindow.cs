@@ -1,4 +1,5 @@
 using FloatingDock.Core.Models;
+using FloatingDock.Core.Configuration;
 using FloatingDock.Core.Services;
 using FloatingDock.UI.Views;
 using FloatingDock.Windows.Display;
@@ -32,6 +33,8 @@ internal sealed class CommandPaletteWindow : IDisposable
     private IReadOnlyList<Result> _results=Array.Empty<Result>();
     private Task<IReadOnlyList<AppRef>>? _catalog;
     private AppSearchIndex? _appIndex;
+    private SearchUsage? _usage;
+    private IReadOnlyList<AppRef> _searchApps=Array.Empty<AppRef>();
     private DateTime _catalogTime;
     private readonly StackPanel _panel=new();
     private CancellationTokenSource? _cancel;
@@ -99,14 +102,23 @@ internal sealed class CommandPaletteWindow : IDisposable
         string query=_query.Text.Trim();var settings=_app.Settings.Current.Clone();_status.Text=L.Text("Searching…");
         try
         {
+            _usage??=await _app.Worker.Run(()=>SearchUsage.Load(_app.Paths.SearchUsageFile));
+            if(_disposed||!_visible||generation!=_generation||ct.IsCancellationRequested)return;
+            if(query.Length==0&&!_usage.HasEntries)
+            {_results=Array.Empty<Result>();ClearRows();_status.Text=L.Text("Search apps, files and folders");ResizeSurface(0);return;}
             if(_catalog is not null&&DateTime.UtcNow-_catalogTime>TimeSpan.FromMinutes(5)){_catalog=null;_appIndex=null;}
             if(_catalog is null){_catalogTime=DateTime.UtcNow;_catalog=_app.Worker.Run<IReadOnlyList<AppRef>>(()=>AppCatalog.Load());}
             var catalog=await _catalog;if(ct.IsCancellationRequested)return;
-            _appIndex??=new AppSearchIndex(catalog.Concat(_app.Pinned.Snapshot()).Concat(_app.UserTiles.Snapshot()).Where(a=>!a.IsSeparator).GroupBy(a=>a.Key).Select(g=>g.First()));
+            if(_appIndex is null)
+            {
+                _searchApps=_app.UserTiles.Snapshot().Concat(_app.Pinned.Snapshot()).Concat(catalog).Where(PaletteAppPolicy.Include).GroupBy(a=>a.Key).Select(g=>g.First()).ToArray();
+                _appIndex=new AppSearchIndex(_searchApps);
+            }
             var results=new List<Result>();
             var commands=new[]{new Result(L.Text("FloatingDock settings"),"","Command",Command:()=>_app.ShowSettings()),new Result(L.Text("Launchpad"),"","Command",Command:_app.ToggleLaunchpad)};
-            results.AddRange(commands.Where(c=>query.Length==0||AppSearchIndex.Normalize(c.Name).Contains(AppSearchIndex.Normalize(query))));
-            results.AddRange(_appIndex.Search(query).Take(settings.SearchResultLimit).Select(a=>new Result(a.Name,"","App",App:a)));
+            if(query.Length>0)results.AddRange(commands.Where(c=>AppSearchIndex.Normalize(c.Name).Contains(AppSearchIndex.Normalize(query))));
+            var apps=query.Length==0?_usage.Suggestions(_searchApps,Math.Min(8,settings.SearchResultLimit)):_appIndex.Search(query);
+            results.AddRange(apps.Take(settings.SearchResultLimit).Select(a=>new Result(a.Name,"","App",App:a)));
             bool limited=false;
             if(settings.SearchFiles&&query.Length>=2)
             {
@@ -134,7 +146,7 @@ internal sealed class CommandPaletteWindow : IDisposable
                 button.Click+=(_,_)=>Open(result);_rowButtons.Add(button);_rows.Children.Add(button);
             }
             Select(_results.Count>0?0:-1);
-            _status.Text=L.Text(_results.Count==0?"No matches. Try an app name or a file on Desktop or Downloads.":limited?"Folder limit reached. Narrow the search folders in Settings.":"↑ ↓ to select · Enter to open · Esc to close");
+            _status.Text=L.Text(_results.Count==0&&query.Length==0?"Search apps, files and folders":_results.Count==0?"No matches. Try an app name or a file on Desktop or Downloads.":limited?"Folder limit reached. Narrow the search folders in Settings.":"↑ ↓ to select · Enter to open · Esc to close");
             ResizeSurface(_results.Count);
         }
         catch(OperationCanceledException){}
@@ -158,7 +170,16 @@ internal sealed class CommandPaletteWindow : IDisposable
     {
         Hide();
         if(result.Command is not null)result.Command();
-        else _=_app.Worker.Run(()=> { if(result.App is not null)ShellLauncher.Launch(result.App);else if(result.Path is not null)ShellLauncher.Execute(result.Path,null,null); });
+        else _=_app.Worker.Run(()=>
+        {
+            if(result.App is not null&&ShellLauncher.Launch(result.App)&&_usage is { } usage)
+            {
+                usage.Record(result.App,DateTime.UtcNow);
+                try { JsonFile.Save(_app.Paths.SearchUsageFile,usage.Snapshot()); }
+                catch(Exception ex) when(ex is IOException or UnauthorizedAccessException){_app.Log.Warn("Search suggestions could not be saved: "+ex.Message);}
+            }
+            else if(result.Path is not null)ShellLauncher.Execute(result.Path,null,null);
+        });
     }
     private void InvalidateApps()=>_app.UiQueue.TryEnqueue(()=>_appIndex=null);
     private void AnimateOpening(){SurfaceMotion.Enter(_root,_app.Settings.Current.MenuAnimationMs,1);SurfaceMotion.SlideContent(_panel,_app.Settings.Current.MenuAnimationMs);}

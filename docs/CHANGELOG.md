@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.4.1
+
+- Animate user minimization towards dock icons both with and without tiling, including a dock hidden under fullscreen apps. Remove minimized windows from active tiles and restore them from the dock.
+- Observe PrintScreen and Win+Shift+S without consuming input; dismiss tray surfaces immediately and release Explorer menu mode before capture. Stop transition surfaces during screenshot selection.
+- Separate preferred split ratios from temporary minimum-size constraints: equal halves return when they fit, while explicit user resizing is retained.
+- Show an empty search palette on first use. Filter Windows utilities and uninstallers in the palette; learn frequent suggestions only from successful app launches and persist them locally.
+- Avoid repeated monitor enumeration and repeated per-window layout calculation during reconciliation; use native clearing for transparent compositor viewports.
+
 ## 1.4.0
 
 - Reflow mixed minimum sizes with adjustable split ratios and compact slicing layouts. An 800×600 player joins three existing tiles instead of covering two of them; restored members and split edits revalidate their constraints.
