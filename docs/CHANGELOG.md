@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.4.0
+
+- Reflow mixed minimum sizes with adjustable split ratios and compact slicing layouts. An 800×600 player joins three existing tiles instead of covering two of them; restored members and split edits revalidate their constraints.
+- Place application windows directly at final tile bounds. Use finite DWM representations for opening, layout resize/movement and workspace animations towards resting dock icons, without per-frame client resizing or Explorer injection.
+- Preserve presented position and opacity when reversing transitions. Restore temporary styles/opacity on cancellation and shutdown; repair late application self-resizes and bound refused placements.
+- Use the dock's high-resolution, sleeping frame scheduler for tiling and menu-bar motion. Keep callbacks bounded and respect configured FPS and reduced motion.
+- Add mixed-window, actual Spotify opt-in, rendered minimized-thumbnail, workspace cancellation, startup privacy, late-resize and busy-owner restoration checks.
+
 ## 1.3.0
 
 - Keep the selected workspace authoritative. Late tracker focus no longer switches spaces or minimizes a newly opened app; activating an existing app can bring it into the current space.

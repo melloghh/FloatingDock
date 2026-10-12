@@ -5,6 +5,31 @@ using Xunit;
 namespace FloatingDock.Core.Tests;
 public sealed class TilingTests
 {
+    [Fact] public void RestoringAnExistingTallMemberReflowsItsMinimumAgain()
+    {
+        var tree=new TileTree();var bounds=new TileRect(0,0,1920,1080);var minima=new Dictionary<long,(int Width,int Height)>{{1,(480,600)},{2,(800,600)},{3,(400,250)},{4,(480,400)}};
+        for(int i=1;i<=4;i++)tree.AddBalanced(i,i-1,bounds,8,12,minima.Where(p=>p.Key<=i&&p.Key!=2).ToDictionary());
+        Assert.True(tree.AddBalanced(2,0,bounds,8,12,minima));
+        var layout=tree.Layout(bounds);Assert.Equal(4,layout.Count);Assert.All(layout,p=>{Assert.True(p.Value.Width>=minima[p.Key].Width);Assert.True(p.Value.Height>=minima[p.Key].Height);});
+    }
+    [Fact] public void TallPlayerReflowsFourMixedWindowsInsteadOfCoveringTwoTiles()
+    {
+        var tree=new TileTree();var bounds=new TileRect(0,32,1920,1048);
+        var minimums=new Dictionary<long,(int Width,int Height)>{{1,(480,600)},{2,(400,250)},{3,(480,400)}};
+        for(int i=1;i<=3;i++)Assert.True(tree.AddBalanced(i,i-1,bounds,8,12,minimums.Where(p=>p.Key<=i).ToDictionary()));
+        minimums[4]=(800,600);Assert.True(tree.AddBalanced(4,3,bounds,8,12,minimums));
+        var layout=tree.Layout(bounds);Assert.Equal(4,layout.Count);
+        foreach(var (id,r) in layout)
+        {Assert.True(r.Width>=minimums[id].Width);Assert.True(r.Height>=minimums[id].Height);Assert.InRange(r.X,12,1920-r.Width-12);Assert.InRange(r.Y,44,1080-r.Height-12);}
+        foreach(var a in layout)foreach(var b in layout.Where(b=>b.Key!=a.Key))
+            Assert.True(a.Value.X+a.Value.Width<=b.Value.X||b.Value.X+b.Value.Width<=a.Value.X||a.Value.Y+a.Value.Height<=b.Value.Y||b.Value.Y+b.Value.Height<=a.Value.Y);
+    }
+    [Fact] public void UnequalMinimumHeightsAdjustSplitWithoutDroppingAnyWindow()
+    {
+        var tree=new TileTree();var bounds=new TileRect(0,0,1920,1080);var minimums=new Dictionary<long,(int Width,int Height)>{{1,(600,600)},{2,(800,600)},{3,(800,300)}};
+        for(int i=1;i<=3;i++)Assert.True(tree.AddBalanced(i,i-1,bounds,8,12,minimums.Where(p=>p.Key<=i).ToDictionary()));
+        var layout=tree.Layout(bounds);Assert.Equal(3,layout.Count);Assert.True(layout[2].Height>=600);Assert.True(layout[3].Height>=300);
+    }
     [Fact] public void ThreeBalancedWindowsKeepUsefulWidthInsteadOfQuarterWidthColumns()
     {
         var tree=new TileTree();var bounds=new TileRect(0,0,1920,1080);

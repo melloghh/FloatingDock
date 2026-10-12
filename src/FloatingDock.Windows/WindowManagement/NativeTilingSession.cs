@@ -51,9 +51,21 @@ public sealed class NativeTilingSession : IDisposable
     public uint ActiveBorderColor { get; set; }=0xFAC7A8;
     public uint InactiveBorderColor { get; set; }=0x564941;
     public IReadOnlySet<long>? DiagnosticWindows { get; set; }
+    public Action<long,bool,Action>? VisibilityTransition { get; set; }
     public int ManagedCount=>_members.Count;
     public bool IsManaged(long id)=>_members.ContainsKey(id);
     public bool NeedsRestoredPlacement(long id)=>_members.TryGetValue(id,out var member)&&member.PendingRestore&&!NativeMethods.IsIconic(new(id))&&!IsZoomed(new(id));
+    public bool HasBeenPlaced(long id)=>_members.TryGetValue(id,out var member)&&member.Placed;
+    public void ReleaseFailedPlacement(long id)
+    {
+        if(!_members.TryGetValue(id,out var m))return;
+        Tree(m).Remove(id);m.Floating=true;m.Border.Restore(new(id));
+    }
+    public bool PlacementDrifted(long id)
+    {
+        if(!_members.TryGetValue(id,out var m)||m.Floating||m.UserMinimized||m.Hidden||m.MinimizedByUs||!m.Placed||m.PendingRestore||Stopwatch.GetElapsedTime(m.SubmittedAt).TotalMilliseconds<120)return false;
+        return m.LastRequest is { } r&&NativeMethods.GetWindowRect(new(id),out var actual)&&(Math.Abs(actual.Left-r.X)>2||Math.Abs(actual.Top-r.Y)>2||Math.Abs(actual.Width-r.Width)>2||Math.Abs(actual.Height-r.Height)>2);
+    }
     public bool NeedsInitialPlacement(long id)=>_members.TryGetValue(id,out var member)&&member.InitialPlacementPending&&!member.Floating&&!member.UserMinimized&&member.Workspace==ActiveWorkspace(member.Monitor);
     public void FinishInitialPlacement(long id){if(_members.TryGetValue(id,out var member))member.InitialPlacementPending=false;}
     public bool CanFollowActivation(long id)=>_members.TryGetValue(id,out var member)&&(!member.MinimizedByUs||member.RestoredExternally);
@@ -119,7 +131,7 @@ public sealed class NativeTilingSession : IDisposable
             if(member.Workspace>WorkspaceCount){Tree(member).Remove(id);member.Workspace=1;if(!member.Floating)AddBalanced(id,member);changed=true;}
             bool iconic=NativeMethods.IsIconic(new(id));if(!iconic&&!IsZoomed(new(id)))member.PendingRestore=false;
             bool minimized=iconic&&!member.MinimizedByUs&&!member.PendingRestore;
-            if(minimized!=member.UserMinimized){member.UserMinimized=minimized;changed=true;}
+            if(minimized!=member.UserMinimized){member.UserMinimized=minimized;if(!minimized&&!member.Floating&&!member.Hidden)AddBalanced(id,member);changed=true;}
             // Maximizing deliberately floats an existing window. User resizing is handled on move/size end.
             var memberMonitor=_monitors.FirstOrDefault(m=>m.DeviceName==member.Monitor);
             bool fullscreen=memberMonitor is not null&&FullscreenDetector.IsWindowFullscreenOn(new(id),memberMonitor.Handle,0);
@@ -170,6 +182,11 @@ public sealed class NativeTilingSession : IDisposable
             // Minimized windows keep their membership/order without occupying a tile.
             var usable=tree.Windows.Where(id=>_members.TryGetValue(id,out var m)&&!m.UserMinimized&&!m.Floating&&!m.Hidden&&!m.InitialPlacementPending).ToHashSet();
             var area=monitor.WorkArea;
+            if(usable.Count>0)
+            {
+                var minimums=usable.ToDictionary(id=>id,id=>(_members[id].MinimumWidth,_members[id].MinimumHeight));
+                tree.AddBalanced(usable.First(),0,new(area.Left,area.Top,area.Width,area.Height),(int)(Gap*monitor.Scale),(int)(OuterGap*monitor.Scale),minimums);
+            }
             bool repeat;
             do
             {
@@ -223,12 +240,18 @@ public sealed class NativeTilingSession : IDisposable
         {
             if(!Owns(id,member)||member.Hidden)continue;
             if(member.Workspace!=workspace)
-            {if(!member.MinimizedByUs&&!NativeMethods.IsIconic(new(id))){member.MinimizedByUs=true;member.RestoredExternally=false;member.PendingRestore=false;member.MinimizeOutstanding=NativeMethods.ShowWindowAsync(new(id),6);}}
+            {if(!member.MinimizedByUs&&!NativeMethods.IsIconic(new(id)))
+                {
+                    member.MinimizedByUs=true;member.RestoredExternally=false;member.PendingRestore=false;
+                    void Minimize(){if(Owns(id,member)&&member.MinimizedByUs)member.MinimizeOutstanding=NativeMethods.ShowWindowAsync(new(id),6);}
+                    if(VisibilityTransition is { } transition)transition(id,false,Minimize);else Minimize();
+                }}
             else if(member.MinimizedByUs)
             {
                 bool expectEvent=NativeMethods.IsIconic(new(id))||member.MinimizeOutstanding;
                 member.MinimizedByUs=false;member.RestoredExternally=false;member.PendingRestore=true;
-                if(NativeMethods.ShowWindowAsync(new(id),4)&&expectEvent)member.OwnRestoreEvents++;
+                void RestoreWindow(){if(Owns(id,member)&&!member.MinimizedByUs&&NativeMethods.ShowWindowAsync(new(id),4)&&expectEvent)member.OwnRestoreEvents++;}
+                if(VisibilityTransition is { } transition)transition(id,true,RestoreWindow);else RestoreWindow();
             }
         }
     }
@@ -294,7 +317,7 @@ public sealed class NativeTilingSession : IDisposable
     {
         if(!_members.TryGetValue(id,out var member)||!Owns(id,member)||member.Floating||member.UserMinimized||NativeMethods.IsIconic(new(id))||IsZoomed(new(id))||(NativeMethods.GetStyle(new(id))&NativeMethods.WS_THICKFRAME)==0||member.Workspace!=ActiveWorkspace(member.Monitor))return false;
         // Keep at most a short bounded queue when the application is busy painting.
-        if(!resize&&member.LastRequest is { } pending&&Stopwatch.GetElapsedTime(member.SubmittedAt).TotalMilliseconds<80&&NativeMethods.GetWindowRect(new(id),out var actual)&&
+        if((!resize||member.LastRequest==rect)&&member.LastRequest is { } pending&&Stopwatch.GetElapsedTime(member.SubmittedAt).TotalMilliseconds<80&&NativeMethods.GetWindowRect(new(id),out var actual)&&
            (actual.Left!=pending.X||actual.Top!=pending.Y||actual.Width!=pending.Width||actual.Height!=pending.Height))return true;
         bool moved=NativeMethods.SetWindowPos(new(id),IntPtr.Zero,rect.X,rect.Y,Math.Max(1,rect.Width),Math.Max(1,rect.Height),NativeMethods.SWP_NOZORDER|NativeMethods.SWP_NOACTIVATE|NativeMethods.SWP_ASYNCWINDOWPOS|(resize?0:NativeMethods.SWP_NOSIZE));
         if(moved){member.Placed=true;member.LastRequest=rect;member.SubmittedAt=Stopwatch.GetTimestamp();}return moved;

@@ -8,6 +8,9 @@ namespace FloatingDock.Windows.RunningApps;
 /// <summary>Maps an HWND to its process, executable path and AppUserModelID - including windows hosted by ApplicationFrameHost (Settings, UWP).</summary>
 public static class WindowIdentityResolver
 {
+    // Early tiling needs only native ownership/exclusions, without waiting for Shell/property-store work.
+    public static WindowInfo ResolveBasic(IntPtr hwnd)
+    {NativeMethods.GetWindowThreadProcessId(hwnd,out var pid);return new(hwnd.ToInt64(),(int)pid,GetExePath(pid),null,NativeMethods.GetTitle(hwnd),NativeMethods.GetClass(hwnd),NativeMethods.IsIconic(hwnd));}
     public sealed record Result(WindowInfo Info, bool Complete);
 
     /// <summary>Must run on an STA thread (property store).</summary>

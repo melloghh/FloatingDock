@@ -180,7 +180,7 @@ internal sealed class DockWindow : IDisposable
     {
         if (item.Size <= 0 || !float.IsFinite(item.X) || !float.IsFinite(item.Top)) return null;
         float inset = item.Size * .05f;
-        return ScreenRect(new Rect(item.X + inset, item.Top + inset, item.Size - 2 * inset, item.Size - 2 * inset));
+        return ScreenRect(new Rect(item.X + inset, item.Top + inset, item.Size - 2 * inset, item.Size - 2 * inset),includeSlide:false);
     }
     private DockAxis Axis => new(_s.Edge, _m.WindowHeight + ExtraBottomDip);
     private bool Vertical => _s.Edge != DockEdge.Bottom;
@@ -188,10 +188,10 @@ internal sealed class DockWindow : IDisposable
     {
         var rect = Axis.ToPhysical(new Rect(x,y,size,size)); return new Vector3(rect.X,rect.Y,0);
     }
-    private RECT ScreenRect(Rect logical)
+    private RECT ScreenRect(Rect logical,bool includeSlide=true)
     {
         var rect = Axis.ToPhysical(logical);
-        var slide = !_strip && _shown ? _graphics.Content.Offset : Vector3.Zero;
+        var slide = includeSlide&&!_strip && _shown ? _graphics.Content.Offset : Vector3.Zero;
         return new RECT { Left=(int)Math.Floor(_winX+(rect.X+slide.X)*_scale), Top=(int)Math.Floor(_winY+(rect.Y+slide.Y)*_scale), Right=(int)Math.Ceiling(_winX+(rect.Right+slide.X)*_scale), Bottom=(int)Math.Ceiling(_winY+(rect.Bottom+slide.Y)*_scale) };
     }
     internal RECT PlateScreenForDiagnostics => ScreenRect(new Rect(_m.RestPlateLeft,_m.PlateTop,_m.RestPlateRight-_m.RestPlateLeft,_s.DockHeight));

@@ -19,6 +19,7 @@ public sealed class TileTree
         public bool Leaf=>First is null;
     }
     private Node? _root;
+    private static Node? Copy(Node? n)=>n is null?null:new(){Window=n.Window,Horizontal=n.Horizontal,Ratio=n.Ratio,First=Copy(n.First),Second=Copy(n.Second)};
     public IReadOnlyList<long> Windows { get { var result=new List<long>();Walk(_root,n=>{if(n.Leaf)result.Add(n.Window);});return result; } }
     private static void Walk(Node? node,Action<Node> visit){if(node is null)return;visit(node);Walk(node.First,visit);Walk(node.Second,visit);}
     private Node? Find(long id){Node? result=null;Walk(_root,n=>{if(n.Leaf&&n.Window==id)result=n;});return result;}
@@ -31,29 +32,50 @@ public sealed class TileTree
     }
     public bool AddBalanced(long id,long near,TileRect bounds,int gap=8,int outer=12,IReadOnlyDictionary<long,(int Width,int Height)>? minimums=null)
     {
-        if(Find(id) is not null)return true;
+        bool existing=Find(id) is not null;
         var layout=Layout(bounds,gap,outer);
         long target=layout.ContainsKey(near)?near:Windows.LastOrDefault();
         var cell=layout.GetValueOrDefault(target,bounds);
-        if(minimums is null){Add(id,target,cell.Width>=cell.Height);return true;}
+        if(minimums is null){if(!existing)Add(id,target,cell.Width>=cell.Height);return true;}
         var visible=minimums.Keys.ToHashSet();
-        bool Fits()=>Layout(bounds,gap,outer,visible).All(p=>!minimums.TryGetValue(p.Key,out var min)||p.Value.Width>=min.Width&&p.Value.Height>=min.Height);
+        int margin=Math.Clamp(outer,0,Math.Max(0,Math.Min(bounds.Width,bounds.Height)/4));
+        int space=Math.Clamp(gap,0,80);
+        var area=new TileRect(bounds.X+margin,bounds.Y+margin,Math.Max(1,bounds.Width-2*margin),Math.Max(1,bounds.Height-2*margin));
+        (int Width,int Height) Minimum(Node? n)
+        {
+            if(n is null)return (0,0);
+            if(n.Leaf)return minimums.GetValueOrDefault(n.Window,(0,0));
+            var a=Minimum(n.First);var b=Minimum(n.Second);
+            if(a.Width==0)return b;if(b.Width==0)return a;
+            return n.Horizontal?(a.Width+b.Width+space,Math.Max(a.Height,b.Height)):(Math.Max(a.Width,b.Width),a.Height+b.Height+space);
+        }
+        bool Fit(Node? n,TileRect r)
+        {
+            if(n is null)return true;
+            var min=Minimum(n);if(min.Width>r.Width||min.Height>r.Height)return false;
+            if(n.Leaf)return true;
+            var a=Minimum(n.First);var b=Minimum(n.Second);
+            if(a.Width==0)return Fit(n.Second,r);if(b.Width==0)return Fit(n.First,r);
+            int available=(n.Horizontal?r.Width:r.Height)-space;
+            int first=Math.Clamp((int)Math.Round(available*n.Ratio),n.Horizontal?a.Width:a.Height,available-(n.Horizontal?b.Width:b.Height));
+            n.Ratio=first/(double)available;
+            return n.Horizontal?Fit(n.First,r with{Width=first})&&Fit(n.Second,r with{Width=available-first}):Fit(n.First,r with{Height=first})&&Fit(n.Second,r with{Height=available-first});
+        }
+        bool Fits()=>Fit(_root,area)&&Layout(bounds,gap,outer,visible).All(p=>!minimums.TryGetValue(p.Key,out var min)||p.Value.Width>=min.Width&&p.Value.Height>=min.Height);
+        var original=Copy(_root);
+        if(existing&&Fits())return true;
         if(_root is null){Add(id,target,cell.Width>=cell.Height);if(Fits())return true;Remove(id);return false;}
-        foreach(var leaf in new[]{target}.Concat(layout.Keys).Distinct())
+        if(!existing)foreach(var leaf in new[]{target}.Concat(layout.Keys).Distinct())
         {
             var rect=layout.GetValueOrDefault(leaf,bounds);bool preferred=rect.Width>=rect.Height;
             foreach(bool horizontal in new[]{preferred,!preferred})
             {
                 Add(id,leaf,horizontal);
                 if(Fits())return true;
-                Remove(id);
+                _root=Copy(original);
             }
         }
-        // Three tall apps can fit in equal columns even when splitting one
-        // existing column cannot fit either axis. Preserve order in that fallback.
-        var original=_root;var windows=Windows.Append(id).ToArray();
-        int margin=Math.Clamp(outer,0,Math.Max(0,Math.Min(bounds.Width,bounds.Height)/4));
-        int space=Math.Clamp(gap,0,80);
+        var windows=existing?Windows.ToArray():Windows.Append(id).ToArray();
         foreach(bool horizontal in new[]{bounds.Width>=bounds.Height,bounds.Width<bounds.Height})
         {
             Node Build(int index,int length)
@@ -65,6 +87,31 @@ public sealed class TileTree
             _root=Build(0,Math.Max(1,(horizontal?bounds.Width:bounds.Height)-2*margin));
             if(Fits())return true;
         }
+        // Search slicing layouts in the same application order. Keep only the
+        // non-dominated minimum envelopes, rather than enumerating permutations.
+        // A tall player can share a column with a row of two shorter apps.
+        var memo=new Dictionary<(int Start,int Count),List<(Node Node,int Width,int Height)>>();
+        List<(Node Node,int Width,int Height)> Options(int start,int count)
+        {
+            if(memo.TryGetValue((start,count),out var cached))return cached;
+            var candidates=new List<(Node Node,int Width,int Height)>();
+            if(count==1){var m=minimums.GetValueOrDefault(windows[start],(1,1));candidates.Add((new(){Window=windows[start]},m.Item1,m.Item2));}
+            else for(int split=1;split<count;split++)
+                foreach(var a in Options(start,split))foreach(var b in Options(start+split,count-split))foreach(bool horizontal in new[]{true,false})
+                {
+                    int width=horizontal?a.Width+b.Width+space:Math.Max(a.Width,b.Width);
+                    int height=horizontal?Math.Max(a.Height,b.Height):a.Height+b.Height+space;
+                    if(width>area.Width||height>area.Height||candidates.Any(c=>c.Width<=width&&c.Height<=height))continue;
+                    candidates.RemoveAll(c=>width<=c.Width&&height<=c.Height);
+                    candidates.Add((new(){Horizontal=horizontal,First=Copy(a.Node),Second=Copy(b.Node)},width,height));
+                }
+            return memo[(start,count)]=candidates;
+        }
+        // Bound work for unusually large workspaces; ordinary layouts take a
+        // few hundred integer comparisons and allocate only at admission.
+        if(windows.Length<=12)
+            foreach(var candidate in Options(0,windows.Length).OrderBy(c=>Math.Abs(c.Width/(double)c.Height-area.Width/(double)area.Height)))
+            {_root=Copy(candidate.Node);if(Fits())return true;}
         _root=original;return false;
     }
     public bool Remove(long id)

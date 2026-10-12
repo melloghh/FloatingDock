@@ -4,7 +4,7 @@ using Microsoft.Win32.SafeHandles;
 
 namespace FloatingDock.Windows.WindowManagement;
 
-/// <summary>One sleeping high-resolution waitable timer per dock. At most one UI callback is queued; no busy wait or global timer-resolution change.</summary>
+/// <summary>A sleeping high-resolution animation clock. At most one UI callback is queued; no busy wait or global timer-resolution change.</summary>
 public sealed class FrameScheduler : IDisposable
 {
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern IntPtr CreateWaitableTimerEx(IntPtr attributes, string? name, uint flags, uint access);
@@ -15,6 +15,7 @@ public sealed class FrameScheduler : IDisposable
     private readonly EventWaitHandle _timer;
     private readonly Thread _thread;
     private int _running, _disposed, _pending, _generation, _fps = 60;
+    public bool IsRunning=>Volatile.Read(ref _running)!=0&&Volatile.Read(ref _disposed)==0;
 
     public FrameScheduler(Func<Action, bool> post, Action tick)
     {

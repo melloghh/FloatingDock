@@ -143,7 +143,8 @@ internal sealed class MenuBarWindow : IDisposable
         }
         finally { IgnoreRealCursorForDiagnostics=ignore;_diagnosticLanguageTarget=null; }
     }
-    private readonly DispatcherQueueTimer _clockTimer, _edgeTimer, _slideTimer, _languageTimer;
+    private readonly DispatcherQueueTimer _clockTimer, _edgeTimer, _languageTimer;
+    private readonly FrameScheduler _slideTimer;
     private DockSettings _settings=new();
     private bool _disposed,_hover,_capture,_suspended,_fullscreen,_targetHidden;
     private bool _menuOpen;
@@ -196,7 +197,7 @@ internal sealed class MenuBarWindow : IDisposable
         _languageTimer=_app.UiQueue.CreateTimer();_languageTimer.Interval=TimeSpan.FromMilliseconds(1000);_languageTimer.Tick+=(_,_)=>RefreshLanguage();
         _clockTimer=_app.UiQueue.CreateTimer();_clockTimer.Interval=TimeSpan.FromSeconds(1);_clockTimer.Tick+=(_,_)=>RefreshClock();
         _edgeTimer=_app.UiQueue.CreateTimer();_edgeTimer.Interval=TimeSpan.FromMilliseconds(100);_edgeTimer.Tick+=(_,_)=>CheckEdge();
-        _slideTimer=_app.UiQueue.CreateTimer();_slideTimer.Interval=TimeSpan.FromMilliseconds(16);_slideTimer.Tick+=(_,_)=>Slide();
+        _slideTimer=new(action=>_app.UiQueue.TryEnqueue(()=>action()),Slide);
         NetworkChange.NetworkAvailabilityChanged+=OnNetwork;
         RefreshNetwork();RefreshClock();
     }
@@ -221,7 +222,7 @@ internal sealed class MenuBarWindow : IDisposable
     {
         _settings=s;Monitor=m;
         RefreshWorkspaces();
-        _slideTimer.Interval=TimeSpan.FromMilliseconds(1000d/s.TopBarAnimationFps);
+        _slideTimer.SetFrameRate(s.TopBarAnimationFps);
         _mediaButton.Visibility=s.TopBarMediaEnabled?Visibility.Visible:Visibility.Collapsed;
         _trayButton.Visibility=s.TopBarTrayEnabled?Visibility.Visible:Visibility.Collapsed;
         _searchButton.Visibility=s.TopBarSearchEnabled?Visibility.Visible:Visibility.Collapsed;
@@ -361,7 +362,7 @@ internal sealed class MenuBarWindow : IDisposable
     }
     public void Dispose()
     {
-        _disposed=true;CloseTray();_menus.Dispose();NetworkChange.NetworkAvailabilityChanged-=OnNetwork;_clockTimer.Stop();_edgeTimer.Stop();_slideTimer.Stop();_languageTimer.Stop();_window.Close();
+        _disposed=true;CloseTray();_menus.Dispose();NetworkChange.NetworkAvailabilityChanged-=OnNetwork;_clockTimer.Stop();_edgeTimer.Stop();_slideTimer.Dispose();_languageTimer.Stop();_window.Close();
     }
 }
 

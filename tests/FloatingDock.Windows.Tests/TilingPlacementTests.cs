@@ -9,6 +9,18 @@ namespace FloatingDock.Windows.Tests;
 
 public sealed class TilingPlacementTests
 {
+    [DllImport("user32.dll",EntryPoint="GetWindowLongPtrW")] private static extern IntPtr GetWindowLongPtr(IntPtr h,int index);
+    [Fact]
+    public async Task BusyOwnerDoesNotBlockOpacityAcquisitionOrRestoration()
+    {
+        using var fixture=new BusyWindow();long original=GetWindowLongPtr(fixture.Handle,-20).ToInt64();
+        var lease=WindowOpacityLease.TryAcquire(fixture.Handle);Assert.NotNull(lease);
+        fixture.Block();var clock=System.Diagnostics.Stopwatch.StartNew();
+        lease.Dispose();Assert.True(clock.ElapsedMilliseconds<150);
+        clock.Restart();Assert.Null(WindowOpacityLease.TryAcquire(fixture.Handle));Assert.True(clock.ElapsedMilliseconds<150);
+        fixture.Release();for(int i=0;i<20&&GetWindowLongPtr(fixture.Handle,-20).ToInt64()!=original;i++)await Task.Delay(20);
+        Assert.Equal(original,GetWindowLongPtr(fixture.Handle,-20).ToInt64());
+    }
     [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr window,out RECT rect);
     [DllImport("user32.dll",CharSet=CharSet.Unicode)] private static extern IntPtr CreateWindowEx(uint exStyle,string cls,string title,uint style,int x,int y,int width,int height,IntPtr parent,IntPtr menu,IntPtr instance,IntPtr parameter);
     [DllImport("user32.dll")] private static extern bool DestroyWindow(IntPtr window);
