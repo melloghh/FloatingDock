@@ -387,9 +387,9 @@ internal sealed class TilingManager : IDisposable
             bool moved=_session?.Move(id,move.Sample(now).Bounds,resize:complete)==true;
             if(!moved||complete)_moves.Remove(id);
         }
-        if(_moves.Count==0&&_presentations.Count==0)_animation.Stop();
+        if(_moves.Count==0&&_presentations.Count==0){_animation.Stop();WindowTransitionSurface.TrimIdleViewports();}
     }
-    private void StopSession(){_settle.Stop();_animation.Stop();_moves.Clear();foreach(var id in _presentations.Keys.ToArray())ReleasePresentation(id);foreach(var held in _held.Values)held.Lease.Dispose();_held.Clear();_dragging.Clear();_arrivals.Clear();_session?.Dispose();_session=null;_primed=false;}
+    private void StopSession(){_settle.Stop();_animation.Stop();_moves.Clear();foreach(var id in _presentations.Keys.ToArray())ReleasePresentation(id);WindowTransitionSurface.TrimIdleViewports(0);foreach(var held in _held.Values)held.Lease.Dispose();_held.Clear();_dragging.Clear();_arrivals.Clear();_session?.Dispose();_session=null;_primed=false;}
     internal void EmergencyRestore()=>StopSession();
     public void Dispose()
     {

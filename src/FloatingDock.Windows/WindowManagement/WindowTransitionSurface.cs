@@ -70,12 +70,19 @@ public sealed class WindowTransitionSurface : IDisposable
     private static readonly WindowProc Proc=(h,m,w,l)=>m==0x84?new(-1):m==0x21?new(3):NativeMethods.DefWindowProc(h,m,w,l);
     private const string ClassName="FloatingDock.TileTransition";
     private static bool _registered;
+    [ThreadStatic] private static List<(IntPtr Window,int X,int Y,int Width,int Height)>? _idleViewports;
+    private static List<(IntPtr Window,int X,int Y,int Width,int Height)> IdleViewports=>_idleViewports??=new();
+    public static int CreatedViewportCount { get; private set; }
+    public static int ReusedViewportCount { get; private set; }
+    public static int CachedViewportCount=>IdleViewports.Count;
     private IntPtr _thumbnail;
     private WindowOpacityLease? _lease;
+    private bool _updated;
     public IntPtr Handle { get; private set; }
     public TileRect Bounds { get; private set; }
     public byte Opacity { get; private set; }=255;
     private readonly int _x,_y;
+    private readonly int _width,_height;
     private static unsafe bool InitializeTransparentViewport(IntPtr window,int x,int y,int width,int height)
     {
         long bytes=(long)width*height*4;if(bytes<=0||bytes>128*1024*1024)return false;
@@ -92,8 +99,8 @@ public sealed class WindowTransitionSurface : IDisposable
         }
         finally{if(previous!=IntPtr.Zero)SelectObject(memory,previous);if(bitmap!=IntPtr.Zero)NativeMethods.DeleteObject(bitmap);if(memory!=IntPtr.Zero)DeleteDC(memory);}
     }
-    private WindowTransitionSurface(IntPtr window,IntPtr thumbnail,WindowOpacityLease lease,int x,int y)
-    {Handle=window;_thumbnail=thumbnail;_lease=lease;_x=x;_y=y;}
+    private WindowTransitionSurface(IntPtr window,IntPtr thumbnail,WindowOpacityLease lease,int x,int y,int width,int height)
+    {Handle=window;_thumbnail=thumbnail;_lease=lease;_x=x;_y=y;_width=width;_height=height;}
     public static WindowTransitionSurface? TryCreate(IntPtr source,TileRect from,TileRect to,WindowOpacityLease? lease=null)
     {
         bool acquired=lease is null;lease??=WindowOpacityLease.TryAcquire(source);if(lease is null)return null;
@@ -107,26 +114,46 @@ public sealed class WindowTransitionSurface : IDisposable
         int left=Math.Min(from.X,to.X),top=Math.Min(from.Y,to.Y),right=Math.Max(from.X+from.Width,to.X+to.Width),bottom=Math.Max(from.Y+from.Height,to.Y+to.Height);
         foreach(var monitor in monitors.Where(m=>m.Handle==NativeMethods.MonitorFromWindow(source,NativeMethods.MONITOR_DEFAULTTONEAREST)))
         {left=Math.Min(left,monitor.Bounds.Left);top=Math.Min(top,monitor.Bounds.Top);right=Math.Max(right,monitor.Bounds.Right);bottom=Math.Max(bottom,monitor.Bounds.Bottom);}
-        var window=NativeMethods.CreateWindowEx(0x080800A8,ClassName,null,0x80000000,left,top,right-left,bottom-top,IntPtr.Zero,IntPtr.Zero,IntPtr.Zero,IntPtr.Zero);
-        if(window!=IntPtr.Zero&&!InitializeTransparentViewport(window,left,top,right-left,bottom-top)){NativeMethods.DestroyWindow(window);if(acquired)lease.Dispose();return null;}
+        IntPtr window=IntPtr.Zero;
+        int cached=IdleViewports.FindIndex(v=>v.X==left&&v.Y==top&&v.Width==right-left&&v.Height==bottom-top);
+        if(cached>=0){window=IdleViewports[cached].Window;IdleViewports.RemoveAt(cached);if(NativeMethods.IsWindow(window))ReusedViewportCount++;else window=IntPtr.Zero;}
+        if(window==IntPtr.Zero)
+        {
+            window=NativeMethods.CreateWindowEx(0x080800A8,ClassName,null,0x80000000,left,top,right-left,bottom-top,IntPtr.Zero,IntPtr.Zero,IntPtr.Zero,IntPtr.Zero);
+            if(window!=IntPtr.Zero&&!InitializeTransparentViewport(window,left,top,right-left,bottom-top)){NativeMethods.DestroyWindow(window);if(acquired)lease.Dispose();return null;}
+            if(window!=IntPtr.Zero)CreatedViewportCount++;
+        }
         var margins=new Margins {Left=-1,Right=-1,Top=-1,Bottom=-1};
         if(window==IntPtr.Zero||DwmExtendFrameIntoClientArea(window,ref margins)<0||DwmRegisterThumbnail(window,source,out var thumbnail)<0)
         {if(window!=IntPtr.Zero)NativeMethods.DestroyWindow(window);if(acquired)lease.Dispose();return null;}
         int disabled=1;NativeMethods.DwmSetWindowAttribute(window,3,ref disabled,4);
-        var surface=new WindowTransitionSurface(window,thumbnail,lease,left,top);surface.Update(from,255);
+        var surface=new WindowTransitionSurface(window,thumbnail,lease,left,top,right-left,bottom-top);surface.Update(from,255);
         NativeMethods.ShowWindow(window,4);return surface;
     }
     public bool Update(TileRect rect,byte opacity)
     {
+        if(_updated&&Bounds==rect&&Opacity==opacity)return true;
         Bounds=rect;Opacity=opacity;
         var properties=new Properties {Flags=1|4|8|16,Destination=new(){Left=rect.X-_x,Top=rect.Y-_y,Right=rect.X+rect.Width-_x,Bottom=rect.Y+rect.Height-_y},Opacity=opacity,Visible=1};
-        return _thumbnail!=IntPtr.Zero&&DwmUpdateThumbnailProperties(_thumbnail,ref properties)>=0;
+        _updated=_thumbnail!=IntPtr.Zero&&DwmUpdateThumbnailProperties(_thumbnail,ref properties)>=0;
+        return _updated;
     }
     public void Dispose()
     {
         // Reveal the real window before removing the last compositor representation.
         _lease?.Dispose();_lease=null;
         if(_thumbnail!=IntPtr.Zero){DwmUnregisterThumbnail(_thumbnail);_thumbnail=IntPtr.Zero;}
-        if(Handle!=IntPtr.Zero){NativeMethods.DestroyWindow(Handle);Handle=IntPtr.Zero;}
+        if(Handle!=IntPtr.Zero)
+        {
+            NativeMethods.ShowWindow(Handle,0);
+            // Keep a bounded, invisible destination buffer for the next reflow.
+            // Rebind the thumbnail, never retain an application source or opacity lease.
+            if((long)_width*_height*4<=16*1024*1024&&IdleViewports.Count<4)
+                IdleViewports.Add((Handle,_x,_y,_width,_height));
+            else NativeMethods.DestroyWindow(Handle);
+            Handle=IntPtr.Zero;
+        }
     }
+    public static void TrimIdleViewports(int keep=1)
+    {while(IdleViewports.Count>keep){var index=IdleViewports.Count-1;NativeMethods.DestroyWindow(IdleViewports[index].Window);IdleViewports.RemoveAt(index);}}
 }

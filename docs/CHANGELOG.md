@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.5.1
+
+- Run top-bar menu scale, translation and opacity on the compositor. Bound native glass-clip synchronization to 60 Hz while preserving compositor motion at display refresh rate, sampled damped curves, reversal, and reduced motion.
+- Avoid duplicate backdrop opacity writes and full XAML invalidation for each animated clip; cache the element visual and preserve the requested glass opacity when reopening.
+- Reuse a bounded pool of hidden, transparent tiling viewports; rebind each source thumbnail, release all source opacity leases, retain at most one small viewport when idle and clear the pool on disable/shutdown. Skip unchanged thumbnail geometry/opacity updates.
+- Add a repeatable CPU/allocation workload for panel/menu idle, twelve menu cycles and six owned-window openings. Local same-machine comparison reduced menu CPU time from 3266 to 1734 ms and owned tiling workload from 750 to 625 ms; these are scenario measurements, not universal CPU guarantees.
+- Verify actual menu glass boundaries, rapid reversal, search toggling, dock transitions, native-buffer reuse and source visibility after completion.
 ## 1.5.0
 
 - Publish the dock, Launchpad, search, animated menu bar and built-in tiling as a stable Windows x64 release, incorporating the 1.4.x desktop fixes.

@@ -1,4 +1,4 @@
-FloatingDock 1.5.0 brings the floating dock, Launchpad, search, glass menu bar and built-in window tiling together in a stable Windows x64 release.
+FloatingDock 1.5.1 reduces CPU work in top-bar menu animations and avoids repeated native buffer creation during tiling transitions.
 
 ### Download
 
@@ -10,12 +10,11 @@ FloatingDock 1.5.0 brings the floating dock, Launchpad, search, glass menu bar a
 
 ### Highlights
 
-- Smooth dock magnification, app switching, live previews, custom icons and Launchpad.
-- Animated top-bar menus, media controls, input-language selection and a custom Windows tray menu.
-- Search that starts empty, learns frequently opened apps and filters Windows system clutter; repeat clicks close it reliably.
-- Optional tiling with workspaces, equal default left/right columns for two visible windows, nested layouts for more windows, native minimum sizes and animated dock restore.
-- Fixes for minimized windows across workspaces, stale window events, tray context-menu placement, screen capture and browser restoration.
-- A built-in blue File Explorer icon, shared across the dock and launcher.
+- Menu scale, slide and fade run on the compositor; native glass boundaries use a bounded synchronization clock. Animations, rapid reversal and reduced motion are preserved.
+- Duplicate glass updates and full-window repaint requests are removed from the animation loop.
+- Tiling reuses transparent destination buffers, skips identical thumbnail updates and releases its cache on disable/shutdown.
+- In a repeatable local workload on a 12-thread machine, twelve menu cycles used about 47% less process CPU time (3266 → 1734 ms); six owned-window openings used about 17% less (750 → 625 ms). Results depend on hardware and workload; the window benchmark includes fixture rendering.
+- Desktop checks cover menu clipping, search toggling, tiled minimize/restore, rapid reversal, bounded buffer reuse and restored source visibility.
 
 ### Getting started
 
@@ -31,4 +30,4 @@ Core and native Windows tests run in GitHub Actions before tagged releases are p
 
 ---
 
-**По-русски:** Setup устанавливает приложение для текущего пользователя; Portable нужно распаковать целиком. Дополнительные runtime не нужны. Русский язык выбирается в Appearance, тайлинг включается отдельно в Tiling manager. Настройки и иконки сохраняются при обновлении. Сборка пока без цифровой подписи. Подробности — в [русской инструкции](https://github.com/melloghh/FloatingDock/blob/main/README.ru.md).
+**По-русски:** В 1.5.1 снижена нагрузка анимаций верхней панели и повторное создание буферов тайлинга. В локальном сравнении расход CPU уменьшился примерно на 47% для меню и на 17% для тестового сценария окон; результат зависит от устройства и действий. Setup устанавливает приложение для текущего пользователя; Portable нужно распаковать целиком. Настройки и иконки сохраняются. Сборка пока без цифровой подписи.
