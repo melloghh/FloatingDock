@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.4.6
+
+- Replace Explorer suppression via DWMWA_CLOAK, which returned E_ACCESSDENIED on its foreign-process HWNDs, with reversible opacity/style leases. Read the existing live overflow tree first and stop moving discovery windows off screen.
+- Delegate tray context clicks using verified mouse input at the current physical pointer, without changing its position, focusing virtual buttons or sending keyboard-menu keys. A one-step alpha input surface permits Win32 hit testing; source bounds, regions, visibility and opacity are restored after the action.
+- Re-resolve unique live notification tooltips when Explorer rebuilds UIA RuntimeIds, and wait for a starting icon's bounds before clicking. Ambiguous matches and input targeting another HWND are rejected.
+- Add repeated actual-screen pixel checks for stock-tray flashes and continuous cursor checks during opening and context actions, including the existing Wallpaper Engine menu and command clicks in an owned notification fixture.
+
 ## 1.4.5
 
 - Anchor the actual native notification context menu to the clicked custom-tray icon. Applications such as Wallpaper Engine can ignore Explorer's source coordinates; correcting only that source rectangle does not position their menu.

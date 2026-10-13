@@ -101,7 +101,8 @@ public static unsafe partial class SystemTrayOverflow
         PostMessage(target,0x101,new IntPtr(0x1B),IntPtr.Zero);
         CancelMode(target,0x001F,IntPtr.Zero,IntPtr.Zero,2,25,out _);
         if(target!=hwnd)CancelMode(hwnd,0x001F,IntPtr.Zero,IntPtr.Zero,2,25,out _);
-        if(NativeMethods.GetForegroundWindow()==hwnd&&NativeMethods.IsWindowVisible(_returnFocus)&&!NativeMethods.IsIconic(_returnFocus))NativeMethods.SetForegroundWindow(_returnFocus);
+        var foreground=NativeMethods.GetForegroundWindow();
+        if((foreground==hwnd||foreground==FindWindow("Shell_TrayWnd",null))&&NativeMethods.IsWindowVisible(_returnFocus)&&!NativeMethods.IsIconic(_returnFocus))NativeMethods.SetForegroundWindow(_returnFocus);
         ShowWindow(hwnd,0); // capture/fullscreen dismissal must remove native pixels immediately.
         ReleaseTemporaryTaskbar();
     }
@@ -118,9 +119,6 @@ public static unsafe partial class SystemTrayOverflow
         try
         {
             if(hidden)ShowWindow(shell,4); // temporary presentation only; no taskbar state or work-area changes.
-            // Auto-hidden taskbars remain WS_VISIBLE but their virtual controls
-            // can disappear from the UIA tree. Focus Explorer's taskbar first.
-            NativeMethods.SetForegroundWindow(shell);
             var clsid=new Guid("FF48DBA4-60EF-4201-AA87-54103EEF594E");var iid=new Guid("30CBE57D-D9D0-452A-AB13-7AC5AC4825EE");
             int hr=CoCreateInstance(clsid,IntPtr.Zero,1,iid,out automation);
             if(hr<0){LastDiagnostic=$"CoCreateInstance=0x{hr:X8}";return false;}
@@ -129,7 +127,7 @@ public static unsafe partial class SystemTrayOverflow
             var discovery=new List<string>();
             for(int attempt=0;attempt<5;attempt++)
             {
-                if(attempt>0)Thread.Sleep(80);
+                if(attempt>0){if(attempt==1)NativeMethods.SetForegroundWindow(shell);Thread.Sleep(80);}
                 discovery.Clear();
                 if(Chevron(automation,walker,shell,true,discovery)){invoked=true;break;}
             }
@@ -141,8 +139,8 @@ public static unsafe partial class SystemTrayOverflow
                 var overflow=Handle;
                 if(NativeMethods.IsWindowVisible(overflow)&&NativeMethods.GetWindowRect(overflow,out var rect))
                 {
-                    NativeMethods.SetWindowPos(overflow,NativeMethods.HWND_TOPMOST,Math.Min(right-rect.Width,x),Math.Min(y,bottom-rect.Height),0,0,NativeMethods.SWP_NOSIZE|NativeMethods.SWP_NOACTIVATE);
-                    NativeMethods.SetForegroundWindow(overflow);
+                    // Internal discovery leaves Explorer's own geometry intact.
+                    if(right!=int.MaxValue)NativeMethods.SetWindowPos(overflow,NativeMethods.HWND_TOPMOST,Math.Min(right-rect.Width,x),Math.Min(y,bottom-rect.Height),0,0,NativeMethods.SWP_NOSIZE|NativeMethods.SWP_NOACTIVATE);
                     opened=true;if(hidden)_temporarilyShownShell=shell;
                     return true;
                 }

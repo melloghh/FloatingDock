@@ -1,9 +1,9 @@
 ; Inno Setup 6 script for FloatingDock.
-;   ISCC /DAppVersion=1.4.5 /DSourceDir=..\..\artifacts\FloatingDock /O..\..\artifacts FloatingDock.iss
+;   ISCC /DAppVersion=1.4.6 /DSourceDir=..\..\artifacts\FloatingDock /O..\..\artifacts FloatingDock.iss
 ; Produces FloatingDock-Setup-x64.exe. Everything the app needs is inside the installer (self-contained .NET runtime + self-contained Windows App SDK):
 ; nothing is downloaded during installation, no admin rights are required (per-user by default).
 #ifndef AppVersion
-  #define AppVersion "1.4.5"
+  #define AppVersion "1.4.6"
 #endif
 #ifndef SourceDir
   #define SourceDir "..\..\artifacts\FloatingDock"

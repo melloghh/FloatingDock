@@ -44,7 +44,12 @@ internal static partial class RuntimeSmoke
                 bar.Menus.Close(immediately:true);
                 var anchor=new POINT {X=mon.Bounds.Right-150-cycle*200,Y=mon.Bounds.Top+120};
                 SetCursorPos(anchor.X,anchor.Y);
-                Check(await app.ActivateTrayItemAsync(item,true,anchor),"Fixture context callback failed.");
+                using(var cursorCheck=new TrayObserver146(anchor))
+                {
+                    Check(await app.ActivateTrayItemAsync(item,true,anchor),"Fixture context callback failed.");await Task.Delay(80);cursorCheck.Stop();
+                    checks["fixtureContextCursor"+cycle]=new{cursorCheck.Samples,cursorCheck.CursorChanges,cursorCheck.FirstChange};
+                    Check(cursorCheck.CursorChanges==0,"Fixture context opening changed the physical cursor.");
+                }
                 await Wait(()=>ActualMenu(Path.GetFileName(Environment.ProcessPath)!)!=IntPtr.Zero,"Fixture app did not display its native menu.");
                 var menu=ActualMenu(Path.GetFileName(Environment.ProcessPath)!);var rect=Verify(menu,anchor);
                 checks["actualFixtureMenu"+cycle]=new {rect.Left,rect.Top,rect.Right,rect.Bottom};
@@ -62,7 +67,12 @@ internal static partial class RuntimeSmoke
                 var item=bar.Menus.TrayItems.FirstOrDefault(i=>Path.GetFileName(i.Executable)?.Equals("wallpaper64.exe",StringComparison.OrdinalIgnoreCase)==true||i.Name.Contains("Wallpaper Engine",StringComparison.OrdinalIgnoreCase));
                 Check(item is not null,"Wallpaper Engine's existing notification icon is unavailable.");bar.Menus.Close(immediately:true);
                 var anchor=new POINT {X=mon.Bounds.Right-180,Y=mon.Bounds.Top+110};SetCursorPos(anchor.X,anchor.Y);
-                Check(await app.ActivateTrayItemAsync(item!,true,anchor),"Wallpaper Engine context callback failed.");
+                using(var cursorCheck=new TrayObserver146(anchor))
+                {
+                    Check(await app.ActivateTrayItemAsync(item!,true,anchor),"Wallpaper Engine context callback failed: "+SystemTrayOverflow.LastDiagnostic);await Task.Delay(80);cursorCheck.Stop();
+                    checks["wallpaperContextCursor"]=new{cursorCheck.Samples,cursorCheck.CursorChanges,cursorCheck.FirstChange};
+                    Check(cursorCheck.CursorChanges==0,"Wallpaper Engine context opening changed the physical cursor.");
+                }
                 var executable=Path.GetFileName(item!.Executable)!;
                 await Wait(()=>ActualMenu(executable)!=IntPtr.Zero,"Wallpaper Engine did not display its native menu.");
                 var menu=ActualMenu(executable);var rect=Verify(menu,anchor);

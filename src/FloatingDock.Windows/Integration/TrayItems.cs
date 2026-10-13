@@ -82,7 +82,6 @@ public static unsafe partial class SystemTrayOverflow
         try
         {
             if(Visible)Dismiss();
-            bool opened=TryOpen(-10000,-10000,-9000,-9000);
             void Read(IntPtr hwnd,bool overflow)
             {
                 VisitIcons(hwnd,(element,id,name)=>
@@ -99,7 +98,14 @@ public static unsafe partial class SystemTrayOverflow
                 result.Add(new(IconKey(element,id,name),label,image?.Bytes,overflow,image?.Executable));return false;
             });
             }
-            if(opened)Read(Handle,true);
+            Read(Handle,true);
+            if(!result.Any(i=>i.Overflow))
+            {
+                // Reuse the existing live tree before invoking Explorer's flyout.
+                // Native UIA initialization is kept invisible by the alpha lease.
+                bool opened=TryOpen(0,0,int.MaxValue,int.MaxValue);
+                if(opened)Read(Handle,true);
+            }
             Read(FindWindow("Shell_TrayWnd",null),false);
             return result.DistinctBy(i=>i.Key).Take(64).ToArray();
         }
@@ -112,40 +118,71 @@ public static unsafe partial class SystemTrayOverflow
         using var menuAnchor=contextMenu&&!string.IsNullOrWhiteSpace(item.Executable)?new TrayContextMenuAnchor(anchor??CursorPoint(),item.Executable):null;
         int initialized=CoInitializeEx(IntPtr.Zero,0);bool opened=false;
         IntPtr repositioned=IntPtr.Zero;RECT savedPosition=default;
+        byte[]? sourceRegion=null;bool regionChanged=false,sourceShown=false;
+        var regionSystem=new FloatingDock.Windows.Taskbar.Win32TaskbarSystem();
         NativeMethods.GetCursorPos(out var contextPoint);
         contextPoint=anchor??contextPoint;
         try
         {
-            if(item.Overflow){opened=TryOpen(-10000,-10000,-9000,-9000);if(!opened)return false;}
+            if(item.Overflow){opened=TryOpen(0,0,int.MaxValue,int.MaxValue);if(!opened)return false;}
             var hwnd=item.Overflow?Handle:FindWindow("Shell_TrayWnd",null);
             bool invoked=false;
-            VisitIcons(hwnd,(element,id,name)=>
+            bool matched=false;
+            bool Invoke(IntPtr element,string id,string name)
             {
-                if(IconKey(element,id,name)!=item.Key)return false;
+                matched=true;
                 if(contextMenu)
                 {
                     // Apps receive Explorer's notification-button coordinates.
                     // Place that live button at our clicked icon before invoking;
                     // moving a menu later misses menus owned by the app's process.
                     RECT buttonRect=default;
+                    var ready=System.Diagnostics.Stopwatch.StartNew();
+                    while(ready.ElapsedMilliseconds<180)
+                    {
+                        if(((delegate* unmanaged[Stdcall]<IntPtr,RECT*,int>)Slot(element,43))(element,&buttonRect)>=0&&buttonRect.Width>0&&buttonRect.Height>0)break;
+                        Thread.Sleep(8);
+                    }
                     if(((delegate* unmanaged[Stdcall]<IntPtr,RECT*,int>)Slot(element,43))(element,&buttonRect)>=0&&buttonRect.Width>0&&NativeMethods.GetWindowRect(hwnd,out var sourceRect))
                     {
+                        if((GetAsyncKeyState(1)&0x8000)!=0||(GetAsyncKeyState(2)&0x8000)!=0){LastDiagnostic="Context cancelled: pointer button is held";return true;}
+                        var current=CursorPoint();
                         savedPosition=sourceRect;repositioned=hwnd;
-                        NativeMethods.SetWindowPos(hwnd,IntPtr.Zero,sourceRect.Left+contextPoint.X-(buttonRect.Left+buttonRect.Width/2),sourceRect.Top+contextPoint.Y-(buttonRect.Top+buttonRect.Height/2),0,0,NativeMethods.SWP_NOSIZE|NativeMethods.SWP_NOACTIVATE|NativeMethods.SWP_NOZORDER);
+                        if(!regionSystem.TryGetRegion(hwnd.ToInt64(),out sourceRegion)){LastDiagnostic="Context source region unavailable";return true;}
+                        regionChanged=sourceRegion is not null;
+                        if(regionChanged&&!regionSystem.TrySetRegion(hwnd.ToInt64(),null)){LastDiagnostic="Context source region could not be exposed";return true;}
+                        if(!NativeMethods.IsWindowVisible(hwnd)){ShowWindow(hwnd,4);sourceShown=true;}
+                        NativeMethods.SetWindowPos(hwnd,NativeMethods.HWND_TOPMOST,sourceRect.Left+current.X-(buttonRect.Left+buttonRect.Width/2),sourceRect.Top+current.Y-(buttonRect.Top+buttonRect.Height/2),0,0,NativeMethods.SWP_NOSIZE|NativeMethods.SWP_NOACTIVATE);
+                        if(!presentation.EnableMouseInput(hwnd)){LastDiagnostic="Context source opacity lease unavailable";return true;}
+                        // Do not move the pointer, focus a virtual off-screen button,
+                        // or generate keyboard context-menu navigation. Verify that
+                        // the actual mouse events can only reach Explorer's icon.
+                        NativeMethods.GetCursorPos(out var actual);
+                        var hit=WindowFromPoint(actual);
+                        if(NativeMethods.GetAncestor(hit,NativeMethods.GA_ROOT)!=hwnd&&hit!=hwnd){LastDiagnostic="Context hit test: "+NativeMethods.GetClass(hit)+" instead of "+NativeMethods.GetClass(hwnd);return true;}
+                        menuAnchor?.Arm();
+                        var rightClick=new[]{new INPUT {U=new(){mi=new(){dwFlags=8}}},new INPUT {U=new(){mi=new(){dwFlags=16}}}};
+                        invoked=NativeMethods.SendInput(2,rightClick,Marshal.SizeOf<INPUT>())==2;
+                        LastDiagnostic=invoked?"Context mouse input delivered":"Context mouse input rejected";
+                        return true;
                     }
-                    ((delegate* unmanaged[Stdcall]<IntPtr,int>)Slot(element,3))(element); // SetFocus on the actual notification button
-                    IntPtr site=hwnd;
-                    var info=new GuiThreadInfo {Size=Marshal.SizeOf<GuiThreadInfo>()};uint thread=NativeMethods.GetWindowThreadProcessId(hwnd,out _);
-                    if(GetGUIThreadInfo(thread,ref info)&&info.Focus!=IntPtr.Zero)site=info.Focus;
-                    menuAnchor?.Arm();
-                    PostMessage(site,0x100,new IntPtr(0x5D),IntPtr.Zero);PostMessage(site,0x101,new IntPtr(0x5D),IntPtr.Zero);
-                    invoked=true;return true;
+                    LastDiagnostic="Context icon has no measured bounds";return true;
                 }
                 IntPtr pattern=default;var iid=new Guid("fb377fbe-8ea6-46d5-9c73-6499642d3059");
                 if(((delegate* unmanaged[Stdcall]<IntPtr,int,Guid*,IntPtr*,int>)Slot(element,14))(element,10000,&iid,&pattern)>=0&&pattern!=IntPtr.Zero)
                 {try{invoked=((delegate* unmanaged[Stdcall]<IntPtr,int>)Slot(pattern,3))(pattern)>=0;}finally{Marshal.Release(pattern);}}
                 return true;
-            });
+            }
+            VisitIcons(hwnd,(element,id,name)=>IconKey(element,id,name)==item.Key&&Invoke(element,id,name));
+            // Explorer rebuilds virtual UIA RuntimeIds when its presentation style
+            // changes. Re-resolve a unique live tooltip; never choose among duplicates.
+            if(!matched)
+            {
+                int candidates=0;
+                VisitIcons(hwnd,(_,_,name)=> {if(name.Trim()==item.Name)candidates++;return false;});
+                if(candidates==1)VisitIcons(hwnd,(element,id,name)=>name.Trim()==item.Name&&Invoke(element,id,name));
+                if(!matched)LastDiagnostic=$"Context target unavailable: tooltip candidates={candidates}, visible={NativeMethods.IsWindowVisible(hwnd)}";
+            }
             // Context menus are Explorer-owned and need its source alive until the message is handled.
             if(contextMenu&&invoked){if(menuAnchor is not null)menuAnchor.WaitForMenu();else Thread.Sleep(120);}
             return invoked;
@@ -153,9 +190,13 @@ public static unsafe partial class SystemTrayOverflow
         finally
         {
             if(opened){if(contextMenu){ShowWindow(Handle,0);ReleaseTemporaryTaskbar();}else Dismiss();}
+            if(sourceShown)ShowWindow(repositioned,0);
+            if(regionChanged&&NativeMethods.IsWindow(repositioned))regionSystem.TrySetRegion(repositioned.ToInt64(),sourceRegion);
             if(repositioned!=IntPtr.Zero&&NativeMethods.IsWindow(repositioned))NativeMethods.SetWindowPos(repositioned,IntPtr.Zero,savedPosition.Left,savedPosition.Top,0,0,NativeMethods.SWP_NOSIZE|NativeMethods.SWP_NOACTIVATE|NativeMethods.SWP_NOZORDER);
             if(initialized>=0)CoUninitialize();
         }
     }
     private static POINT CursorPoint(){NativeMethods.GetCursorPos(out var point);return point;}
+    [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(POINT point);
+    [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int key);
 }
