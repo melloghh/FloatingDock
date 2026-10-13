@@ -25,6 +25,18 @@ public sealed class TileTree
     public IReadOnlyList<long> Windows { get { var result=new List<long>();Walk(_root,n=>{if(n.Leaf)result.Add(n.Window);});return result; } }
     private static void Walk(Node? node,Action<Node> visit){if(node is null)return;visit(node);Walk(node.First,visit);Walk(node.Second,visit);}
     private Node? Find(long id){Node? result=null;Walk(_root,n=>{if(n.Leaf&&n.Window==id)result=n;});return result;}
+    private void EnsurePairColumns(IReadOnlySet<long>? visible)
+    {
+        int Count(Node? n)=>n is null?0:n.Leaf?(visible is null||visible.Contains(n.Window)?1:0):Count(n.First)+Count(n.Second);
+        if(Count(_root)!=2)return;
+        Walk(_root,n=>
+        {
+            if(n.Leaf||n.Horizontal||Count(n.First)!=1||Count(n.Second)!=1)return;
+            // A retained stacked pair must not carry its old height ratio into column widths.
+            n.Horizontal=true;
+            n.Ratio=n.PreferredRatio=.5;n.UserRatio=false;
+        });
+    }
     public void Add(long id,long near=0,bool horizontal=true)
     {
         if(Find(id) is not null)return;
@@ -35,7 +47,7 @@ public sealed class TileTree
     public bool AddBalanced(long id,long near,TileRect bounds,int gap=8,int outer=12,IReadOnlyDictionary<long,(int Width,int Height)>? minimums=null)
     {
         bool existing=Find(id) is not null;
-        var layout=Layout(bounds,gap,outer);
+        var layout=Layout(bounds,gap,outer,minimums?.Keys.ToHashSet());
         long target=layout.ContainsKey(near)?near:Windows.LastOrDefault();
         var cell=layout.GetValueOrDefault(target,bounds);
         if(minimums is null){if(!existing)Add(id,target,cell.Width>=cell.Height);return true;}
@@ -65,7 +77,11 @@ public sealed class TileTree
             n.Ratio=first/(double)available;
             return n.Horizontal?Fit(n.First,r with{Width=first})&&Fit(n.Second,r with{Width=available-first}):Fit(n.First,r with{Height=first})&&Fit(n.Second,r with{Height=available-first});
         }
-        bool Fits()=>Fit(_root,area)&&Layout(bounds,gap,outer,visible).All(p=>!minimums.TryGetValue(p.Key,out var min)||p.Value.Width>=min.Width&&p.Value.Height>=min.Height);
+        bool Fits()
+        {
+            EnsurePairColumns(visible);
+            return Fit(_root,area)&&Layout(bounds,gap,outer,visible).All(p=>!minimums.TryGetValue(p.Key,out var min)||p.Value.Width>=min.Width&&p.Value.Height>=min.Height);
+        }
         var original=Copy(_root);
         if(existing&&Fits())return true;
         if(_root is null){Add(id,target,cell.Width>=cell.Height);if(Fits())return true;Remove(id);return false;}
@@ -134,6 +150,7 @@ public sealed class TileTree
     public void Swap(long a,long b){var first=Find(a);var second=Find(b);if(first is not null&&second is not null)(first.Window,second.Window)=(second.Window,first.Window);}
     public void ToggleDirection(long id)
     {
+        if(Windows.Count==2)return;
         Node? parent=null;Walk(_root,n=>{if(!n.Leaf&&(n.First!.Window==id||n.Second!.Window==id))parent=n;});
         if(parent is not null)parent.Horizontal=!parent.Horizontal;
     }
@@ -151,6 +168,7 @@ public sealed class TileTree
     }
     public IReadOnlyDictionary<long,TileRect> Layout(TileRect bounds,int gap=8,int outer=12,IReadOnlySet<long>? visible=null)
     {
+        EnsurePairColumns(visible);
         var result=new Dictionary<long,TileRect>();
         outer=Math.Clamp(outer,0,Math.Max(0,Math.Min(bounds.Width,bounds.Height)/4));gap=Math.Clamp(gap,0,80);
         void Place(Node? node,TileRect rect)

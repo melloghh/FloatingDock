@@ -5,6 +5,34 @@ using Xunit;
 namespace FloatingDock.Core.Tests;
 public sealed class TilingTests
 {
+    [Fact] public void TallChatAndBrowserUseEqualColumnsAfterAnOldVerticalSplit()
+    {
+        var tree=new TileTree();tree.Add(1);tree.Add(2,1,false);
+        tree.Resize(1,TileDirection.Down);
+        var bounds=new TileRect(0,36,1920,1044);
+        var minimums=new Dictionary<long,(int Width,int Height)>{{1,(480,600)},{2,(480,320)}};
+        Assert.True(tree.AddBalanced(1,0,bounds,8,12,minimums));
+        var layout=tree.Layout(bounds);
+        Assert.Equal(944,layout[1].Width);Assert.Equal(944,layout[2].Width);
+        Assert.Equal(1020,layout[1].Height);Assert.Equal(layout[1].Y,layout[2].Y);
+        tree.ToggleDirection(1);
+        Assert.Equal(layout[1],tree.Layout(bounds)[1]);
+    }
+    [Fact] public void MinimizingOtherWindowsReturnsTheVisiblePairToColumnsAndKeepsMembership()
+    {
+        var tree=new TileTree();tree.Add(1);tree.Add(2);tree.Add(3,2,false);
+        var bounds=new TileRect(0,36,1920,1044);var visible=new HashSet<long>{2,3};
+        var layout=tree.Layout(bounds,8,12,visible);
+        Assert.Equal(layout[2].Y,layout[3].Y);Assert.Equal(944,layout[2].Width);Assert.Equal(944,layout[3].Width);
+        Assert.Equal(new long[]{1,2,3},tree.Windows);
+    }
+    [Fact] public void ASecondWindowCannotFallBackToStackingWhenColumnsDoNotFit()
+    {
+        var tree=new TileTree();var bounds=new TileRect(0,0,800,1400);
+        var mins=new Dictionary<long,(int Width,int Height)>{{1,(480,600)}};
+        Assert.True(tree.AddBalanced(1,0,bounds,8,12,mins));mins[2]=(480,320);
+        Assert.False(tree.AddBalanced(2,1,bounds,8,12,mins));Assert.Equal(new long[]{1},tree.Windows);
+    }
     [Fact] public void ClosingAColumnReturnsTheRemainingTwoWindowsToEqualHalves()
     {
         var tree=new TileTree();var bounds=new TileRect(0,0,1920,1080);var mins=new Dictionary<long,(int Width,int Height)>();
@@ -112,7 +140,7 @@ public sealed class TilingTests
         var before=tree.Layout(bounds);Assert.Equal(2,TileTree.Neighbor(1,TileDirection.Right,before));Assert.Equal(0,TileTree.Neighbor(1,TileDirection.Left,before));
         tree.Resize(1,TileDirection.Right);Assert.True(tree.Layout(bounds)[1].Width>before[1].Width);
         tree.Swap(1,2);Assert.True(tree.Layout(bounds)[1].X>tree.Layout(bounds)[2].X);
-        tree.ToggleDirection(1);Assert.Equal(tree.Layout(bounds)[1].X,tree.Layout(bounds)[2].X);
+        tree.ToggleDirection(1);Assert.Equal(tree.Layout(bounds)[1].Y,tree.Layout(bounds)[2].Y);
         Assert.Equal(new long[]{2,1},tree.Windows);tree.Add(1);Assert.Equal(2,tree.Windows.Count);
     }
     [Fact] public void MinimizedWindowsDoNotLeaveEmptyTiles()

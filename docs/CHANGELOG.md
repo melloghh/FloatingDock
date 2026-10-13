@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.11
+
+- Keep exactly two visible tiled windows in left and right columns, with equal default widths. Normalize retained top/bottom splits after closing or minimizing other windows; a direction toggle cannot stack the pair again.
+- Preserve nested layout behavior for three or more visible windows and explicit width adjustments. Respect native minimum sizes; an incompatible second window stays floating rather than switching to stacked tiles.
+- Cover the 480x600 chat/browser scenario, a pair inside a retained three-window tree, and incompatible column constraints.
+
 ## 1.4.10
 
 - Pick one live window and decide repeat-click minimization before preparing its workspace. Restoring or focusing a target during preparation cannot immediately minimize it again; other windows of an app remain in their workspaces.
