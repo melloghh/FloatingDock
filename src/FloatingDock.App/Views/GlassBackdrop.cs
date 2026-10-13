@@ -16,6 +16,7 @@ internal sealed class GlassBackdrop : SystemBackdrop
     private IntPtr _hwnd;
     private ICompositionSupportsSystemBackdrop? _target;
     private bool _visible=true;
+    private float _opacity=1;
     internal static int AppliedTargets { get; private set; }
     protected override void OnTargetConnected(ICompositionSupportsSystemBackdrop target,XamlRoot root)
     {
@@ -37,7 +38,7 @@ internal sealed class GlassBackdrop : SystemBackdrop
             _brush=_compositor.CreateColorBrush(global::Windows.UI.Color.FromArgb(255,20,22,27));
             DockApp.Current.Log.Warn("Glass fallback: "+ex.Message);
         }
-        _target=target;target.SystemBackdrop=_visible?_brush:null;
+        _target=target;ResetOpacity(_visible?_opacity:0);target.SystemBackdrop=_visible?_brush:null;
         if(!_visible)LocalWindowBlur.Apply(_hwnd,false);
         if(applied)AppliedTargets++;
         DockApp.Current.Log.Info("Local glass target: "+NativeMethods.GetClass(_hwnd)+", hwnd="+_hwnd+", applied="+applied);
@@ -63,6 +64,7 @@ internal sealed class GlassBackdrop : SystemBackdrop
         effect.StopAnimation("SurfaceFade.Opacity");
         effect.Properties.InsertScalar("SurfaceFade.Opacity",opacity);
     }
+    internal void SetOpacity(float opacity){_opacity=Math.Clamp(opacity,0,1);ResetOpacity(_opacity);}
     internal void AnimateOpacity(float opacity,int milliseconds,bool entering=false)
     {
         if(_brush is not global::Windows.UI.Composition.CompositionEffectBrush effect||_compositor is null)return;

@@ -23,7 +23,7 @@ internal sealed class MenuBarMenus : IDisposable
     private readonly Action<bool> _opened;
     private readonly DispatcherQueueTimer _audioTimer;
     private readonly DispatcherQueueTimer _dismissTimer;
-    private readonly DispatcherQueueTimer _closeTimer;
+    private MenuSurfaceMotion? _motion;
     private readonly GlassBackdrop _glass=new();
     private IntPtr _lastForeground;
     private IntPtr _returnFocus;
@@ -45,13 +45,11 @@ internal sealed class MenuBarMenus : IDisposable
     internal IntPtr LanguageTarget { get; private set; }
     internal bool NetworkReady { get; private set; }
     internal string NetworkSummary { get; private set; } = "";
+    internal MenuSurfaceMotion? MotionForDiagnostics=>_motion;
     internal MenuBarMenus(Action<bool> opened)
     {
         _opened=opened;_audioTimer=DockApp.Current.UiQueue.CreateTimer();
         _glass.SetVisible(false);
-        _closeTimer=DockApp.Current.UiQueue.CreateTimer();_closeTimer.IsRepeating=false;
-        _closeTimer.Interval=TimeSpan.FromMilliseconds(150);
-        _closeTimer.Tick+=(_,_)=> { if(ActiveKind is null)HidePopup(); };
         _audioTimer.Interval=TimeSpan.FromMilliseconds(700);
         _dismissTimer=DockApp.Current.UiQueue.CreateTimer();_dismissTimer.Interval=TimeSpan.FromMilliseconds(100);
         _dismissTimer.Tick+=(_,_)=>
@@ -95,6 +93,7 @@ internal sealed class MenuBarMenus : IDisposable
         if(ActiveKind==kind) { Close();return; }
         var previous=NativeMethods.GetForegroundWindow();
         if(previous==PopupHandle)previous=_returnFocus;
+        float progress=SurfaceVisible&&_anchor==anchor?(_motion?.Progress??0):0;
         Close(immediately:true);_returnFocus=previous;ActiveKind=kind;_anchor=anchor;_showing=true;
         _openingUntil=System.Diagnostics.Stopwatch.GetTimestamp()+System.Diagnostics.Stopwatch.Frequency*300/1000;
         try
@@ -104,6 +103,7 @@ internal sealed class MenuBarMenus : IDisposable
                 _popupRoot=new Border { RequestedTheme=ElementTheme.Dark,Background=Brush(96,20,22,27),BorderBrush=Brush(26,255,255,255),BorderThickness=new Thickness(1),CornerRadius=new CornerRadius(16),Padding=new Thickness(16) };
                 _popupWindow=new Window { Title="FloatingDock quick menu",Content=_popupRoot,SystemBackdrop=_glass };
                 WindowSetup.MakeBorderless(_popupWindow);WindowStyler.MakeOverlayWindow(PopupHandle,noActivate:false);
+                _motion=new MenuSurfaceMotion(PopupHandle,_popupRoot,_glass);
                 _popupWindow.Activated+=(_,e)=> { if(!CaptureActive&&!Opening&&!_showing&&e.WindowActivationState==WindowActivationState.Deactivated&&NativeMethods.GetForegroundWindow()!=PopupHandle&&!PointerOverAnchor())Close(); };
                 _popupRoot.KeyDown+=(_,e)=> { if(e.Key==global::Windows.System.VirtualKey.Escape) { e.Handled=true;Close(); } };
             }
@@ -118,24 +118,16 @@ internal sealed class MenuBarMenus : IDisposable
             int x=Math.Clamp(owner.Left+(int)((kind=="main"?point.X-anchor.ActualWidth:point.X)*monitor.Scale)-(kind=="main"?0:width),monitor.Bounds.Left+8,monitor.Bounds.Right-width-8);
             int y=owner.Bottom+(int)Math.Ceiling(6*monitor.Scale);
             WindowStyler.SetBounds(PopupHandle,x,y,width,Math.Max(height,100));
-            WindowStyler.SetRoundedRegion(PopupHandle,width,Math.Max(height,100),(int)Math.Ceiling(16*monitor.Scale));
             _glass.SetVisible(true);SurfaceVisible=true;
-            // The HWND backdrop does not share the XAML transform. Keep the
-            // border and blur at identical bounds throughout the opacity fade.
-            int duration=DockApp.Current.Settings.Current.MenuAnimationMs;
-            int openingGeneration=_generation;
-            void AnimateOpening()
-            {
-                if(openingGeneration!=_generation||ActiveKind!=kind)return;
-                SurfaceMotion.Enter(_popupRoot,duration,initialScale:1);SurfaceMotion.MenuContent(content,duration,entering:true);
-                _glass.AnimateOpacity(1,SurfaceMotion.Duration(duration),entering:true);
-            }
-            if(_popupRoot.IsLoaded)AnimateOpening();
-            else
-            {
-                RoutedEventHandler? loaded=null;
-                loaded=(_,_)=>{_popupRoot.Loaded-=loaded;AnimateOpening();};_popupRoot.Loaded+=loaded;
-            }
+            // Clip the actual glass HWND to the same anchored transform as its XAML plate.
+            double pivot=(owner.Left+(point.X-anchor.ActualWidth/2)*monitor.Scale-x)/monitor.Scale;
+            _motion!.Prepare(SurfaceMotion.Enabled?progress:1);
+            _motion.SetGeometry(width,Math.Max(height,100),monitor.Scale,pivot);
+            int duration=Math.Clamp((int)(DockApp.Current.Settings.Current.MenuAnimationMs*1.4),160,600);
+            // The measured native geometry is enough to start even on the first open.
+            // Waiting for Loaded left a completely transparent window before its first frame.
+            SurfaceMotion.MenuContent(content,duration,entering:true);
+            _motion.Play(entering:true,duration);
             _opened(true);_popupWindow.Activate();WindowStyler.BringToFront(PopupHandle);
             _lastForeground=NativeMethods.GetForegroundWindow();_dismissTimer.Start();
             int generation=_generation;
@@ -145,7 +137,7 @@ internal sealed class MenuBarMenus : IDisposable
                 _popupRoot.UpdateLayout();content.Measure(new global::Windows.Foundation.Size(300,double.PositiveInfinity));
                 int finalHeight=(int)Math.Ceiling(Math.Min(maxHeight,content.DesiredSize.Height+34)*monitor.Scale);
                 WindowStyler.SetBounds(PopupHandle,x,y,width,Math.Max(finalHeight,100));
-                WindowStyler.SetRoundedRegion(PopupHandle,width,Math.Max(finalHeight,100),(int)Math.Ceiling(16*monitor.Scale));
+                _motion.SetGeometry(width,Math.Max(finalHeight,100),monitor.Scale,pivot);
             });
             _resizePopup();
 
@@ -156,7 +148,7 @@ internal sealed class MenuBarMenus : IDisposable
     {
         if(ActiveKind is null&&!immediately)return;
         ActiveKind=null;_generation++;_audioTimer.Stop();_dismissTimer.Stop();_resizePopup=null;
-        _closeTimer.Stop();
+        _motion?.Stop();
         MediaButtons=Array.Empty<Button>();MediaReady=false;
         VolumeSlider=null;MuteButton=null;LanguageButtons=Array.Empty<Button>();
         if(_popupRoot is not null)_popupRoot.IsHitTestVisible=false;
@@ -165,21 +157,16 @@ internal sealed class MenuBarMenus : IDisposable
             if(immediately||!SurfaceMotion.Enabled)HidePopup();
             else
             {
-                int duration=Math.Max(60,DockApp.Current.Settings.Current.MenuAnimationMs*2/3);
-                _closeTimer.Interval=TimeSpan.FromMilliseconds(duration+20);
-                SurfaceMotion.Animate(Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(_popupRoot!),0,1,duration);
-                if(_popupRoot!.Child is ScrollViewer {Content:FrameworkElement content})SurfaceMotion.MenuContent(content,duration,entering:false);
-                _glass.AnimateOpacity(0,duration);
-                // Native input callbacks do not necessarily carry a SynchronizationContext.
-                // Finish on the owning dispatcher, never on Task.Delay's worker continuation.
-                _closeTimer.Start();
+                int duration=Math.Clamp(DockApp.Current.Settings.Current.MenuAnimationMs*4/5,80,300);
+                int generation=_generation;
+                _motion!.Play(entering:false,duration,()=>{if(generation==_generation&&ActiveKind is null)HidePopup();});
             }
         }
         else _opened(false);
     }
     private void HidePopup()
     {
-        _closeTimer.Stop();
+        _motion?.Stop();
         bool focused=NativeMethods.GetForegroundWindow()==PopupHandle;
         _glass.SetVisible(false);
         _popupWindow?.AppWindow.Hide();
@@ -432,7 +419,7 @@ internal sealed class MenuBarMenus : IDisposable
         panel.Children.Add(Divider());panel.Children.Add(Row(L.Text("Date and time"),L.Text("More settings"),"\uE713",()=> { Close();ShellLauncher.Execute("ms-settings:dateandtime",null,null); }));
         Show(anchor,panel,"calendar");
     }
-    public void Dispose() { DockApp.Current.Running.NativeWindowChanged-=OnForegroundChanged;Close(immediately:true);if(_audioTick is not null)_audioTimer.Tick-=_audioTick;_popupWindow?.Close();_popupWindow=null; }
+    public void Dispose() { DockApp.Current.Running.NativeWindowChanged-=OnForegroundChanged;Close(immediately:true);_motion?.Dispose();if(_audioTick is not null)_audioTimer.Tick-=_audioTick;_popupWindow?.Close();_popupWindow=null; }
 }
 
 

@@ -218,7 +218,7 @@ internal sealed class MenuBarWindow : IDisposable
         if(_capture||_suspended||_fullscreen||!_settings.TopBarEnabled)return;
         _menus.Tray(_trayButton,items);
     }
-    private void CloseTray(){_trayGeneration++;if(_menus.ActiveKind=="tray")_menus.Close(immediately:true);_trayOpen=false;}
+    private void CloseTray(){_trayGeneration++;if(_menus.ActiveKind=="tray")_menus.Close();_trayOpen=false;}
     private void Open(string uri) { if(!ShellLauncher.Execute(uri,null,null)) _app.Log.Warn("Could not open "+uri); }
     internal void Apply(DockSettings s,MonitorDescriptor m)
     {

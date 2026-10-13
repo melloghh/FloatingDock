@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.4.8
+
+- Unfold the entire top-bar menu towards its button, including the glass boundary, rounded frame and content. Use a fast damped opening and an accelerating fold on dismissal, with staggered content entry.
+- Keep the HWND and XAML layout at their final size; a finite frame clock synchronizes the native glass clip with the plate transform and sleeps after completion. Start the first opening without waiting for Loaded.
+- Reverse same-button transitions from their current position, cancel stale completions when replacing a menu, animate tray-button dismissal, and honor disabled animations.
+- Verify all seven menu types with actual native region measurements and desktop pixels outside the moving glass, plus close callbacks without a synchronization context, interrupted reopens and reduced motion.
+
 ## 1.4.7
 
 - Bundle the blue folder artwork as File Explorer's default icon across the dock, Launchpad, search and app pickers. The image ships with the application and needs no external file or profile setup.
