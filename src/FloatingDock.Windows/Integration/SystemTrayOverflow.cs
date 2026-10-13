@@ -107,7 +107,7 @@ public static unsafe partial class SystemTrayOverflow
     }
     public static bool TryOpen(int x,int y,int right,int bottom)
     {
-        if(Visible){Dismiss();return true;}
+        if(Visible)Dismiss();
         LastDiagnostic="Opening";
         _returnFocus=NativeMethods.GetForegroundWindow();
         var shell=FindWindow("Shell_TrayWnd",null);if(shell==IntPtr.Zero)return false;

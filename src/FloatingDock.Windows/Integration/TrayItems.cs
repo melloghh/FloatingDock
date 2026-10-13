@@ -73,6 +73,7 @@ public static unsafe partial class SystemTrayOverflow
     /// <summary>Read Explorer's live buttons, not historical registry entries. Registry supplies only their PNG image.</summary>
     public static IReadOnlyList<TrayItem> ReadItems()
     {
+        using var presentation=new TrayPresentationScope();
         int initialized=CoInitializeEx(IntPtr.Zero,0);var result=new List<TrayItem>();
         var icons=IconSnapshots();
         try
@@ -102,10 +103,13 @@ public static unsafe partial class SystemTrayOverflow
         finally{Dismiss();if(initialized>=0)CoUninitialize();}
     }
     /// <summary>Explorer still owns notification callbacks. Re-resolve on click so stale/disposed icons cannot be invoked.</summary>
-    public static bool ActivateItem(TrayItem item,bool contextMenu=false)
+    public static bool ActivateItem(TrayItem item,bool contextMenu=false,POINT? anchor=null)
     {
+        using var presentation=new TrayPresentationScope();
         int initialized=CoInitializeEx(IntPtr.Zero,0);bool opened=false;
+        IntPtr repositioned=IntPtr.Zero;RECT savedPosition=default;
         NativeMethods.GetCursorPos(out var contextPoint);
+        contextPoint=anchor??contextPoint;
         try
         {
             if(item.Overflow){opened=TryOpen(-10000,-10000,-9000,-9000);if(!opened)return false;}
@@ -116,6 +120,15 @@ public static unsafe partial class SystemTrayOverflow
                 if(IconKey(element,id,name)!=item.Key)return false;
                 if(contextMenu)
                 {
+                    // Apps receive Explorer's notification-button coordinates.
+                    // Place that live button at our clicked icon before invoking;
+                    // moving a menu later misses menus owned by the app's process.
+                    RECT buttonRect=default;
+                    if(((delegate* unmanaged[Stdcall]<IntPtr,RECT*,int>)Slot(element,43))(element,&buttonRect)>=0&&buttonRect.Width>0&&NativeMethods.GetWindowRect(hwnd,out var sourceRect))
+                    {
+                        savedPosition=sourceRect;repositioned=hwnd;
+                        NativeMethods.SetWindowPos(hwnd,IntPtr.Zero,sourceRect.Left+contextPoint.X-(buttonRect.Left+buttonRect.Width/2),sourceRect.Top+contextPoint.Y-(buttonRect.Top+buttonRect.Height/2),0,0,NativeMethods.SWP_NOSIZE|NativeMethods.SWP_NOACTIVATE|NativeMethods.SWP_NOZORDER);
+                    }
                     ((delegate* unmanaged[Stdcall]<IntPtr,int>)Slot(element,3))(element); // SetFocus on the actual notification button
                     IntPtr site=hwnd;
                     var info=new GuiThreadInfo {Size=Marshal.SizeOf<GuiThreadInfo>()};uint thread=NativeMethods.GetWindowThreadProcessId(hwnd,out _);
@@ -129,23 +142,13 @@ public static unsafe partial class SystemTrayOverflow
                 return true;
             });
             // Context menus are Explorer-owned and need its source alive until the message is handled.
-            if(contextMenu&&invoked)
-            {
-                Thread.Sleep(120);
-                NativeMethods.GetWindowThreadProcessId(hwnd,out var shellPid);
-                NativeMethods.EnumWindows((menu,_)=>
-                {
-                    NativeMethods.GetWindowThreadProcessId(menu,out var pid);
-                    if(pid==shellPid&&NativeMethods.GetClass(menu)=="#32768"&&NativeMethods.IsWindowVisible(menu))
-                        NativeMethods.SetWindowPos(menu,NativeMethods.HWND_TOPMOST,contextPoint.X,contextPoint.Y,0,0,NativeMethods.SWP_NOSIZE|NativeMethods.SWP_NOACTIVATE);
-                    return true;
-                },IntPtr.Zero);
-            }
+            if(contextMenu&&invoked)Thread.Sleep(120);
             return invoked;
         }
         finally
         {
             if(opened){if(contextMenu){ShowWindow(Handle,0);ReleaseTemporaryTaskbar();}else Dismiss();}
+            if(repositioned!=IntPtr.Zero&&NativeMethods.IsWindow(repositioned))NativeMethods.SetWindowPos(repositioned,IntPtr.Zero,savedPosition.Left,savedPosition.Top,0,0,NativeMethods.SWP_NOSIZE|NativeMethods.SWP_NOACTIVATE|NativeMethods.SWP_NOZORDER);
             if(initialized>=0)CoUninitialize();
         }
     }

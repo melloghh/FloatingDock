@@ -127,7 +127,7 @@ internal sealed class MenuBarMenus : IDisposable
             void AnimateOpening()
             {
                 if(openingGeneration!=_generation||ActiveKind!=kind)return;
-                SurfaceMotion.Enter(_popupRoot,duration,initialScale:1);SurfaceMotion.SlideContent(content,duration);
+                SurfaceMotion.Enter(_popupRoot,duration,initialScale:1);SurfaceMotion.MenuContent(content,duration,entering:true);
                 _glass.AnimateOpacity(1,SurfaceMotion.Duration(duration),entering:true);
             }
             if(_popupRoot.IsLoaded)AnimateOpening();
@@ -168,6 +168,7 @@ internal sealed class MenuBarMenus : IDisposable
                 int duration=Math.Max(60,DockApp.Current.Settings.Current.MenuAnimationMs*2/3);
                 _closeTimer.Interval=TimeSpan.FromMilliseconds(duration+20);
                 SurfaceMotion.Animate(Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(_popupRoot!),0,1,duration);
+                if(_popupRoot!.Child is ScrollViewer {Content:FrameworkElement content})SurfaceMotion.MenuContent(content,duration,entering:false);
                 _glass.AnimateOpacity(0,duration);
                 // Native input callbacks do not necessarily carry a SynchronizationContext.
                 // Finish on the owning dispatcher, never on Task.Delay's worker continuation.
@@ -299,8 +300,12 @@ internal sealed class MenuBarMenus : IDisposable
             }
             async Task Activate(bool context)
             {
+                var p=button.TransformToVisual(_popupRoot).TransformPoint(new(button.ActualWidth/2,button.ActualHeight/2));
+                NativeMethods.GetWindowRect(PopupHandle,out var bounds);
+                double scale=button.XamlRoot.RasterizationScale;
+                var point=new POINT {X=bounds.Left+(int)Math.Round(p.X*scale),Y=bounds.Top+(int)Math.Round(p.Y*scale)};
                 Close(immediately:true);
-                if(!await DockApp.Current.ActivateTrayItemAsync(item,context))DockApp.Current.Notify(L.Text("System tray"),L.Text("Tray icon is no longer available."),true);
+                if(!await DockApp.Current.ActivateTrayItemAsync(item,context,point))DockApp.Current.Notify(L.Text("System tray"),L.Text("Tray icon is no longer available."),true);
             }
             button.Click+=async(_,_)=>await Activate(false);
             button.RightTapped+=async(_,e)=>{e.Handled=true;await Activate(true);};
@@ -346,13 +351,13 @@ internal sealed class MenuBarMenus : IDisposable
         if(diagnosticTarget is null&&(target==PopupHandle||NativeMethods.GetTitle(target)=="FloatingDock menu bar"))
             target=new IntPtr(DockApp.Current.Running.ForegroundRoot);
         LanguageTarget=target;
-        uint thread=NativeMethods.GetWindowThreadProcessId(target,out _);
+        uint thread=NativeMethods.GetWindowThreadProcessId(InputLanguages.InputSite(target),out _);
         var current=InputLanguages.GetKeyboardLayout(thread);
         var panel=Panel();panel.Children.Add(Header(L.Text("Input language"),"\uE8C1"));panel.Children.Add(Text(L.Text("Current application keyboard layout"),12,true));
         var rows=new StackPanel { Spacing=4 };var buttons=new List<Button>();
         foreach(var language in InputLanguages.Installed())
         {
-            var row=Row(language.Name,language.Tag,"\uE765",()=> { Close();NativeMethods.SetForegroundWindow(target);if(!InputLanguages.Request(target,language.Handle))DockApp.Current.Notify(L.Text("Input language"),L.Text("The application did not accept the keyboard layout."),true); },language.Handle==current);
+            var row=Row(language.Name,language.Tag,"\uE765",()=> { _returnFocus=target;Close(immediately:true);NativeMethods.SetForegroundWindow(target);if(!InputLanguages.Request(target,language.Handle))DockApp.Current.Notify(L.Text("Input language"),L.Text("The application did not accept the keyboard layout."),true); },language.Handle==current);
             rows.Children.Add(row);buttons.Add(row);
         }
         if(buttons.Count==0)rows.Children.Add(Text(L.Text("No keyboard layouts available"),13,true));

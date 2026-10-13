@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.4.4
+
+- Refresh the visible input-language indicator every 75 ms. Resolve the application's focused input site and close the language menu immediately before requesting a layout, so delayed dismissal cannot steal focus back.
+- Run tray queries on a separate, lazy STA worker so icon/catalog work cannot delay opening. Suppress Explorer's native tray presentation during discovery and activation. Align the native notification button with the custom icon before a context callback, including menus owned by another application; restore source positions and acquired cloak bits afterwards.
+- Animate menu content from its upper anchor with a small scale/slide and staggered item fades. Interrupted closes cannot hide a replacement menu; Windows' reduced-motion preference is respected.
+- Preserve position and size momentum when compositor tile reflow is retargeted. Allow the application's native close transition to finish before expanding neighboring tiles; the removed application's pixels are not captured or replayed after its HWND dies.
+- Show Launchpad on the first click without awaiting catalog export, an icon batch or invisible GPU warm-up. Preload Start pins after the dock's first paint and keep an optional local catalog cache for subsequent starts.
+- Add desktop checks for a real Win+Space change, two mouse-selected layouts on a separate input thread, tray callback coordinates, cold Launchpad latency, interrupted menus, repeated tile resizing and close reflow.
+
 ## 1.4.3
 
 - Keep a minimize cycle active until the window actually restores. Late duplicate native acknowledgements no longer start another compositor image after the first one disappears; late restore acknowledgements do not cancel a currently minimized image.

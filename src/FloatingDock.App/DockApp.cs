@@ -48,6 +48,8 @@ public sealed partial class DockApp : Application
     internal IconPackService Packs { get; private set; } = null!;
     internal IconResolver Resolver { get; private set; } = null!;
     internal ShellWorker Worker { get; private set; } = null!;
+    private ShellWorker? _trayWorker;
+    private int _trayOperations;
     internal StartPinsService StartPins { get; private set; } = null!;
     internal IconService Icons { get; private set; } = null!;
     internal RunningAppsService Running { get; private set; } = null!;
@@ -126,7 +128,7 @@ public sealed partial class DockApp : Application
         Resolver.Configure(s.UseIconPack, s.ActiveIconPack, s.PreferDarkVariants);
 
         Worker = new ShellWorker();
-        StartPins = new StartPinsService(Worker);
+        StartPins = new StartPinsService(Worker,Path.Combine(Paths.CacheDir,"start-pins.json"));
         Icons = new IconService(Resolver, Worker, new ShellIconExtractor(Paths.SystemIconCacheDir));
         Overrides.Changed += () => UiQueue.TryEnqueue(Icons.Invalidate);
 
@@ -169,7 +171,9 @@ public sealed partial class DockApp : Application
         if (firstRun) _ = SeedPinnedFromWindowsTaskbarAsync();
         if (args.Any(a => a.Equals("--settings", StringComparison.OrdinalIgnoreCase))) ShowSettings();
         Log.Info("started");
-        // Start pins and the launchpad are loaded on demand; no background PowerShell/UI warm-up.
+        // Populate the shared catalogue after the dock's first paint. Opening does
+        // not wait for this work or for a batch of shell icon extractions.
+        if(!Program.IsSmokeTest)_ = WarmStartPinsAsync();
         if (Program.IsSmokeTest) UiQueue.TryEnqueue(async () => await RuntimeSmoke.RunAsync(this));
     }
 
@@ -309,28 +313,36 @@ public sealed partial class DockApp : Application
 
     internal async Task<IReadOnlyList<TrayItem>> ReadTrayItemsAsync()
     {
-        _taskbarTimer?.Stop();
-        try{return await Worker.Run(SystemTrayOverflow.ReadItems);}
+        _trayOperations++;_taskbarTimer?.Stop();
+        try{return await (_trayWorker??=new ShellWorker()).Run(SystemTrayOverflow.ReadItems);}
         catch(Exception ex){Log.Warn("Tray icons unavailable: "+ex.Message);return Array.Empty<TrayItem>();}
-        finally{if(!_shuttingDown&&Settings.Current.TaskbarMode!=TaskbarMode.Leave)_taskbarTimer?.Start();}
+        finally{if(--_trayOperations==0&&!_shuttingDown&&Settings.Current.TaskbarMode!=TaskbarMode.Leave)_taskbarTimer?.Start();}
     }
-    internal async Task<bool> ActivateTrayItemAsync(TrayItem item,bool context)
+    internal async Task<bool> ActivateTrayItemAsync(TrayItem item,bool context,FloatingDock.Windows.Native.POINT? anchor=null)
     {
-        _taskbarTimer?.Stop();
-        try{return await Worker.Run(()=>SystemTrayOverflow.ActivateItem(item,context));}
+        _trayOperations++;_taskbarTimer?.Stop();
+        try{return await (_trayWorker??=new ShellWorker()).Run(()=>SystemTrayOverflow.ActivateItem(item,context,anchor));}
         catch(Exception ex){Log.Warn("Tray action failed: "+ex.Message);return false;}
-        finally{if(!_shuttingDown&&Settings.Current.TaskbarMode!=TaskbarMode.Leave)_taskbarTimer?.Start();}
+        finally{if(--_trayOperations==0&&!_shuttingDown&&Settings.Current.TaskbarMode!=TaskbarMode.Leave)_taskbarTimer?.Start();}
     }
     internal void ToggleSearch() { Palette ??=new Search.CommandPaletteWindow();Palette.Toggle(); }
 
-    internal async void ToggleLaunchpad()
+    internal void ToggleLaunchpad()
     {
         try
         {
-            await PrepareLaunchpadAsync();
-            LaunchpadWin!.Toggle();
+            LaunchpadWin ??= new LaunchpadWindow();
+            LaunchpadWin.Toggle();
         }
         catch (Exception ex) { Log.Error("Launchpad preparation failed", ex); }
+    }
+
+    private async Task WarmStartPinsAsync()
+    {
+        await Task.Delay(600);
+        if(_shuttingDown)return;
+        try { await StartPins.GetAsync(); }
+        catch(Exception ex) { Log.Warn("Optional Start pins preload failed: "+ex.Message); }
     }
 
     internal Task PrepareLaunchpadAsync()
@@ -463,6 +475,7 @@ public sealed partial class DockApp : Application
         try { Running.Dispose(); } catch { }
         try { Msg.Dispose(); } catch { }
         try { Worker.Dispose(); } catch { }
+        try { _trayWorker?.Dispose(); } catch { }
         try { _single.Dispose(); } catch { }
         Exit();
     }

@@ -67,6 +67,7 @@ internal sealed class LaunchpadWindow : IDisposable
     public LaunchpadWindow()
     {
         _s = _app.Settings.Current;
+        _catalog=_app.StartPins.Cached?.Apps;
         _transitionTimer=_app.UiQueue.CreateTimer();_transitionTimer.IsRepeating=false;
         _transitionTimer.Tick+=(_,_)=> { if(_closing)FinishHide();else FinishOpening(); };
         BuildTree();
@@ -244,7 +245,7 @@ internal sealed class LaunchpadWindow : IDisposable
         WindowStyler.SetBounds(_hwnd, mon.Bounds.Left, mon.Bounds.Top, mon.Bounds.Width, mon.Bounds.Height);
         SetPanelBounds(mon);
 
-        if (_catalog is null && _allVersion==0) RebuildAll();
+        if (_allVersion==0) RebuildAll();
         else RebuildView();
         foreach (var tile in Tiles()) tile.Bind(tile.App!, _s.LaunchpadIconSize, TileMetrics().Width, _scale);
 

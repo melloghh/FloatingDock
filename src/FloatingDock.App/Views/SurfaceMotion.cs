@@ -42,6 +42,36 @@ internal static class SurfaceMotion
         animation.InsertKeyFrame(0,new Vector3(0,10,0));animation.InsertKeyFrame(1,Vector3.Zero,ease);
         visual.StartAnimation("Translation",animation);
     }
+    internal static void MenuContent(FrameworkElement element,int milliseconds,bool entering)
+    {
+        ElementCompositionPreview.SetIsTranslationEnabled(element,true);
+        var visual=ElementCompositionPreview.GetElementVisual(element);
+        visual.CenterPoint=new Vector3((float)element.ActualWidth*.85f,0,0);
+        visual.StopAnimation("Translation");
+        if(entering)Reset(visual,Enabled?0:1,Enabled?.96f:1);
+        Animate(visual,entering?1:0,entering?1:.98f,milliseconds);
+        if(!Enabled){visual.Properties.InsertVector3("Translation",Vector3.Zero);return;}
+        using var ease=visual.Compositor.CreateCubicBezierEasingFunction(new Vector2(.2f,.8f),new Vector2(.2f,1));
+        using var slide=visual.Compositor.CreateVector3KeyFrameAnimation();
+        slide.Duration=TimeSpan.FromMilliseconds(milliseconds);
+        if(entering)slide.InsertKeyFrame(0,new Vector3(0,-10,0));
+        else slide.InsertExpressionKeyFrame(0,"this.StartingValue");
+        slide.InsertKeyFrame(1,entering?Vector3.Zero:new Vector3(0,-6,0),ease);
+        visual.StartAnimation("Translation",slide);
+        if(entering&&element is Microsoft.UI.Xaml.Controls.Panel panel)
+        {
+            int index=0;
+            foreach(var child in panel.Children)
+            {
+                var row=ElementCompositionPreview.GetElementVisual(child);
+                row.StopAnimation("Opacity");row.Opacity=0;
+                using var fade=row.Compositor.CreateScalarKeyFrameAnimation();
+                fade.DelayTime=TimeSpan.FromMilliseconds(Math.Min(index++*12,60));
+                fade.Duration=TimeSpan.FromMilliseconds(Math.Max(60,milliseconds-60));
+                fade.InsertKeyFrame(0,0);fade.InsertKeyFrame(1,1,ease);row.StartAnimation("Opacity",fade);
+            }
+        }
+    }
     internal static void Enter(FrameworkElement element, int milliseconds=220,float initialScale=.985f)
     {
         var visual=ElementCompositionPreview.GetElementVisual(element);

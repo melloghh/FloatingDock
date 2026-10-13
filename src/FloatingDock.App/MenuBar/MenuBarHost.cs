@@ -186,7 +186,7 @@ internal sealed class MenuBarWindow : IDisposable
         right.Children.Add(_batteryButton);
         _networkButton=ActionButton(_network,"Network",()=> { _menus.Network(_networkButton!); });right.Children.Add(_networkButton);
         _soundButton=ActionButton(new FontIcon { Glyph="\uE767",FontSize=15 },"Sound",()=> { _menus.Sound(_soundButton!); });right.Children.Add(_soundButton);
-        _languageButton=ActionButton(_language,"Input language",()=> { _menus.Language(_languageButton!,_diagnosticLanguageTarget); });right.Children.Add(_languageButton);
+        _languageButton=ActionButton(_language,"Input language",()=> { RefreshLanguage();_menus.Language(_languageButton!,_diagnosticLanguageTarget??(NativeMethods.IsWindow(_languageSource)?_languageSource:null)); });right.Children.Add(_languageButton);
         right.Children.Add(ActionButton(new FontIcon { Glyph="\uE713",FontSize=15 },"FloatingDock settings",()=>_app.ShowSettings()));
         _clockButton=ActionButton(_clock,"Date and time",ShowCalendar);right.Children.Add(_clockButton);
         Grid.SetColumn(right,2);_root.Children.Add(right);
@@ -194,7 +194,7 @@ internal sealed class MenuBarWindow : IDisposable
         WindowSetup.MakeBorderless(_window);Handle=WindowSetup.Hwnd(_window);WindowStyler.MakeOverlayWindow(Handle,noActivate:true);
         _root.PointerEntered+=(_,_)=> { if(IgnoreRealCursorForDiagnostics)return;_hover=true;Reveal(); };
         _root.PointerExited+=(_,_)=> { if(IgnoreRealCursorForDiagnostics)return;_hover=false;_lastHover=DateTime.UtcNow; };
-        _languageTimer=_app.UiQueue.CreateTimer();_languageTimer.Interval=TimeSpan.FromMilliseconds(1000);_languageTimer.Tick+=(_,_)=>RefreshLanguage();
+        _languageTimer=_app.UiQueue.CreateTimer();_languageTimer.Interval=TimeSpan.FromMilliseconds(75);_languageTimer.Tick+=(_,_)=>RefreshLanguage();
         _clockTimer=_app.UiQueue.CreateTimer();_clockTimer.Interval=TimeSpan.FromSeconds(1);_clockTimer.Tick+=(_,_)=>RefreshClock();
         _edgeTimer=_app.UiQueue.CreateTimer();_edgeTimer.Interval=TimeSpan.FromMilliseconds(100);_edgeTimer.Tick+=(_,_)=>CheckEdge();
         _slideTimer=new(action=>_app.UiQueue.TryEnqueue(()=>action()),Slide);
@@ -213,8 +213,10 @@ internal sealed class MenuBarWindow : IDisposable
         if(_trayOpen||_menus.ActiveKind=="tray"){CloseTray();return;}
         _menus.Close(immediately:true);_app.Palette?.Hide();_trayOpen=true;Reveal();int generation=++_trayGeneration;
         var items=await _app.ReadTrayItemsAsync();
-        if(_disposed||generation!=_trayGeneration||_capture||_suspended||_fullscreen||!_settings.TopBarEnabled)return;
-        _trayOpen=false;_menus.Tray(_trayButton,items);
+        if(_disposed||generation!=_trayGeneration)return;
+        _trayOpen=false;
+        if(_capture||_suspended||_fullscreen||!_settings.TopBarEnabled)return;
+        _menus.Tray(_trayButton,items);
     }
     private void CloseTray(){_trayGeneration++;if(_menus.ActiveKind=="tray")_menus.Close(immediately:true);_trayOpen=false;}
     private void Open(string uri) { if(!ShellLauncher.Execute(uri,null,null)) _app.Log.Warn("Could not open "+uri); }
@@ -286,10 +288,14 @@ internal sealed class MenuBarWindow : IDisposable
         if(pid!=(uint)Environment.ProcessId&&foreground!=IntPtr.Zero)_languageSource=foreground;
         else if(_menus.ActiveKind is not null||foreground==Handle||thread==0)
         {
-            var target=NativeMethods.IsWindow(_menus.LanguageTarget)?_menus.LanguageTarget:_languageSource;
+            var target=_menus.ActiveKind=="language"&&NativeMethods.IsWindow(_menus.LanguageTarget)?_menus.LanguageTarget:_languageSource;
             if(NativeMethods.IsWindow(target))thread=NativeMethods.GetWindowThreadProcessId(target,out _);
         }
         if(thread==0)return;
+        var source=_menus.ActiveKind=="language"?_menus.LanguageTarget:_menus.ActiveKind is not null?_languageSource:foreground;
+        var input=InputLanguages.InputSite(source);
+        uint inputThread=NativeMethods.GetWindowThreadProcessId(input,out var inputPid);
+        if(inputThread!=0&&inputPid!=(uint)Environment.ProcessId)thread=inputThread;
         try { string language=CultureInfo.GetCultureInfo((int)(GetKeyboardLayout(thread).ToInt64()&0xffff)).TwoLetterISOLanguageName.ToUpperInvariant();if(_language.Text!=language)_language.Text=language; } catch(CultureNotFoundException) { }
     }
     private void UpdateLanguageTimer()

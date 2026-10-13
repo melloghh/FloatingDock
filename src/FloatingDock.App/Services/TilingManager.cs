@@ -21,7 +21,7 @@ internal sealed class TilingManager : IDisposable
     private readonly Dictionary<long,TileMotion> _moves=new();
     private readonly WindowArrivalGate _arrivals=new();
     private sealed record HeldWindow(WindowInfo Info,WindowOpacityLease Lease,double Started,bool Returning=false);
-    private sealed class Presentation(WindowTransitionSurface surface,TileRect from,TileRect target,double now,int duration,bool hiding,byte opacity=255,bool gentleStart=false)
+    private sealed class Presentation(WindowTransitionSurface surface,TileRect from,TileRect target,double now,int duration,bool hiding,byte opacity=255,bool gentleStart=false,TileMotionSample? momentum=null)
     {
         public readonly WindowTransitionSurface Surface=surface;
         public readonly TileRect From=from,Target=target;
@@ -32,6 +32,9 @@ internal sealed class TilingManager : IDisposable
         public readonly byte FromOpacity=opacity;
         public readonly bool GentleStart=gentleStart;
         public bool Placed=hiding;
+        public TileMotion Motion=new(from,target,now,duration,momentum?.VelocityX??0,momentum?.VelocityY??0,interpolateSize:true,velocityWidth:momentum?.VelocityWidth??0,velocityHeight:momentum?.VelocityHeight??0);
+        public void Begin(double now)
+        {Placed=true;Started=now;Motion=new(From,Target,now,Duration,momentum?.VelocityX??0,momentum?.VelocityY??0,interpolateSize:true,velocityWidth:momentum?.VelocityWidth??0,velocityHeight:momentum?.VelocityHeight??0);}
     }
     private readonly Dictionary<long,HeldWindow> _held=new();
     private readonly Dictionary<long,Presentation> _presentations=new();
@@ -40,6 +43,7 @@ internal sealed class TilingManager : IDisposable
     private NativeTilingSession? _session;
     private DockSettings _settings=new();
     private bool _paused,_disposed,_primed,_bindingsRegistered;
+    private double _closingUntil;
     private static double Now=>Stopwatch.GetTimestamp()*1000d/Stopwatch.Frequency;
     internal NativeTilingSession? Session=>_session;
     internal bool Animating=>_animation.IsRunning||_held.Count>0;
@@ -73,7 +77,7 @@ internal sealed class TilingManager : IDisposable
     private void OnNative(WindowEventKind kind,IntPtr hwnd)
     {
         long window=hwnd.ToInt64();
-        if(kind==WindowEventKind.Destroyed){_minimized.Remove(window);_normalBounds.Remove(window);ReleasePresentation(window);if(_held.Remove(window,out var held))held.Lease.Dispose();_arrivals.Forget(window);if(_session?.Forget(window)==true)Schedule();return;}
+        if(kind==WindowEventKind.Destroyed){_minimized.Remove(window);_normalBounds.Remove(window);ReleasePresentation(window);if(_held.Remove(window,out var held))held.Lease.Dispose();_arrivals.Forget(window);if(_session?.Forget(window)==true){if(SurfaceMotion.Enabled&&_settings.TilingAnimationMs>0)_closingUntil=Now+100;Schedule();}return;}
         if(kind==WindowEventKind.LocationChanged&&_normalBounds.ContainsKey(window)&&!_minimized.Contains(window)&&!_presentations.ContainsKey(window)&&!NativeMethods.IsIconic(hwnd)&&NativeMethods.GetWindowRect(hwnd,out var bounds))
             _normalBounds[window]=new(bounds.Left,bounds.Top,bounds.Width,bounds.Height);
         if(kind==WindowEventKind.MinimizeStart)
@@ -184,6 +188,9 @@ internal sealed class TilingManager : IDisposable
     private void Reconcile()
     {
         if(_session is null||_disposed)return;
+        // Let DWM finish the application's native close fade before adjacent
+        // tiles expand over it. No source HWND survives destruction.
+        if(Now<_closingUntil){Schedule();return;}
         bool changed=Synchronize();
         if(changed||!_animation.IsRunning)AnimateLayout();
         StateChanged?.Invoke();
@@ -296,7 +303,7 @@ internal sealed class TilingManager : IDisposable
             if(_dragging.Contains(id)||!NativeMethods.GetWindowRect(new(id),out var current))continue;
             var from=new TileRect(current.Left,current.Top,current.Width,current.Height);
             if(showing is not null)from=showing.Surface.Bounds;
-            TileMotionSample? sample=pending?.Sample(Now);if(sample is { } ongoing)from=new(ongoing.Bounds.X,ongoing.Bounds.Y,from.Width,from.Height);
+            TileMotionSample? sample=showing is {Hiding:false,Placed:true}?showing.Motion.Sample(Now):pending?.Sample(Now);if(pending is not null&&sample is { } ongoing)from=new(ongoing.Bounds.X,ongoing.Bounds.Y,from.Width,from.Height);
             _moves.Remove(id);
             bool opening=_held.TryGetValue(id,out var held)||!_session.HasBeenPlaced(id);
             if(from==target&&!opening)continue;
@@ -311,7 +318,7 @@ internal sealed class TilingManager : IDisposable
             {
                 _held.Remove(id);surface.Update(from,opacity);
                 _session.Move(id,target);
-                _presentations[id]=new(surface,from,target,Now,duration,false,opacity);continue;
+                _presentations[id]=new(surface,from,target,Now,duration,false,opacity,momentum:sample);continue;
             }
             if(_held.Remove(id,out var failed))failed.Lease.Dispose();
             // Unsupported layered-window owners keep the native motion fallback.
@@ -340,7 +347,7 @@ internal sealed class TilingManager : IDisposable
             if(!p.Placed)
             {
                 if(atTarget)
-                {p.Placed=true;p.Started=now;}
+                {p.Begin(now);}
                 else if(now-p.Queued>1000){ReleasePresentation(id);_session!.ReleaseFailedPlacement(id);Schedule();continue;}
                 else {_session!.Move(id,p.Target);continue;}
             }
@@ -350,8 +357,7 @@ internal sealed class TilingManager : IDisposable
                 _session!.Move(id,p.Target);
             }
             double t=Math.Clamp((now-p.Started)/Math.Max(1,p.Duration),0,1),ease=t*t*t*(10+t*(-15+6*t));
-            int Mix(int a,int b)=>(int)Math.Round(a+(b-a)*ease);
-            var bounds=new TileRect(Mix(p.From.X,p.Target.X),Mix(p.From.Y,p.Target.Y),Math.Max(1,Mix(p.From.Width,p.Target.Width)),Math.Max(1,Mix(p.From.Height,p.Target.Height)));
+            var bounds=p.Motion.Sample(now).Bounds;
             if(p.Hiding)bounds=TileMinimizeMotion.Sample(p.From,p.Target,t,p.GentleStart);
             double fade=Math.Clamp((t-.82)/.18,0,1);fade=fade*fade*(3-2*fade);
             byte alpha=(byte)Math.Clamp(p.Hiding?Math.Round(p.FromOpacity*(1-fade)):Math.Round(p.FromOpacity+(255-p.FromOpacity)*ease),0,255);

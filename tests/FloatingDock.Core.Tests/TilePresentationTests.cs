@@ -4,6 +4,23 @@ using Xunit;
 namespace FloatingDock.Core.Tests;
 public sealed class TilePresentationTests
 {
+    [Fact] public void InterruptedReflowPreservesPositionAndSizeMomentumAndSettles()
+    {
+        var from=new TileRect(-1600,60,700,800);var first=new TileMotion(from,new(-900,80,950,600),0,300,interpolateSize:true);
+        var sample=first.Sample(90);
+        var target=new TileRect(-400,120,1100,500);
+        var resumed=new TileMotion(sample.Bounds,target,90,220,sample.VelocityX,sample.VelocityY,true,sample.VelocityWidth,sample.VelocityHeight);
+        var continued=resumed.Sample(90);Assert.Equal(sample.Bounds,continued.Bounds);
+        Assert.Equal(sample.VelocityX,continued.VelocityX,10);Assert.Equal(sample.VelocityY,continued.VelocityY,10);
+        Assert.Equal(sample.VelocityWidth,continued.VelocityWidth,10);Assert.Equal(sample.VelocityHeight,continued.VelocityHeight,10);
+        int width=sample.Bounds.Width,height=sample.Bounds.Height;
+        for(int i=1;i<=220;i++)
+        {
+            var next=resumed.Sample(90+i);Assert.InRange(next.Bounds.Width,width,target.Width);Assert.InRange(next.Bounds.Height,target.Height,height);
+            width=next.Bounds.Width;height=next.Bounds.Height;
+        }
+        Assert.Equal(target,resumed.Sample(310).Bounds);Assert.True(resumed.Complete(310));
+    }
     [Fact] public void UntiledMotionStartsGentlyAndOnlyShrinksTowardsTheIcon()
     {
         var from=new TileRect(1500,80,960,600);var dock=new TileRect(20,600,40,40);
