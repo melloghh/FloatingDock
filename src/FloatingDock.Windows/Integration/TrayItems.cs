@@ -4,7 +4,7 @@ using FloatingDock.Windows.Native;
 
 namespace FloatingDock.Windows.Integration;
 
-public sealed record TrayItem(string Key,string Name,byte[]? Icon,bool Overflow);
+public sealed record TrayItem(string Key,string Name,byte[]? Icon,bool Overflow,string? Executable=null);
 
 public static unsafe partial class SystemTrayOverflow
 {
@@ -25,7 +25,7 @@ public static unsafe partial class SystemTrayOverflow
         }
         finally{SafeArrayDestroy(array);}
     }
-    private sealed record IconSnapshot(string Name,string Executable,byte[] Bytes);
+    private sealed record IconSnapshot(string Name,string Executable,byte[]? Bytes);
     private static IReadOnlyList<IconSnapshot> IconSnapshots()
     {
         var result=new List<IconSnapshot>();
@@ -34,8 +34,11 @@ public static unsafe partial class SystemTrayOverflow
         foreach(string key in root.GetSubKeyNames().Take(512))
         {
             using var entry=root.OpenSubKey(key);
-            if(entry?.GetValue("IconSnapshot") is byte[] bytes&&bytes.Length is >8 and <262144)
-                result.Add(new(entry.GetValue("InitialTooltip") as string??"",entry.GetValue("ExecutablePath") as string??"",bytes));
+            if(entry is null)continue;
+            var name=entry.GetValue("InitialTooltip") as string??"";var executable=entry.GetValue("ExecutablePath") as string??"";
+            var bytes=entry.GetValue("IconSnapshot") as byte[];
+            if(bytes?.Length is not (>8 and <262144))bytes=null;
+            if(name.Length>0||executable.Length>0)result.Add(new(name,executable,bytes));
         }
         return result;
     }
@@ -90,10 +93,10 @@ public static unsafe partial class SystemTrayOverflow
                     .OrderByDescending(i=>i.Name.Length).FirstOrDefault();
                 image??=icons.FirstOrDefault(i=>Path.GetFileNameWithoutExtension(i.Executable) is {Length:>0} exe&&label.StartsWith(exe,StringComparison.OrdinalIgnoreCase));
                 if(image is null&&(label.StartsWith("Windows Security",StringComparison.OrdinalIgnoreCase)||label.StartsWith("Безопасность Windows",StringComparison.OrdinalIgnoreCase)))image=icons.FirstOrDefault(i=>Path.GetFileName(i.Executable).Equals("SecurityHealthSystray.exe",StringComparison.OrdinalIgnoreCase));
-                if(image is null&&(label.Contains("извлечение",StringComparison.OrdinalIgnoreCase)||label.Contains("Safely Remove",StringComparison.OrdinalIgnoreCase)))image=icons.FirstOrDefault(i=>Path.GetFileName(i.Executable).Equals("explorer.exe",StringComparison.OrdinalIgnoreCase)&&i.Bytes.Length>500);
+                if(image is null&&(label.Contains("извлечение",StringComparison.OrdinalIgnoreCase)||label.Contains("Safely Remove",StringComparison.OrdinalIgnoreCase)))image=icons.FirstOrDefault(i=>Path.GetFileName(i.Executable).Equals("explorer.exe",StringComparison.OrdinalIgnoreCase)&&i.Bytes is {Length:>500});
                 string cls=String(element,30);
                 if(!overflow&&id!="NotifyItemIcon"&&!cls.Contains("NotifyIcon",StringComparison.OrdinalIgnoreCase)&&cls!="ToolbarWindow32")return false;
-                result.Add(new(IconKey(element,id,name),label,image?.Bytes,overflow));return false;
+                result.Add(new(IconKey(element,id,name),label,image?.Bytes,overflow,image?.Executable));return false;
             });
             }
             if(opened)Read(Handle,true);
@@ -106,6 +109,7 @@ public static unsafe partial class SystemTrayOverflow
     public static bool ActivateItem(TrayItem item,bool contextMenu=false,POINT? anchor=null)
     {
         using var presentation=new TrayPresentationScope();
+        using var menuAnchor=contextMenu&&!string.IsNullOrWhiteSpace(item.Executable)?new TrayContextMenuAnchor(anchor??CursorPoint(),item.Executable):null;
         int initialized=CoInitializeEx(IntPtr.Zero,0);bool opened=false;
         IntPtr repositioned=IntPtr.Zero;RECT savedPosition=default;
         NativeMethods.GetCursorPos(out var contextPoint);
@@ -133,6 +137,7 @@ public static unsafe partial class SystemTrayOverflow
                     IntPtr site=hwnd;
                     var info=new GuiThreadInfo {Size=Marshal.SizeOf<GuiThreadInfo>()};uint thread=NativeMethods.GetWindowThreadProcessId(hwnd,out _);
                     if(GetGUIThreadInfo(thread,ref info)&&info.Focus!=IntPtr.Zero)site=info.Focus;
+                    menuAnchor?.Arm();
                     PostMessage(site,0x100,new IntPtr(0x5D),IntPtr.Zero);PostMessage(site,0x101,new IntPtr(0x5D),IntPtr.Zero);
                     invoked=true;return true;
                 }
@@ -142,7 +147,7 @@ public static unsafe partial class SystemTrayOverflow
                 return true;
             });
             // Context menus are Explorer-owned and need its source alive until the message is handled.
-            if(contextMenu&&invoked)Thread.Sleep(120);
+            if(contextMenu&&invoked){if(menuAnchor is not null)menuAnchor.WaitForMenu();else Thread.Sleep(120);}
             return invoked;
         }
         finally
@@ -152,4 +157,5 @@ public static unsafe partial class SystemTrayOverflow
             if(initialized>=0)CoUninitialize();
         }
     }
+    private static POINT CursorPoint(){NativeMethods.GetCursorPos(out var point);return point;}
 }

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.5
+
+- Anchor the actual native notification context menu to the clicked custom-tray icon. Applications such as Wallpaper Engine can ignore Explorer's source coordinates; correcting only that source rectangle does not position their menu.
+- Match new root menus to the notification application's executable, keep them inside the anchor monitor's work area, and leave submenus/unrelated menus alone. The event hooks and fallback discovery exist only during that context action.
+- Retain tray executable metadata even when Explorer provides no icon image. Verify actual popup bounds and real command clicks using a notification app that deliberately opens its menu at (0, 0), plus an opt-in check with an existing Wallpaper Engine instance.
+
 ## 1.4.4
 
 - Refresh the visible input-language indicator every 75 ms. Resolve the application's focused input site and close the language menu immediately before requesting a layout, so delayed dismissal cannot steal focus back.
