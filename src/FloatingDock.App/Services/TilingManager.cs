@@ -21,7 +21,7 @@ internal sealed class TilingManager : IDisposable
     private readonly Dictionary<long,TileMotion> _moves=new();
     private readonly WindowArrivalGate _arrivals=new();
     private sealed record HeldWindow(WindowInfo Info,WindowOpacityLease Lease,double Started,bool Returning=false);
-    private sealed class Presentation(WindowTransitionSurface surface,TileRect from,TileRect target,double now,int duration,bool hiding,byte opacity=255)
+    private sealed class Presentation(WindowTransitionSurface surface,TileRect from,TileRect target,double now,int duration,bool hiding,byte opacity=255,bool gentleStart=false)
     {
         public readonly WindowTransitionSurface Surface=surface;
         public readonly TileRect From=from,Target=target;
@@ -30,11 +30,13 @@ internal sealed class TilingManager : IDisposable
         public readonly int Duration=duration;
         public readonly bool Hiding=hiding;
         public readonly byte FromOpacity=opacity;
+        public readonly bool GentleStart=gentleStart;
         public bool Placed=hiding;
     }
     private readonly Dictionary<long,HeldWindow> _held=new();
     private readonly Dictionary<long,Presentation> _presentations=new();
     private readonly Dictionary<long,TileRect> _normalBounds=new();
+    private readonly HashSet<long> _minimized=new();
     private NativeTilingSession? _session;
     private DockSettings _settings=new();
     private bool _paused,_disposed,_primed,_bindingsRegistered;
@@ -60,26 +62,38 @@ internal sealed class TilingManager : IDisposable
     private void OnWindows(IReadOnlyList<WindowInfo> windows,long foreground)
     {
         foreach(var window in windows)
-            if(!NativeMethods.IsIconic(new(window.Hwnd))&&!_presentations.ContainsKey(window.Hwnd)&&NativeMethods.GetWindowRect(new(window.Hwnd),out var r))
+            if(!window.IsMinimized&&!NativeMethods.IsIconic(new(window.Hwnd))&&!_presentations.ContainsKey(window.Hwnd)&&NativeMethods.GetWindowRect(new(window.Hwnd),out var r))
+            {
+                _minimized.Remove(window.Hwnd);
                 _normalBounds[window.Hwnd]=new(r.Left,r.Top,r.Width,r.Height);
+            }
         if(_session is not null)Schedule();
     }
     private void Schedule(){if(!_settle.IsRunning&&!_disposed)_settle.Start();}
     private void OnNative(WindowEventKind kind,IntPtr hwnd)
     {
         long window=hwnd.ToInt64();
-        if(kind==WindowEventKind.Destroyed){_normalBounds.Remove(window);ReleasePresentation(window);if(_held.Remove(window,out var held))held.Lease.Dispose();_arrivals.Forget(window);if(_session?.Forget(window)==true)Schedule();return;}
-        if(kind==WindowEventKind.LocationChanged&&_normalBounds.ContainsKey(window)&&!_presentations.ContainsKey(window)&&!NativeMethods.IsIconic(hwnd)&&NativeMethods.GetWindowRect(hwnd,out var bounds))
+        if(kind==WindowEventKind.Destroyed){_minimized.Remove(window);_normalBounds.Remove(window);ReleasePresentation(window);if(_held.Remove(window,out var held))held.Lease.Dispose();_arrivals.Forget(window);if(_session?.Forget(window)==true)Schedule();return;}
+        if(kind==WindowEventKind.LocationChanged&&_normalBounds.ContainsKey(window)&&!_minimized.Contains(window)&&!_presentations.ContainsKey(window)&&!NativeMethods.IsIconic(hwnd)&&NativeMethods.GetWindowRect(hwnd,out var bounds))
             _normalBounds[window]=new(bounds.Left,bounds.Top,bounds.Width,bounds.Height);
         if(kind==WindowEventKind.MinimizeStart)
         {
-            if(_presentations.TryGetValue(window,out var existing)&&existing.Hiding){_session?.ObserveNativeMinimize(window);return;}
             bool managed=_session?.IsManaged(window)==true;
+            if(!managed&&!_normalBounds.ContainsKey(window))return;
+            // A native acknowledgement can arrive after the compositor surface
+            // has already finished. One minimization lasts until actual restore,
+            // not merely until its short-lived presentation is disposed.
+            if(!_minimized.Add(window)){_session?.ObserveNativeMinimize(window);return;}
+            if(_presentations.TryGetValue(window,out var existing)&&existing.Hiding){_session?.ObserveNativeMinimize(window);return;}
             if(managed?_session!.ObserveNativeMinimize(window):_normalBounds.ContainsKey(window))TransitionVisibility(window,false,()=>{},_settings.IconAnimation?_settings.IconAnimationMs:0);
             if(managed){AnimateLayout();Schedule();}
             return;
         }
-        if(kind==WindowEventKind.MinimizeEnd&&_presentations.TryGetValue(window,out var hiding)&&hiding.Hiding)ReleasePresentation(window);
+        if(kind==WindowEventKind.MinimizeEnd&&!NativeMethods.IsIconic(hwnd))
+        {
+            _minimized.Remove(window);
+            if(_presentations.TryGetValue(window,out var hiding)&&hiding.Hiding)ReleasePresentation(window);
+        }
         if(_session is null)return;
         if(kind==WindowEventKind.MinimizeEnd&&_session.IsUserMinimized(window)&&!_held.ContainsKey(window)&&WindowOpacityLease.TryAcquire(hwnd) is { } returning)
             _held[window]=new(WindowIdentityResolver.ResolveBasic(hwnd),returning,Now,true);
@@ -103,7 +117,7 @@ internal sealed class TilingManager : IDisposable
         bool bindingsChanged=_settings.TilingEnabled!=settings.TilingEnabled||!TilingShortcuts.Definitions(_settings).Select(d=>TilingShortcuts.Effective(_settings,d)).SequenceEqual(TilingShortcuts.Definitions(settings).Select(d=>TilingShortcuts.Effective(settings,d)));
         bool optionsChanged=bindingsChanged||_settings.TilingGap!=settings.TilingGap||_settings.TilingOuterGap!=settings.TilingOuterGap||_settings.TilingExcludedApps!=settings.TilingExcludedApps;
         _settings=settings.Clone();
-        _animation.SetFrameRate(settings.TilingAnimationFps);
+        _animation.SetFrameRate(settings.TilingEnabled&&!_paused?settings.TilingAnimationFps:settings.AnimationFps);
         if(!settings.TilingEnabled){StopSession();Unregister();_paused=false;StateChanged?.Invoke();return;}
         if(bindingsChanged||!_bindingsRegistered)
         {
@@ -209,7 +223,7 @@ internal sealed class TilingManager : IDisposable
     }
     private TileRect DockOrigin(long id,TileRect fallback)
     {
-        if(_app.Dock.AnimationRectFor(new(id)) is { } r)return new(r.Left,r.Top,Math.Max(1,r.Width),Math.Max(1,r.Height));
+        if(_app.Dock.CurrentAnimationRectFor(new(id)) is { } r)return new(r.Left,r.Top,Math.Max(1,r.Width),Math.Max(1,r.Height));
         var mon=FloatingDock.Windows.Display.MonitorHelper.Describe(NativeMethods.MonitorFromWindow(new(id),NativeMethods.MONITOR_DEFAULTTONEAREST));
         return mon is null?fallback with{Width=32,Height=32}:new(mon.Bounds.Left+mon.Bounds.Width/2-16,mon.Bounds.Bottom-40,32,32);
     }
@@ -223,6 +237,7 @@ internal sealed class TilingManager : IDisposable
         if(NativeMethods.IsIconic(new(id)))from=_session?.LastPlacement(id)??_normalBounds.GetValueOrDefault(id,from);
         else _normalBounds[id]=from;
         int duration=Views.SurfaceMotion.Enabled?animationMs??_settings.TilingAnimationMs:0;
+        if(_session is null)_animation.SetFrameRate(_settings.AnimationFps);
         if(!visible&&duration>0&&_session is not null)duration=Math.Max(duration,_settings.IconAnimationMs);
         if(visible)
         {
@@ -245,7 +260,7 @@ internal sealed class TilingManager : IDisposable
         if(duration==0)previous?.Surface.Dispose();
         // Minimize immediately under the representation. This keeps workspace
         // state synchronous and prevents late native animations to the taskbar.
-        if(surface is not null)_presentations[id]=new(surface,from,to,Now,duration,true,surface.Opacity);
+        if(surface is not null)_presentations[id]=new(surface,from,to,Now,duration,true,surface.Opacity,gentleStart:_session is null);
         nativeVisibility();if(surface is not null&&!_animation.IsRunning)_animation.Start();
     }
     internal void PrepareActivation(IReadOnlyList<WindowInfo> windows)
@@ -254,6 +269,7 @@ internal sealed class TilingManager : IDisposable
     {
         long id=hwnd.ToInt64();
         if(NativeMethods.IsIconic(hwnd))return false;
+        if(!_minimized.Add(id))return true;
         if(_session?.IsManaged(id)==true)_session.ObserveNativeMinimize(id);
         TransitionVisibility(id,false,()=>NativeMethods.ShowWindowAsync(hwnd,NativeMethods.SW_MINIMIZE),_settings.IconAnimation?_settings.IconAnimationMs:0);
         if(_session is not null){AnimateLayout();Schedule();}
@@ -336,7 +352,7 @@ internal sealed class TilingManager : IDisposable
             double t=Math.Clamp((now-p.Started)/Math.Max(1,p.Duration),0,1),ease=t*t*t*(10+t*(-15+6*t));
             int Mix(int a,int b)=>(int)Math.Round(a+(b-a)*ease);
             var bounds=new TileRect(Mix(p.From.X,p.Target.X),Mix(p.From.Y,p.Target.Y),Math.Max(1,Mix(p.From.Width,p.Target.Width)),Math.Max(1,Mix(p.From.Height,p.Target.Height)));
-            if(p.Hiding)bounds=TileMinimizeMotion.Sample(p.From,p.Target,t);
+            if(p.Hiding)bounds=TileMinimizeMotion.Sample(p.From,p.Target,t,p.GentleStart);
             double fade=Math.Clamp((t-.82)/.18,0,1);fade=fade*fade*(3-2*fade);
             byte alpha=(byte)Math.Clamp(p.Hiding?Math.Round(p.FromOpacity*(1-fade)):Math.Round(p.FromOpacity+(255-p.FromOpacity)*ease),0,255);
             if(!p.Surface.Update(bounds,alpha)||t>=1&&(p.Hiding||atTarget))ReleasePresentation(id);

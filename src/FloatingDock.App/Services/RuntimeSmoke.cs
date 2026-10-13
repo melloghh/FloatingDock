@@ -28,6 +28,8 @@ internal static partial class RuntimeSmoke
         string? error = null;
         try
         {
+            if(Environment.GetCommandLineArgs().Contains("--test-only-ui143"))
+            {await CheckUi143Async(app,checks);Check(Program.UiFailureCount==0,"XAML failure in untiled minimize checks.");success=true;return;}
             if(Environment.GetCommandLineArgs().Contains("--test-only-ui142"))
             {await CheckUi140Async(app,checks);await CheckUi141Async(app,checks);if(Environment.GetCommandLineArgs().Contains("--test-real-apps142"))await CheckRealApps142Async(app,checks);Check(Program.UiFailureCount==0,"XAML failure in capture/minimum/aspect checks.");success=true;return;}
             if(Environment.GetCommandLineArgs().Contains("--test-only-ui141"))

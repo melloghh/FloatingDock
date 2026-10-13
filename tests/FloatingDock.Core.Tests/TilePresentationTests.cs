@@ -4,6 +4,19 @@ using Xunit;
 namespace FloatingDock.Core.Tests;
 public sealed class TilePresentationTests
 {
+    [Fact] public void UntiledMotionStartsGentlyAndOnlyShrinksTowardsTheIcon()
+    {
+        var from=new TileRect(1500,80,960,600);var dock=new TileRect(20,600,40,40);
+        var first=TileMinimizeMotion.Sample(from,dock,.01,true);
+        Assert.InRange(Math.Abs(first.CenterX-from.CenterX),0,2);
+        int width=from.Width,height=from.Height;
+        for(int i=1;i<=100;i++)
+        {
+            var r=TileMinimizeMotion.Sample(from,dock,i/100d,true);
+            Assert.True(r.Width<=width&&r.Height<=height);width=r.Width;height=r.Height;
+        }
+        Assert.Equal(TileMinimizeMotion.FitAtDock(from,dock),TileMinimizeMotion.Sample(from,dock,1,true));
+    }
     [Fact] public void UnknownBrowserAndTallPlayerReflowWithoutASliver()
     {
         var tree=new TileTree();var bounds=new TileRect(0,0,1920,1048);

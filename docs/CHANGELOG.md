@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.3
+
+- Keep a minimize cycle active until the window actually restores. Late duplicate native acknowledgements no longer start another compositor image after the first one disappears; late restore acknowledgements do not cancel a currently minimized image.
+- Use the dock FPS and a gentle starting curve for untiled minimization. Ignore minimize-time geometry changes and target the current dock icon instead of a cached earlier click position.
+- Add untiled titlebar/dock-command cycles, delayed native event replay, post-animation rendered-pixel checks and rapid restore checks.
+
 ## 1.4.2
 
 - Keep the dock, menu bar and custom tray visible and stationary during screenshot selection. Freeze hover/autohide and topmost reassertion while capture owns input; continue passing screenshot shortcuts to Windows.

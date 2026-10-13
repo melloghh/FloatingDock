@@ -69,11 +69,15 @@ internal sealed class DockHost : IDisposable
     }
 
     internal FloatingDock.Windows.Native.RECT? AnimationRectFor(IntPtr hwnd)
+        =>AnimationRectFor(hwnd,useRemembered:true);
+    internal FloatingDock.Windows.Native.RECT? CurrentAnimationRectFor(IntPtr hwnd)
+        =>AnimationRectFor(hwnd,useRemembered:false);
+    private FloatingDock.Windows.Native.RECT? AnimationRectFor(IntPtr hwnd,bool useRemembered)
     {
         if (_disposed) return null;
         var root = FloatingDock.Windows.Native.NativeMethods.GetAncestor(hwnd, FloatingDock.Windows.Native.NativeMethods.GA_ROOTOWNER);
         long id = (root == IntPtr.Zero ? hwnd : root).ToInt64();
-        if (_animationOrigins.TryGetValue(id, out var origin))
+        if (useRemembered&&_animationOrigins.TryGetValue(id, out var origin))
         {
             if (System.Diagnostics.Stopwatch.GetTimestamp() <= origin.Until && WindowActivator.IsLive(origin.Window)) return origin.Rect;
             _animationOrigins.Remove(id);

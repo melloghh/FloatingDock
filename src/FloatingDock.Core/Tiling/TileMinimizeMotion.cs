@@ -9,11 +9,11 @@ public static class TileMinimizeMotion
         int width=Math.Max(1,(int)Math.Round(window.Width*scale)),height=Math.Max(1,(int)Math.Round(window.Height*scale));
         return new((int)Math.Round(dock.CenterX-width/2d),(int)Math.Round(dock.CenterY-height/2d),width,height);
     }
-    public static TileRect Sample(TileRect from,TileRect dock,double progress)
+    public static TileRect Sample(TileRect from,TileRect dock,double progress,bool gentleStart=false)
     {
         double t=Math.Clamp(progress,0,1);if(t==0)return from;
         var end=FitAtDock(from,dock);if(t==1)return end;
-        double ease=t*t*(3-2*t),travel=1-Math.Pow(1-t,3);
+        double ease=t*t*(3-2*t),travel=gentleStart?1-Math.Pow(1-ease,1.5):1-Math.Pow(1-t,3);
         bool horizontal=Math.Abs(dock.CenterX-from.CenterX)>Math.Abs(dock.CenterY-from.CenterY);
         double x=from.CenterX+(dock.CenterX-from.CenterX)*(horizontal?travel:ease);
         double y=from.CenterY+(dock.CenterY-from.CenterY)*(horizontal?ease:travel);
