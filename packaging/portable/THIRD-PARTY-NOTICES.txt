@@ -1,0 +1,12 @@
+FloatingDock is licensed under MIT. See LICENSE.txt.
+
+This self-contained distribution includes Microsoft .NET and Windows App SDK
+components. Their publisher-provided license terms and notices are included in
+the Licenses directory. These dependencies retain their own licenses.
+
+Win2D (Microsoft.Graphics.Win2D) is provided by Microsoft Corporation.
+Project and licensing information: https://github.com/microsoft/Win2D
+Package metadata: https://www.nuget.org/packages/Microsoft.Graphics.Win2D
+
+No user icon packs, saved profiles, private logs or local desktop captures are
+included. Application names and third-party icons belong to their owners.

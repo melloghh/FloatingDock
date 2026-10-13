@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.5.0
+
+- Publish the dock, Launchpad, search, animated menu bar and built-in tiling as a stable Windows x64 release, incorporating the 1.4.x desktop fixes.
+- Update English/Russian getting-started documentation and tiling behavior; add a structured bug-report form.
+- Package application and dependency license notices, verify clean self-contained downloads, and add English/Russian installer languages and support links.
+- Build, test, check package hashes and publish Setup/Portable automatically for matching version tags through GitHub Actions.
+
 ## 1.4.12
 
 - Reuse the source opacity lease acquired before dock restore. Keep browser composition stable instead of removing and immediately readding the layered style during workspace preparation.

@@ -8,12 +8,12 @@ FloatingDock brings a compact desktop interface to Windows: animated icon magnif
 ## Features
 
 - **A dock that fits your desktop.** Place it at the bottom, left or right; adjust icon size, spacing, alignment and edge distance.
-- **Smooth interaction.** Animated magnification, app indicators, reordering, appearance and dismissal. Fullscreen video and screen-capture overlays suppress the panels.
+- **Smooth interaction.** Animated magnification, app indicators, reordering, appearance and dismissal. Fullscreen video hides the panels; screen capture keeps them available.
 - **Pinned and running apps.** Launch, switch and minimize applications from one place. Steam helper windows are grouped with the main client.
 - **Live previews.** Hover after a configurable delay, click a thumbnail to open its window, or use its close button. Closing fades the preview before sending a normal window-close request.
 - **Launchpad.** Windows Start pins and apps you add with the + button or by dropping a shortcut. Three built-in launcher icon styles.
 - **A rounded menu bar.** Active application, network, volume, input language, battery when available, clock and calendar. Media playback controls, a FloatingDock menu of real Windows notification icons and search. Configurable auto-hide FPS, timing and work-area reservation.
-- **Search palette.** `Ctrl+Alt+K` searches apps and familiar personal file types in Desktop and Downloads. A bounded 30-second filename cache avoids scanning on every keystroke; Documents and build noise are excluded. Configure scopes and depth in Settings → Search.
+- **Search palette.** `Ctrl+Alt+K` searches apps and familiar personal file types in Desktop and Downloads. An empty query starts blank and later suggests apps frequently opened through search. Windows system clutter is filtered. A bounded 30-second filename cache avoids scanning on every keystroke; Documents and build noise are excluded. Configure scopes and depth in Settings → Search.
 - **Built-in tiling.** Opt-in split layouts, workspaces per monitor, directional focus/move/resize, editable bindings, focus borders, dock concealment, finite animations and position restoration. Configure Settings → Tiling manager; see [controls and limits](docs/TILING.md). No separate window manager is required.
 - **Interface language.** English by default; switch to Russian in Settings → Appearance.
 - **Your own icons.** PNG/ICO overrides and imported ZIP packs shared by the dock and Launchpad. Decorative icon packs are not bundled.
@@ -26,10 +26,12 @@ Get the latest Windows x64 build from [Releases](https://github.com/melloghh/Flo
 
 | Package | How to use it |
 |---|---|
-| `FloatingDock-Setup-x64.exe` | Install for the current user. Desktop shortcut and startup options are available. |
-| `FloatingDock-Portable-x64.zip` | Extract the **entire archive**, then run `FloatingDock.exe`. Keep the EXE with its DLLs and resources. |
+| [FloatingDock-Setup-x64.exe](https://github.com/melloghh/FloatingDock/releases/latest/download/FloatingDock-Setup-x64.exe) | Install for the current user. Desktop shortcut and startup options are available. |
+| [FloatingDock-Portable-x64.zip](https://github.com/melloghh/FloatingDock/releases/latest/download/FloatingDock-Portable-x64.zip) | Extract the **entire archive**, then run `FloatingDock.exe`. Keep the EXE with its DLLs and resources. |
 
 Release builds include .NET and Windows App SDK runtimes. No separate runtime installation is required. Windows x64 is required; the project targets Windows 10 1809 and later and is tested locally on Windows 11. Builds are currently unsigned, so Windows may show a SmartScreen prompt.
+
+Open Settings from the top-bar gear. Tiling is **off by default**; enable it in Tiling manager when you want automatic window placement. Two visible tiled windows use left/right columns, equally sized when their native minimum sizes allow it. The release includes `SHA256SUMS.txt` for checking downloads and license notices for bundled components.
 
 ## Quick controls
 
@@ -53,7 +55,7 @@ If FloatingDock was forcibly terminated and the taskbar remains hidden, use the 
 .\FloatingDock.exe --restore-taskbar
 ```
 
-Do not delete `taskbar-state.json` until restoration succeeds. The **Hide completely** mode hides the original taskbar. The top-bar chevron opens Explorer’s real hidden-icons popup on supported shell versions; choose **Leave** to retain the original taskbar. Media transport controls require an application that exposes a Windows media session.
+Do not delete `taskbar-state.json` until restoration succeeds. The **Hide completely** mode hides the original taskbar. The top-bar chevron opens FloatingDock's menu of Windows notification icons; choose **Leave** to retain the original taskbar. Media transport controls require an application that exposes a Windows media session.
 
 Wi-Fi scanning follows Windows permissions. Windows may require location access to list nearby wireless networks; FloatingDock does not bypass that restriction.
 
@@ -72,7 +74,7 @@ dotnet test FloatingDock.sln -c Release -p:Platform=x64 --no-build
 
 Output is written to `artifacts/`. Omit `-Installer` if you only need the portable build. The packaging script checks the published runtime and resources and generates SHA-256 checksums. `-SmokeTest` adds a desktop runtime check and requires an interactive Windows session.
 
-GitHub Actions builds and tests the Windows x64 project and uploads the portable and installer packages as workflow artifacts. Desktop-only UI tests run separately; a CI build alone does not verify fullscreen or pointer interactions.
+GitHub Actions builds and tests the Windows x64 project and uploads the portable and installer packages as workflow artifacts. Matching version tags also verify hashes and publish a GitHub release. Desktop-only UI tests run separately; a CI build alone does not verify fullscreen or pointer interactions.
 
 ## Project layout
 
@@ -86,9 +88,11 @@ GitHub Actions builds and tests the Windows x64 project and uploads the portable
 
 See [Architecture](docs/ARCHITECTURE.md), [Icon-pack format](docs/ICON-PACKS.md) and [Changelog](docs/CHANGELOG.md).
 
-Version **1.2.0** includes the 1.0.17–1.0.19 geometry and backdrop fixes. Local desktop suites cover previews, menu lifetime, language changes, Launchpad, media commands, search cancellation, owned-window tiling and prior dock/fullscreen behavior. File search caches personal filenames; bounded snapshots may return partial results. Tray compatibility depends on Explorer accessibility and Windows icon snapshots, which may lag a state change. Testing across multiple physical monitors and DPI combinations is limited. Launchpad has no folders or pages.
+Version **1.5.0** includes the 1.4.x fixes for workspace restoration, browser activation, menu animation, search toggling and tray positioning. Local desktop suites cover previews, language changes, Launchpad, search cancellation, owned-window tiling and actual Zen restoration. File search caches personal filenames; bounded snapshots may return partial results. Tray compatibility depends on Explorer accessibility and Windows icon snapshots, which may lag a state change. Testing across multiple physical monitors and DPI combinations is limited. Launchpad has no folders or pages.
 
 For built-in window management, see [tiling controls and limits](docs/TILING.md).
+
+Report reproducible problems through [GitHub Issues](https://github.com/melloghh/FloatingDock/issues/new/choose), including the app version, Windows version, display scaling and steps to reproduce.
 
 ## License and credits
 

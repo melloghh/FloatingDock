@@ -37,6 +37,7 @@ dotnet publish src/FloatingDock.App -c $Configuration -r $Runtime --self-contain
 if ($LASTEXITCODE) { throw 'Publish failed' }
 
 Get-ChildItem -LiteralPath $out -Recurse -File -Filter '*.pdb' | Remove-Item -Force
+& (Join-Path $PSScriptRoot 'include-licenses.ps1') -Directory $out
 & (Join-Path $PSScriptRoot 'verify-publish.ps1') -Directory $out
 
 # ---- portable extras

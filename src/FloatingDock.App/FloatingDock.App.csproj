@@ -31,7 +31,7 @@
     <PublishTrimmed>false</PublishTrimmed>
     <DebugType>none</DebugType>
     <DebugSymbols>false</DebugSymbols>
-    <Description>Floating macOS-style dock, Launchpad and icon packs for Windows</Description>
+    <Description>Floating dock, Launchpad, search and window tiling for Windows</Description>
   </PropertyGroup>
 
   <!-- On Windows: fully self-contained (no Windows App Runtime install needed). The Linux cross-build used for CI-less

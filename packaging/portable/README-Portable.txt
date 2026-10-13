@@ -12,3 +12,9 @@ this folder to update or remove the program without losing your settings.
 
 If FloatingDock ever leaves the Windows taskbar hidden (crash, killed process), run Restore-Windows-Taskbar.cmd,
 or press Ctrl+Alt+Shift+T while FloatingDock is running. The next start of FloatingDock also restores it automatically.
+
+Built-in tiling is off by default; enable Settings > Tiling manager to arrange windows automatically.
+Two visible tiles use left/right columns. More windows divide those tiles.
+Search starts blank, then suggests apps frequently opened through it.
+License terms for FloatingDock and bundled components are in LICENSE.txt and Licenses/.
+Support and downloads: https://github.com/melloghh/FloatingDock

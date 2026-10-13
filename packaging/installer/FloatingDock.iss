@@ -1,9 +1,9 @@
 ; Inno Setup 6 script for FloatingDock.
-;   ISCC /DAppVersion=1.4.12 /DSourceDir=..\..\artifacts\FloatingDock /O..\..\artifacts FloatingDock.iss
+;   ISCC /DAppVersion=1.5.0 /DSourceDir=..\..\artifacts\FloatingDock /O..\..\artifacts FloatingDock.iss
 ; Produces FloatingDock-Setup-x64.exe. Everything the app needs is inside the installer (self-contained .NET runtime + self-contained Windows App SDK):
 ; nothing is downloaded during installation, no admin rights are required (per-user by default).
 #ifndef AppVersion
-  #define AppVersion "1.4.12"
+  #define AppVersion "1.5.0"
 #endif
 #ifndef SourceDir
   #define SourceDir "..\..\artifacts\FloatingDock"
@@ -16,6 +16,9 @@ AppName=FloatingDock
 AppVersion={#AppVersion}
 AppVerName=FloatingDock {#AppVersion}
 AppPublisher=Mello
+AppPublisherURL=https://github.com/melloghh/FloatingDock
+AppSupportURL=https://github.com/melloghh/FloatingDock/issues
+AppUpdatesURL=https://github.com/melloghh/FloatingDock/releases/latest
 VersionInfoVersion={#AppVersion}
 DefaultDirName={autopf}\FloatingDock
 UsePreviousAppDir=yes
@@ -34,6 +37,10 @@ SetupIconFile=..\..\src\FloatingDock.App\Assets\AppIcon.ico
 CloseApplications=yes
 RestartApplications=no
 MinVersion=10.0.17763
+
+[Languages]
+Name: "english"; MessagesFile: "compiler:Default.isl"
+Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; Flags: unchecked
