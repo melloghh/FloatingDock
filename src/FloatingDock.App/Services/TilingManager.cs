@@ -21,7 +21,7 @@ internal sealed class TilingManager : IDisposable
     private readonly Dictionary<long,TileMotion> _moves=new();
     private readonly WindowArrivalGate _arrivals=new();
     private sealed record HeldWindow(WindowInfo Info,WindowOpacityLease Lease,double Started,bool Returning=false);
-    private sealed class Presentation(WindowTransitionSurface surface,TileRect from,TileRect target,double now,int duration,bool hiding,byte opacity=255,bool gentleStart=false,TileMotionSample? momentum=null)
+    private sealed class Presentation(WindowTransitionSurface surface,TileRect from,TileRect target,double now,int duration,bool hiding,byte opacity=255,bool gentleStart=false,TileMotionSample? momentum=null,bool dockMotion=false)
     {
         public readonly WindowTransitionSurface Surface=surface;
         public readonly TileRect From=from,Target=target;
@@ -31,6 +31,7 @@ internal sealed class TilingManager : IDisposable
         public readonly bool Hiding=hiding;
         public readonly byte FromOpacity=opacity;
         public readonly bool GentleStart=gentleStart;
+        public readonly bool DockMotion=dockMotion;
         public bool Placed=hiding;
         public TileMotion Motion=new(from,target,now,duration,momentum?.VelocityX??0,momentum?.VelocityY??0,interpolateSize:true,velocityWidth:momentum?.VelocityWidth??0,velocityHeight:momentum?.VelocityHeight??0);
         public void Begin(double now)
@@ -96,7 +97,8 @@ internal sealed class TilingManager : IDisposable
         if(kind==WindowEventKind.MinimizeEnd&&!NativeMethods.IsIconic(hwnd))
         {
             _minimized.Remove(window);
-            if(_presentations.TryGetValue(window,out var hiding)&&hiding.Hiding)ReleasePresentation(window);
+            if(_session?.IsManaged(window)==true)PrepareDockRestore(window);
+            else if(_presentations.TryGetValue(window,out var hiding)&&hiding.Hiding)ReleasePresentation(window);
         }
         if(_session is null)return;
         if(kind==WindowEventKind.MinimizeEnd&&_session.IsUserMinimized(window)&&!_held.ContainsKey(window)&&WindowOpacityLease.TryAcquire(hwnd) is { } returning)
@@ -236,6 +238,19 @@ internal sealed class TilingManager : IDisposable
     }
     private void ReleasePresentation(long id)
     {if(_presentations.Remove(id,out var p))p.Surface.Dispose();}
+    private int DockDuration(bool restoring)=>Views.SurfaceMotion.Enabled?
+        Math.Clamp((int)(Math.Max(_settings.TilingAnimationMs,_settings.IconAnimationMs)*(restoring?1.4:1.25)),180,700):0;
+    private void PrepareDockRestore(long id)
+    {
+        if(_session is null||!_session.IsManaged(id))return;
+        if(_presentations.TryGetValue(id,out var existing)&&!existing.Hiding)return;
+        if(!_session.IsUserMinimized(id)&&!_minimized.Contains(id)&&existing is null)return;
+        if(existing is null&&!_held.ContainsKey(id)&&WindowOpacityLease.TryAcquire(new(id)) is { } lease)
+            _held[id]=new(WindowIdentityResolver.ResolveBasic(new(id)),lease,Now,true);
+        _minimized.Remove(id);
+        if(existing is {Hiding:true})TransitionVisibility(id,true,()=>{},DockDuration(true));
+        Schedule();
+    }
     private void TransitionVisibility(long id,bool visible,Action nativeVisibility,int? animationMs=null)
     {
         _moves.Remove(id);
@@ -245,14 +260,14 @@ internal sealed class TilingManager : IDisposable
         else _normalBounds[id]=from;
         int duration=Views.SurfaceMotion.Enabled?animationMs??_settings.TilingAnimationMs:0;
         if(_session is null)_animation.SetFrameRate(_settings.AnimationFps);
-        if(!visible&&duration>0&&_session is not null)duration=Math.Max(duration,_settings.IconAnimationMs);
+        if(!visible&&duration>0&&_session is not null)duration=DockDuration(false);
         if(visible)
         {
             // Keep the source invisible through SW_SHOWNA and final placement.
             if(_presentations.TryGetValue(id,out var reversing))
             {
                 var target=_session!.Targets().GetValueOrDefault(id,reversing.From);
-                _presentations[id]=new(reversing.Surface,reversing.Surface.Bounds,target,Now,duration,false,reversing.Surface.Opacity);
+                _presentations[id]=new(reversing.Surface,reversing.Surface.Bounds,target,Now,DockDuration(true),false,reversing.Surface.Opacity,dockMotion:true);
                 nativeVisibility();_session.Move(id,target);Schedule();return;
             }
             if(_held.Remove(id,out var old))old.Lease.Dispose();
@@ -267,11 +282,11 @@ internal sealed class TilingManager : IDisposable
         if(duration==0)previous?.Surface.Dispose();
         // Minimize immediately under the representation. This keeps workspace
         // state synchronous and prevents late native animations to the taskbar.
-        if(surface is not null)_presentations[id]=new(surface,from,to,Now,duration,true,surface.Opacity,gentleStart:_session is null);
+        if(surface is not null)_presentations[id]=new(surface,from,to,Now,duration,true,surface.Opacity,gentleStart:_session is null,dockMotion:_session is not null);
         nativeVisibility();if(surface is not null&&!_animation.IsRunning)_animation.Start();
     }
     internal void PrepareActivation(IReadOnlyList<WindowInfo> windows)
-    {if(_session is null)return;bool changed=false;foreach(var window in windows)if(_session.IsManaged(window.Hwnd))changed|=_session.ActivateWindow(window.Hwnd);if(changed){AnimateLayout();StateChanged?.Invoke();}}
+    {if(_session is null)return;bool changed=false;foreach(var window in windows)if(_session.IsManaged(window.Hwnd)){if(NativeMethods.IsIconic(new(window.Hwnd)))PrepareDockRestore(window.Hwnd);changed|=_session.ActivateWindow(window.Hwnd);}if(changed){AnimateLayout();StateChanged?.Invoke();}}
     internal bool MinimizeToDock(IntPtr hwnd)
     {
         long id=hwnd.ToInt64();
@@ -293,6 +308,8 @@ internal sealed class TilingManager : IDisposable
         foreach(var id in _moves.Keys.ToArray())
             if(!targets.ContainsKey(id)||_dragging.Contains(id))_moves.Remove(id);
         int duration=Views.SurfaceMotion.Enabled?_settings.TilingAnimationMs:0;
+        if(duration>0&&(_presentations.Values.Any(p=>p.DockMotion)||_held.Values.Any(h=>h.Returning)))
+            duration=Math.Max(duration,DockDuration(true));
         foreach(var (id,target) in targets)
         {
             // Metadata/focus bursts must not restart an unchanged transition.
@@ -306,11 +323,12 @@ internal sealed class TilingManager : IDisposable
             TileMotionSample? sample=showing is {Hiding:false,Placed:true}?showing.Motion.Sample(Now):pending?.Sample(Now);if(pending is not null&&sample is { } ongoing)from=new(ongoing.Bounds.X,ongoing.Bounds.Y,from.Width,from.Height);
             _moves.Remove(id);
             bool opening=_held.TryGetValue(id,out var held)||!_session.HasBeenPlaced(id);
+            bool dockReveal=held?.Returning==true||showing is {Hiding:false,DockMotion:true};
             if(from==target&&!opening)continue;
             if(duration==0)
             {_session.Move(id,target);ReleasePresentation(id);if(_held.Remove(id,out var immediate))immediate.Lease.Dispose();continue;}
             WindowTransitionSurface? surface=showing?.Surface;
-            byte opacity=showing?.Surface.Opacity??(opening?(byte)0:(byte)255);
+            byte opacity=showing?.Surface.Opacity??(dockReveal?(byte)255:opening?(byte)0:(byte)255);
             if(showing is not null)_presentations.Remove(id);
             if(opening)from=held?.Returning==true?TileMinimizeMotion.FitAtDock(target,DockOrigin(id,target)):new(target.X+target.Width/100,target.Y+target.Height/100,Math.Max(1,target.Width*98/100),Math.Max(1,target.Height*98/100));
             surface??=WindowTransitionSurface.TryCreate(new(id),from,target,held?.Lease);
@@ -318,7 +336,7 @@ internal sealed class TilingManager : IDisposable
             {
                 _held.Remove(id);surface.Update(from,opacity);
                 _session.Move(id,target);
-                _presentations[id]=new(surface,from,target,Now,duration,false,opacity,momentum:sample);continue;
+                _presentations[id]=new(surface,from,target,Now,dockReveal?DockDuration(true):duration,false,opacity,momentum:sample,dockMotion:dockReveal||showing?.DockMotion==true);continue;
             }
             if(_held.Remove(id,out var failed))failed.Lease.Dispose();
             // Unsupported layered-window owners keep the native motion fallback.
@@ -358,9 +376,11 @@ internal sealed class TilingManager : IDisposable
             }
             double t=Math.Clamp((now-p.Started)/Math.Max(1,p.Duration),0,1),ease=t*t*t*(10+t*(-15+6*t));
             var bounds=p.Motion.Sample(now).Bounds;
-            if(p.Hiding)bounds=TileMinimizeMotion.Sample(p.From,p.Target,t,p.GentleStart);
+            if(p.DockMotion)bounds=TileDockMotion.Sample(p.From,p.Hiding?TileMinimizeMotion.FitAtDock(p.From,p.Target):p.Target,t,!p.Hiding);
+            else if(p.Hiding)bounds=TileMinimizeMotion.Sample(p.From,p.Target,t,p.GentleStart);
             double fade=Math.Clamp((t-.82)/.18,0,1);fade=fade*fade*(3-2*fade);
-            byte alpha=(byte)Math.Clamp(p.Hiding?Math.Round(p.FromOpacity*(1-fade)):Math.Round(p.FromOpacity+(255-p.FromOpacity)*ease),0,255);
+            double reveal=p.DockMotion?Math.Min(1,t*5):ease;
+            byte alpha=(byte)Math.Clamp(p.Hiding?Math.Round(p.FromOpacity*(1-fade)):Math.Round(p.FromOpacity+(255-p.FromOpacity)*reveal),0,255);
             if(!p.Surface.Update(bounds,alpha)||t>=1&&(p.Hiding||atTarget))ReleasePresentation(id);
         }
         foreach(var (id,move) in _moves.ToArray())

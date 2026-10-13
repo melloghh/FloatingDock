@@ -15,6 +15,8 @@ internal sealed class MenuSurfaceMotion : IDisposable
     private readonly FrameworkElement _root;
     private readonly GlassBackdrop _glass;
     private readonly FrameScheduler _clock;
+    private readonly float _minX,_minY,_lift;
+    private readonly int _radius;
     private int _width, _height;
     private double _dpi, _pivot;
     private long _started;
@@ -26,9 +28,10 @@ internal sealed class MenuSurfaceMotion : IDisposable
     internal bool IsRunning => _clock.IsRunning;
     internal (int L, int T, int R, int B, int Radius)? Clip => _clip;
 
-    internal MenuSurfaceMotion(IntPtr hwnd, FrameworkElement root, GlassBackdrop glass)
+    internal MenuSurfaceMotion(IntPtr hwnd, FrameworkElement root, GlassBackdrop glass,float minX=.78f,float minY=.55f,float lift=-12,int radius=16)
     {
         _hwnd=hwnd;_root=root;_glass=glass;
+        _minX=minX;_minY=minY;_lift=lift;_radius=radius;
         ElementCompositionPreview.SetIsTranslationEnabled(root,true);
         _clock=new(action=>DockApp.Current.UiQueue.TryEnqueue(()=>action()),Tick);
     }
@@ -72,7 +75,7 @@ internal sealed class MenuSurfaceMotion : IDisposable
     private void Apply()
     {
         if(_width<=0||_height<=0)return;
-        float p=Progress,sx=.78f+.22f*p,sy=.55f+.45f*p,y=-12*(1-p);
+        float p=Progress,sx=_minX+(1-_minX)*p,sy=_minY+(1-_minY)*p,y=_lift*(1-p);
         var visual=ElementCompositionPreview.GetElementVisual(_root);
         visual.CenterPoint=new Vector3((float)_pivot,0,0);
         visual.Scale=new Vector3(sx,sy,1);
@@ -82,7 +85,7 @@ internal sealed class MenuSurfaceMotion : IDisposable
         int top=Math.Max(0,(int)Math.Round(y*_dpi));
         int right=Math.Min(_width,(int)Math.Round(left+_width*sx));
         int bottom=Math.Clamp((int)Math.Round(y*_dpi+_height*sy),top+1,_height);
-        int radius=(int)Math.Round(16*_dpi*Math.Min(sx,sy));
+        int radius=(int)Math.Round(_radius*_dpi*Math.Min(sx,sy));
         var clip=(left,top,right,bottom,radius);
         if(_clip==clip)return;
         var region=NativeMethods.CreateRoundRectRgn(left,top,right+1,bottom+1,radius*2,radius*2);

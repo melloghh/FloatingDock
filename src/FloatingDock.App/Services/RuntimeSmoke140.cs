@@ -17,7 +17,7 @@ internal static partial class RuntimeSmoke
     private static async Task CheckUi140Async(DockApp app,Dictionary<string,object> checks)
     {
         var saved=app.Settings.Current.Clone();var mon=app.Dock.PrimaryWindowForDiagnostics!.Monitor;
-        var windows=new List<Window>();var ids=new HashSet<long>();var minima=new Dictionary<long,(int Width,int Height)>();var styles=new Dictionary<long,long>();var originals=new Dictionary<long,RECT>();
+        var windows=new List<Window>();Window? viewportBackground=null;var ids=new HashSet<long>();var minima=new Dictionary<long,(int Width,int Height)>();var styles=new Dictionary<long,long>();var originals=new Dictionary<long,RECT>();
         bool realPlayer=Environment.GetCommandLineArgs().Contains("--test-spotify140"),foreignSaved=false;IntPtr foreign=IntPtr.Zero;var foreignPlacement=new NativeTilingSession.Placement {Length=Marshal.SizeOf<NativeTilingSession.Placement>()};
         app.Dock.HoldFullscreenStateForDiagnostics=true;
         MinimumProc minimum=(h,m,w,l,id,data)=>
@@ -94,10 +94,17 @@ internal static partial class RuntimeSmoke
                 RestoredOpacity();checks["userMinimizeAndRestore"]=true;
             }
             // A real app can apply its saved geometry well after the startup gate.
+            if(Environment.GetCommandLineArgs().Contains("--test-only-tiles149"))await CheckDockMotion149Async(app,playerId,checks);
             session.Move(playerId,session.Targets()[playerId]);
             NativeMethods.SetWindowPos(new(playerId),IntPtr.Zero,mon.WorkArea.Left+100,mon.WorkArea.Top+100,1000,750,NativeMethods.SWP_NOZORDER|NativeMethods.SWP_NOACTIVATE);
             await Wait(()=>!app.Tiling.Animating&&Matches(playerId,session.Targets()[playerId]),"A late self-resize covered adjacent windows.");checks["lateSelfResizeRepaired"]=true;
             var origin=app.Dock.AnimationRectFor(new(playerId));Check(origin is not null,"Workspace hiding has no dock icon destination.");
+            // Keep the sampled glass background stable even with an animated desktop wallpaper.
+            viewportBackground=new Window {Title="FloatingDock viewport background fixture",Content=new Grid {Background=new SolidColorBrush(global::Windows.UI.Color.FromArgb(255,36,108,164))}};
+            WindowSetup.MakeBorderless(viewportBackground);var backgroundHandle=WindowSetup.Hwnd(viewportBackground);
+            WindowStyler.MakeOverlayWindow(backgroundHandle,noActivate:true);
+            WindowStyler.SetBounds(backgroundHandle,barRect.Left+backgroundX-30,barRect.Top,60,barRect.Height);
+            viewportBackground.AppWindow.Show(false);NativeMethods.SetWindowPos(bar.Handle,NativeMethods.HWND_TOPMOST,0,0,0,0,NativeMethods.SWP_NOMOVE|NativeMethods.SWP_NOSIZE|NativeMethods.SWP_NOACTIVATE);await Task.Delay(60);
             app.Tiling.SwitchWorkspace(2,mon.DeviceName);
             await Wait(()=>ids.All(id=>NativeMethods.IsIconic(new(id))),"Workspace state waited on the visual animation.");
             await Task.Delay(80);
@@ -128,6 +135,7 @@ internal static partial class RuntimeSmoke
         }
         finally
         {
+            viewportBackground?.Close();
             app.Settings.Update(s=>s.TilingEnabled=false);app.Tiling.Apply(app.Settings.Current);app.Tiling.DiagnosticWindows=null;
             foreach(var window in windows){var hwnd=WindowSetup.Hwnd(window);RemoveWindowSubclass(hwnd,minimum,new(140));app.Running.ExcludeOwnWindow(hwnd);window.Close();}
             if(foreignSaved&&NativeMethods.IsWindow(foreign)){foreignPlacement.Flags|=4;SetFixturePlacement(foreign,ref foreignPlacement);}

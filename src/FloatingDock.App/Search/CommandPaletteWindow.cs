@@ -30,6 +30,7 @@ internal sealed class CommandPaletteWindow : IDisposable
     private readonly TextBlock _status=new(){FontSize=12,Opacity=.65,Margin=new Thickness(12,10,12,0),TextWrapping=TextWrapping.Wrap};
     private readonly DispatcherQueueTimer _debounce,_openingTimer;
     private readonly GlassBackdrop _glass=new();
+    private readonly MenuBar.MenuSurfaceMotion _motion;
     private IReadOnlyList<Result> _results=Array.Empty<Result>();
     private Task<IReadOnlyList<AppRef>>? _catalog;
     private AppSearchIndex? _appIndex;
@@ -40,11 +41,15 @@ internal sealed class CommandPaletteWindow : IDisposable
     private CancellationTokenSource? _cancel;
     private int _generation;
     private bool _visible,_opening,_disposed;
+    private bool _surfaceVisible;
+    private int _visibilityGeneration;
     private IntPtr _returnFocus;
     private int _width,_left,_top,_maxHeight;
     private double _scale=1;
     internal IntPtr Handle { get; }
     internal bool Visible=>_visible;
+    internal bool SurfaceVisible=>_surfaceVisible;
+    internal MenuBar.MenuSurfaceMotion MotionForDiagnostics=>_motion;
     internal int ResultCount=>_results.Count;
     internal Task SearchForDiagnostics(string text) { _query.Text=text;_debounce.Stop();return SearchAsync(); }
 
@@ -61,40 +66,45 @@ internal sealed class CommandPaletteWindow : IDisposable
         _window=new Window { Title="FloatingDock Search",Content=_root,SystemBackdrop=_glass };
         WindowSetup.MakeBorderless(_window);Handle=WindowSetup.Hwnd(_window);WindowStyler.MakeOverlayWindow(Handle,noActivate:false);
         _glass.SetVisible(false);
+        _motion=new(Handle,_root,_glass,minX:.94f,minY:.86f,lift:-14,radius:20);
         foreach(var key in new[]{"TextControlBackground","TextControlBackgroundPointerOver","TextControlBackgroundFocused","TextControlBorderBrush","TextControlBorderBrushPointerOver","TextControlBorderBrushFocused"})_query.Resources[key]=new SolidColorBrush(Colors.Transparent);
         _debounce=_app.UiQueue.CreateTimer();_debounce.IsRepeating=false;_debounce.Interval=TimeSpan.FromMilliseconds(180);_debounce.Tick+=async(_,_)=>await SearchAsync();
         _openingTimer=_app.UiQueue.CreateTimer();_openingTimer.IsRepeating=false;_openingTimer.Interval=TimeSpan.FromMilliseconds(300);_openingTimer.Tick+=(_,_)=>_opening=false;
         _query.TextChanged+=(_,_)=> { if(!_visible)return;_cancel?.Cancel();_generation++;_results=Array.Empty<Result>();ClearRows();_debounce.Stop();_debounce.Start(); };
         _root.KeyDown+=OnKey;
-        _window.Activated+=(_,e)=> { if(_visible&&!_opening&&e.WindowActivationState==WindowActivationState.Deactivated)Hide(); };
+        _window.Activated+=(_,e)=> { if(_visible&&!_opening&&e.WindowActivationState==WindowActivationState.Deactivated&&_app.TopBar?.SearchTogglePointerActive!=true)Hide(immediately:false); };
         _query.Loaded+=(_,_)=> { if(_visible)_query.Focus(FocusState.Programmatic); };
-        _root.Loaded+=(_,_)=> {if(_visible)AnimateOpening();};
         _app.Pinned.Changed+=InvalidateApps;_app.UserTiles.Changed+=InvalidateApps;
     }
-    internal void Toggle() { if(_visible)Hide();else Show(); }
+    internal void Toggle() { if(_visible)Hide(immediately:false);else Show(); }
     internal void Show()
     {
         if(_disposed||_visible)return;
         var mon=MonitorHelper.FromCursor()??MonitorHelper.Primary();if(mon is null)return;
-        _returnFocus=NativeMethods.GetForegroundWindow();_visible=_opening=true;
+        float progress=_surfaceVisible?_motion.Progress:0;
+        if(!_surfaceVisible)_returnFocus=NativeMethods.GetForegroundWindow();
+        _visibilityGeneration++;_visible=_opening=_surfaceVisible=true;_root.IsHitTestVisible=true;
         _query.PlaceholderText=L.Text("Search apps, files and folders");_query.Text="";
         _results=Array.Empty<Result>();ClearRows();_status.Text=L.Text("Enter to open · Esc to close");
         int width=(int)(Math.Min(650,(mon.Bounds.Width/mon.Scale)-40)*mon.Scale);
         _width=width;_scale=mon.Scale;_maxHeight=(int)Math.Min(580,mon.Bounds.Height/mon.Scale-60);
         _left=mon.Bounds.Left+(mon.Bounds.Width-width)/2;_top=Math.Min(mon.Bounds.Top+(int)(mon.Bounds.Height*.18),mon.Bounds.Bottom-(int)(_maxHeight*mon.Scale)-16);
+        _glass.SetVisible(true);_motion.Prepare(SurfaceMotion.Enabled?progress:1);
         _list.MaxHeight=Math.Max(80,_maxHeight-122);ResizeSurface(0);
-        _glass.SetVisible(true);_window.Activate();WindowStyler.BringToFront(Handle);
-        if(_root.IsLoaded)AnimateOpening();
+        AnimateOpening();_window.Activate();WindowStyler.BringToFront(Handle);
         _openingTimer.Start();_query.Focus(FocusState.Programmatic);_debounce.Stop();_debounce.Start();
     }
-    internal void Hide()
+    internal void Hide(bool immediately=true)
     {
-        if(!_visible)return;
+        if(!_visible){if(immediately&&_surfaceVisible)FinishHide();return;}
         _visible=_opening=false;_generation++;_cancel?.Cancel();_debounce.Stop();_openingTimer.Stop();
+        int generation=++_visibilityGeneration;_root.IsHitTestVisible=false;
         bool focused=NativeMethods.GetForegroundWindow()==Handle;
-        _glass.SetVisible(false);_window.AppWindow.Hide();WindowStyler.Hide(Handle);
         if(focused&&NativeMethods.IsWindowVisible(_returnFocus)&&!NativeMethods.IsIconic(_returnFocus))NativeMethods.SetForegroundWindow(_returnFocus);
+        if(immediately||!SurfaceMotion.Enabled)FinishHide();
+        else _motion.Play(false,Math.Clamp(_app.Settings.Current.MenuAnimationMs*4/5,80,300),()=>{if(generation==_visibilityGeneration&&!_visible)FinishHide();});
     }
+    private void FinishHide(){_motion.Stop();_surfaceVisible=false;_glass.SetVisible(false);_window.AppWindow.Hide();WindowStyler.Hide(Handle);}
     private async Task SearchAsync()
     {
         if(!_visible||_disposed)return;
@@ -157,11 +167,11 @@ internal sealed class CommandPaletteWindow : IDisposable
         _list.Height=Math.Min(_list.MaxHeight,count*62);_list.Visibility=count==0?Visibility.Collapsed:Visibility.Visible;
         int height=(int)(Math.Min(_maxHeight,Math.Max(150,122+count*62))*_scale);
         WindowStyler.SetBounds(Handle,_left,_top,_width,height);
-        WindowStyler.SetRoundedRegion(Handle,_width,height,(int)(20*_scale));
+        _motion.SetGeometry(_width,height,_scale,_width/(2*_scale));
     }
     private void OnKey(object sender,KeyRoutedEventArgs e)
     {
-        if(e.Key==global::Windows.System.VirtualKey.Escape){Hide();e.Handled=true;}
+        if(e.Key==global::Windows.System.VirtualKey.Escape){Hide(immediately:false);e.Handled=true;}
         else if(e.Key is global::Windows.System.VirtualKey.Down or global::Windows.System.VirtualKey.Up)
         { if(_results.Count>0)Select(Math.Clamp(_selectedIndex+(e.Key==global::Windows.System.VirtualKey.Down?1:-1),0,_results.Count-1));e.Handled=true; }
         else if(e.Key==global::Windows.System.VirtualKey.Enter&&_selectedIndex>=0&&_selectedIndex<_results.Count){Open(_results[_selectedIndex]);e.Handled=true;}
@@ -182,7 +192,7 @@ internal sealed class CommandPaletteWindow : IDisposable
         });
     }
     private void InvalidateApps()=>_app.UiQueue.TryEnqueue(()=>_appIndex=null);
-    private void AnimateOpening(){SurfaceMotion.Enter(_root,_app.Settings.Current.MenuAnimationMs,1);SurfaceMotion.SlideContent(_panel,_app.Settings.Current.MenuAnimationMs);}
+    private void AnimateOpening(){_motion.Play(true,Math.Clamp((int)(_app.Settings.Current.MenuAnimationMs*1.4),160,600));}
     private void ClearRows(){_rows.Children.Clear();_rowButtons.Clear();_selectedIndex=-1;}
     private void Select(int index)
     {
@@ -190,5 +200,5 @@ internal sealed class CommandPaletteWindow : IDisposable
         for(int i=0;i<_rowButtons.Count;i++)_rowButtons[i].Background=new SolidColorBrush(i==index?ColorHelper.FromArgb(255,70,96,215):Colors.Transparent);
         if(index>=0&&index<_rowButtons.Count)_rowButtons[index].StartBringIntoView();
     }
-    public void Dispose(){if(_disposed)return;Hide();_disposed=true;_app.Pinned.Changed-=InvalidateApps;_app.UserTiles.Changed-=InvalidateApps;_cancel?.Dispose();_debounce.Stop();_openingTimer.Stop();_window.Close();}
+    public void Dispose(){if(_disposed)return;Hide();_motion.Dispose();_disposed=true;_app.Pinned.Changed-=InvalidateApps;_app.UserTiles.Changed-=InvalidateApps;_cancel?.Dispose();_debounce.Stop();_openingTimer.Stop();_window.Close();}
 }

@@ -4,6 +4,27 @@ using Xunit;
 namespace FloatingDock.Core.Tests;
 public sealed class TilePresentationTests
 {
+    [Theory]
+    [InlineData(-1800,500)]
+    [InlineData(1800,500)]
+    [InlineData(960,1040)]
+    public void DockUnfoldAndFoldKeepArtworkProportionsAcrossDockEdges(int x,int y)
+    {
+        var window=new TileRect(120,70,960,600);var dock=TileMinimizeMotion.FitAtDock(window,new(x,y,48,48));
+        foreach(bool restoring in new[]{false,true})
+        {
+            var from=restoring?dock:window;var to=restoring?window:dock;int lastWidth=from.Width;
+            Assert.Equal(from,TileDockMotion.Sample(from,to,0,restoring));
+            Assert.Equal(to,TileDockMotion.Sample(from,to,1,restoring));
+            for(int i=1;i<=100;i++)
+            {
+                var sample=TileDockMotion.Sample(from,to,i/100d,restoring);
+                Assert.True(restoring?sample.Width>=lastWidth:sample.Width<=lastWidth);lastWidth=sample.Width;
+                Assert.InRange(Math.Abs(sample.Width-sample.Height*1.6),0,1.6);
+            }
+        }
+        Assert.True(TileDockMotion.Sample(dock,window,.3,true).Width>window.Width*.65);
+    }
     [Fact] public void InterruptedReflowPreservesPositionAndSizeMomentumAndSettles()
     {
         var from=new TileRect(-1600,60,700,800);var first=new TileMotion(from,new(-900,80,950,600),0,300,interpolateSize:true);

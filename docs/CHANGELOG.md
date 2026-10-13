@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.4.9
+
+- Give tiled minimize and restore a curved, finite dock path with coordinated scaling. Restore unfolds the actual application image with a fast damped settling curve; visibility transitions use the dock animation duration (300/336 ms with the current 240 ms icon duration) instead of a short reflow fade.
+- Acquire the invisible source before dock activation restores it, and reuse a moving presentation when reversing minimization. Neighboring tiles reflow over the unfolding duration; untiled minimization retains its existing path.
+- Animate the complete search plate and glass boundary on opening and button/Escape dismissal. Ignore the search button's focus handoff until its click toggles the palette, preventing a close/reopen flash; cancelled searches and old close completions cannot reopen or hide a replacement.
+- Check actual pixels and multiple native intermediate frames during tiled minimize/restore, rapid surface reuse, workspace transitions, and repeated real mouse clicks on the search button including a long press. Use a stable owned backdrop for the viewport check on animated desktops.
+
 ## 1.4.8
 
 - Unfold the entire top-bar menu towards its button, including the glass boundary, rounded frame and content. Use a fast damped opening and an accelerating fold on dismissal, with staggered content entry.

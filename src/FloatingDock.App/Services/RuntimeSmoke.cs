@@ -28,6 +28,10 @@ internal static partial class RuntimeSmoke
         string? error = null;
         try
         {
+            if(Environment.GetCommandLineArgs().Contains("--test-only-search149"))
+            {await CheckSearch149Async(app,checks);Check(Program.UiFailureCount==0,"XAML failure in search toggle/motion checks.");success=true;return;}
+            if(Environment.GetCommandLineArgs().Contains("--test-only-tiles149"))
+            {await CheckUi140Async(app,checks);Check(Program.UiFailureCount==0,"XAML failure in dock unfolding checks.");success=true;return;}
             if(Environment.GetCommandLineArgs().Contains("--test-only-ui148"))
             {await CheckUi148Async(app,checks);Check(Program.UiFailureCount==0,"XAML failure in whole-menu motion checks.");success=true;return;}
             if(Environment.GetCommandLineArgs().Contains("--test-only-ui146"))

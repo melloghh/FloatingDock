@@ -101,6 +101,7 @@ internal sealed class MenuBarHost : IDisposable
         return name.ToLowerInvariant() switch { "explorer"=>L.Text("File Explorer"), "floatingdock"=>"FloatingDock settings", "taskmgr"=>L.Text("Task Manager"), "msedge"=>"Microsoft Edge", "chrome"=>"Google Chrome", "steam"=>"Steam", "chatgpt"=>"ChatGPT", "code"=>"Visual Studio Code", _=>name.Length>0?char.ToUpperInvariant(name[0])+name[1..]:L.Text("Desktop") };
     }
     internal void SetCaptureHidden(bool hidden) { foreach(var b in _bars.Values) b.SetCaptureHidden(hidden); }
+    internal bool SearchTogglePointerActive=>_bars.Values.Any(b=>b.SearchTogglePointerActive);
     internal void SetSuspended(bool hidden) { foreach(var b in _bars.Values) b.SetSuspended(hidden); }
     public void Dispose()
     {
@@ -111,6 +112,19 @@ internal sealed class MenuBarHost : IDisposable
 
 internal sealed class MenuBarWindow : IDisposable
 {
+    [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern short GetAsyncKeyState(int key);
+    internal Button SearchButtonForDiagnostics=>_searchButton;
+    internal bool SearchTogglePointerActive
+    {
+        get
+        {
+            if(_searchButton.Visibility!=Visibility.Visible||!NativeMethods.GetCursorPos(out var cursor)||!NativeMethods.GetWindowRect(Handle,out var bounds))return false;
+            var point=_searchButton.TransformToVisual(_root).TransformPoint(new(0,0));double scale=_root.XamlRoot.RasterizationScale;
+            double x=bounds.Left+point.X*scale,y=bounds.Top+point.Y*scale;
+            return cursor.X>=x&&cursor.X<x+_searchButton.ActualWidth*scale&&cursor.Y>=y&&cursor.Y<y+_searchButton.ActualHeight*scale&&
+                ((GetAsyncKeyState(1)&0x8000)!=0||NativeMethods.GetForegroundWindow()==Handle);
+        }
+    }
     internal const int HeightDip=28;
     internal const int TopInsetDip=4,SideInsetDip=12,BottomInsetDip=4;
     private readonly DockApp _app=DockApp.Current;
