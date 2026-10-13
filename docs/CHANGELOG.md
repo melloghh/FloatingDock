@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.12
+
+- Reuse the source opacity lease acquired before dock restore. Keep browser composition stable instead of removing and immediately readding the layered style during workspace preparation.
+- Let a successful foreground request complete asynchronously before the existing activation checks. Avoid immediately attaching input queues just because GetForegroundWindow has not caught up with the accepted request.
+- Exercise three restore cycles on an existing browser, continuous intermediate frames, rapid minimize/restore reversal, a single composition style change during preparation, and preservation of the original native placement.
+
 ## 1.4.11
 
 - Keep exactly two visible tiled windows in left and right columns, with equal default widths. Normalize retained top/bottom splits after closing or minimizing other windows; a direction toggle cannot stack the pair again.

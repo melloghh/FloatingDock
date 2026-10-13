@@ -28,6 +28,8 @@ internal static partial class RuntimeSmoke
         string? error = null;
         try
         {
+            if(Environment.GetCommandLineArgs().Contains("--test-only-browser152"))
+            {await CheckBrowserRestore152Async(app,checks);Check(Program.UiFailureCount==0,"XAML failure in browser restore checks.");success=true;return;}
             if(Environment.GetCommandLineArgs().Contains("--test-only-workspaces150"))
             {await CheckWorkspaces150Async(app,checks);Check(Program.UiFailureCount==0,"XAML failure in workspace restore checks.");success=true;return;}
             if(Environment.GetCommandLineArgs().Contains("--test-only-search149"))

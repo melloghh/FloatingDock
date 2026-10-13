@@ -106,7 +106,10 @@ public static class WindowActivator
     {
         if (!NativeMethods.IsWindow(hwnd)) return;
         if (NativeMethods.IsIconic(hwnd)) NativeMethods.ShowWindowAsync(hwnd, NativeMethods.SW_RESTORE);
-        if (NativeMethods.SetForegroundWindow(hwnd) && NativeMethods.GetForegroundWindow() == hwnd) return;
+        // Cross-input-queue activation is asynchronous. A successful request
+        // can precede GetForegroundWindow changing; the async caller verifies it.
+        // Attaching input here would turn that normal delay into a UI-thread stall.
+        if (NativeMethods.SetForegroundWindow(hwnd)) return;
 
         // Foreground lock: attach to the current foreground thread so SetForegroundWindow is allowed.
         var fg = NativeMethods.GetForegroundWindow();

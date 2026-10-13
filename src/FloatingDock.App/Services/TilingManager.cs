@@ -268,8 +268,10 @@ internal sealed class TilingManager : IDisposable
                 _presentations[id]=new(reversing.Surface,reversing.Surface.Bounds,target,Now,DockDuration(true),false,reversing.Surface.Opacity,dockMotion:true);
                 nativeVisibility();_session.Move(id,target);Schedule();return;
             }
-            if(_held.Remove(id,out var old))old.Lease.Dispose();
-            if(WindowOpacityLease.TryAcquire(new(id)) is { } lease)_held[id]=new(WindowIdentityResolver.ResolveBasic(new(id)),lease,Now,true);
+            // Dock preparation already hid this source. Reuse that lease:
+            // removing/readding WS_EX_LAYERED restarts browser composition.
+            if(_held.TryGetValue(id,out var held))_held[id]=held with{Returning=true};
+            else if(WindowOpacityLease.TryAcquire(new(id)) is { } lease)_held[id]=new(WindowIdentityResolver.ResolveBasic(new(id)),lease,Now,true);
             nativeVisibility();Schedule();return;
         }
         _presentations.Remove(id,out var previous);
