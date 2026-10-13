@@ -1,6 +1,6 @@
 param([Parameter(Mandatory)][string]$Directory)
 $ErrorActionPreference = 'Stop'
-$required = @('FloatingDock.exe', 'FloatingDock.dll', 'FloatingDock.pri', 'FloatingDock.deps.json', 'FloatingDock.runtimeconfig.json', 'coreclr.dll', 'hostfxr.dll', 'hostpolicy.dll', 'System.Private.CoreLib.dll', 'Microsoft.WindowsAppRuntime.dll', 'Microsoft.UI.Xaml.dll', 'Microsoft.UI.pri', 'Microsoft.UI.Xaml.Controls.pri', 'Microsoft.WindowsAppRuntime.pri', 'Assets\AppIcon.ico', 'Assets\AppIcon.png')
+$required = @('FloatingDock.exe', 'FloatingDock.dll', 'FloatingDock.pri', 'FloatingDock.deps.json', 'FloatingDock.runtimeconfig.json', 'coreclr.dll', 'hostfxr.dll', 'hostpolicy.dll', 'System.Private.CoreLib.dll', 'Microsoft.WindowsAppRuntime.dll', 'Microsoft.UI.Xaml.dll', 'Microsoft.UI.pri', 'Microsoft.UI.Xaml.Controls.pri', 'Microsoft.WindowsAppRuntime.pri', 'Assets\AppIcon.ico', 'Assets\AppIcon.png', 'Assets\Explorer.png')
 foreach ($file in $required) {
   $path = Join-Path $Directory $file
   if (-not (Test-Path -LiteralPath $path -PathType Leaf) -or (Get-Item -LiteralPath $path).Length -eq 0) { throw "Missing publish file: $file" }

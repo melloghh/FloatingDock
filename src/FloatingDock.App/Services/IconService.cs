@@ -8,7 +8,7 @@ using Windows.Storage.Streams;
 namespace FloatingDock.UI.Services;
 
 /// <summary>
-/// Resolves the picture of an app: user override > active icon pack > icon from the Windows shell.
+/// Resolves the picture of an app: user override > active icon pack > bundled default > Windows shell.
 /// Shared by the Dock and the Launchpad, so both always show the same icon. UI-thread only.
 /// </summary>
 internal sealed class IconService
@@ -98,8 +98,8 @@ internal sealed class IconService
             try { return await IconBitmapDecoder.DecodeAsync(bytes, px); }
             catch (Exception ex) when (systemFallback)
             {
-                DockApp.Current.Log.Warn("custom raster decode failed; using system icon: " + ex.Message);
-                bytes = await GetSystemBytesAsync(app, px);
+                DockApp.Current.Log.Warn("custom raster decode failed; using default icon: " + ex.Message);
+                bytes = await GetFallbackBytesAsync(app, px);
                 return bytes is null ? null : await IconBitmapDecoder.DecodeAsync(bytes, px);
             }
         }
@@ -126,13 +126,18 @@ internal sealed class IconService
         {
             var bytes = await Task.Run(() => ReadLimited(_resolver.Resolve(app)?.Path));
             if (bytes is not null || !systemFallback) return bytes;
-            return await GetSystemBytesAsync(app, px);
+            return await GetFallbackBytesAsync(app, px);
         }
         catch (Exception ex) { DockApp.Current.Log.Warn("composition icon load failed: " + ex.Message); return null; }
     }
 
-    internal async Task<byte[]?> GetSystemBytesAsync(AppRef app, int px)
+    internal async Task<byte[]?> GetFallbackBytesAsync(AppRef app, int px)
     {
+        if (AppMatching.IsExplorer(app))
+        {
+            var bundled = await Task.Run(() => ReadLimited(Path.Combine(AppContext.BaseDirectory, "Assets", "Explorer.png")));
+            if (bundled is not null) return bundled;
+        }
         var file = await _worker.Run(() => _extractor.GetIconPng(app, Math.Clamp(px, 16, 256)));
         return await Task.Run(() => ReadLimited(file));
     }

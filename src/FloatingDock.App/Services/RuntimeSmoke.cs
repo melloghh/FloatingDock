@@ -146,6 +146,18 @@ internal static partial class RuntimeSmoke
             }
             if (Environment.GetCommandLineArgs().Contains("--test-only-icons112"))
             {
+                var explorerArtwork = File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Assets", "Explorer.png"));
+                var explorerPin = new AppRef { Name = "File Explorer", Aumid = AppMatching.ExplorerAumid };
+                var explorerWindow = new AppRef { ExePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe") };
+                foreach (var identity in new[] { explorerPin, explorerWindow })
+                {
+                    Check(!app.Overrides.Has(identity), "The default icon check needs a clean diagnostic profile.");
+                    var bytes = await app.Icons.GetBytesAsync(identity, 64, true);
+                    Check(bytes is not null && bytes.SequenceEqual(explorerArtwork), "Explorer did not use the bundled folder artwork.");
+                    var raster = await app.Icons.GetRasterAsync(identity, 64);
+                    Check(raster is not null && raster.Width == 64 && raster.Height == 64, "The bundled Explorer icon did not decode for dock/Launchpad.");
+                }
+                checks["explorerDefault"] = new { appId = true, executable = true, bundled = true };
                 var results = new List<object>();
                 var fixturePixels = new byte[256 * 256 * 4];
                 for (int y = 0; y < 256; y++) for (int x = 0; x < 256; x++)

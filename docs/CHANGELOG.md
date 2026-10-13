@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.7
+
+- Bundle the blue folder artwork as File Explorer's default icon across the dock, Launchpad, search and app pickers. The image ships with the application and needs no external file or profile setup.
+- Share Explorer icon overrides between its AppID-only pins and executable-only running windows. Explicit custom icons and active icon packs retain priority over the default.
+
 ## 1.4.6
 
 - Replace Explorer suppression via DWMWA_CLOAK, which returned E_ACCESSDENIED on its foreign-process HWNDs, with reversible opacity/style leases. Read the existing live overflow tree first and stop moving discovery windows off screen.

@@ -283,6 +283,25 @@ public class IconPackServiceTests
     }
 
     [Fact]
+    public void ExplorerOverride_IsSharedBetweenAppIdPinsAndExecutableWindows()
+    {
+        using var d = new TempDir();
+        var store = new IconOverrideStore(d.File("ov.json"), d.File("ui"));
+        var pin = new AppRef { Aumid = AppMatching.ExplorerAumid };
+        var window = new AppRef { ExePath = @"C:\Windows\explorer.exe" };
+        var source = d.File("folder.png"); File.WriteAllBytes(source, Png);
+        store.Set(pin.Key, source);
+        Assert.Equal(store.TryGetForApp(pin), store.TryGetForApp(window));
+        Assert.Null(store.TryGetForApp(new AppRef { Name = "Explorer", ExePath = @"C:\other.exe" }));
+        Assert.True(store.ResetForApp(window));
+        Assert.Null(store.TryGetForApp(pin));
+        store.Set(window.Key, source);
+        Assert.Equal(store.TryGetForApp(window), store.TryGetForApp(pin));
+        Assert.True(store.ResetForApp(pin));
+        Assert.Null(store.TryGetForApp(window));
+    }
+
+    [Fact]
     public void PngWriter_ProducesValidPng()
     {
         var px = new byte[] { 0, 0, 255, 255,   0, 255, 0, 128,   255, 0, 0, 0,   10, 20, 30, 255 };   // BGRA

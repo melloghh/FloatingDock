@@ -22,6 +22,12 @@ public static class AppMatching
 
     public const string ExplorerAumid = "Microsoft.Windows.Explorer";
 
+    public static bool IsExplorer(AppRef app) => !app.IsSeparator &&
+        (string.Equals(app.Aumid, ExplorerAumid, StringComparison.OrdinalIgnoreCase) ||
+         string.Equals(app.ShellParsingName, ExplorerAumid, StringComparison.OrdinalIgnoreCase) ||
+         (!string.IsNullOrEmpty(app.ExePath) &&
+          string.Equals(WinPath.FileName(app.ExePath), "explorer.exe", StringComparison.OrdinalIgnoreCase)));
+
     /// <summary>
     /// Is the identity of a window final? A host process (ApplicationFrameHost / WWAHost) is never an identity by itself: the real app is the hosted one.
     /// Finding only the PID of a hosted app does not count - without its executable or an AUMID the window still has to be looked at again.

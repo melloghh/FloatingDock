@@ -67,6 +67,13 @@ public sealed class IconOverrideStore
     private string[] KeysForApp(Models.AppRef app)
     {
         var keys = new List<string> { app.Key };
+        // Explorer's AppsFolder pin has only an AppID; running windows often have only an executable.
+        if (Models.AppMatching.IsExplorer(app))
+        {
+            keys.Add("aumid:" + Models.AppMatching.ExplorerAumid.ToLowerInvariant());
+            lock (_gate) keys.AddRange(_map.Keys.Where(k => k.StartsWith("exe:", StringComparison.Ordinal) &&
+                string.Equals(Models.WinPath.FileName(k[4..]), "explorer.exe", StringComparison.OrdinalIgnoreCase)).Order());
+        }
         if (!string.IsNullOrWhiteSpace(app.ExePath))
         {
             string exe = "exe:" + Models.AppMatching.NormalizePath(app.ExePath);
