@@ -13,7 +13,7 @@ public static class WindowActivator
     public enum ActivationResult { Activated, Minimized, NoLiveWindow, Denied }
 
     /// <summary>Verifies current HWND/PID, restores asynchronously and activates a modal popup when its owner is disabled.</summary>
-    public static async Task<ActivationResult> ActivateOrMinimizeAsync(IReadOnlyList<WindowInfo> windows, bool minimizeIfActive,Func<IntPtr,bool>? minimize=null)
+    public static async Task<ActivationResult> ActivateOrMinimizeAsync(IReadOnlyList<WindowInfo> windows, bool minimizeIfActive,Func<IntPtr,bool>? minimize=null,Action<WindowInfo>? prepare=null)
     {
         var live = windows.Where(w => IsLive(w)).Select(w => w.Hwnd).ToHashSet();
         if (live.Count == 0) return ActivationResult.NoLiveWindow;
@@ -32,6 +32,8 @@ public static class WindowActivator
             return true;
         }, IntPtr.Zero);
         if (target == IntPtr.Zero) return ActivationResult.NoLiveWindow;
+        // Choose the owner and the repeat-click intent before workspace preparation can restore/focus it.
+        prepare?.Invoke(windows.First(w=>w.Hwnd==target.ToInt64()));
         // An owned dialog, rather than its disabled owner, is the usable window.
         for (int i = 0; i < 8; i++)
         {

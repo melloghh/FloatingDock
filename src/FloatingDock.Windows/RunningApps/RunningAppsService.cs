@@ -110,7 +110,7 @@ public sealed class RunningAppsService : IDisposable
                 break;
             case WindowEventKind.MinimizeStart:
             case WindowEventKind.MinimizeEnd:
-                if (_windows.TryGetValue(id, out var w)) { _windows[id] = w with { IsMinimized = kind == WindowEventKind.MinimizeStart }; ScheduleChanged(); }
+                if (_windows.TryGetValue(id, out var w)) { _windows[id] = w with { IsMinimized = NativeMethods.IsIconic(hwnd) }; ScheduleChanged(); }
                 break;
             case WindowEventKind.Renamed:
                 if (_windows.TryGetValue(id,out var named) && !TryReidentify(hwnd))

@@ -15,7 +15,7 @@ public sealed class TileMotion
     public TileMotion(TileRect from,TileRect target,double startedAt,int duration,double velocityX=0,double velocityY=0,bool interpolateSize=false,double velocityWidth=0,double velocityHeight=0)
     {
         From=from;Target=target;StartedAt=startedAt;Duration=Math.Max(1,duration);
-        double Clamp(double velocity,int delta)=>Math.Sign(velocity)==Math.Sign(delta)?Math.Sign(delta)*Math.Min(Math.Abs(velocity),3d*Math.Abs(delta)/Duration):0;
+        double Clamp(double velocity,int delta)=>Math.Sign(velocity)*Math.Min(Math.Abs(velocity),3d*Math.Max(8,Math.Abs(delta))/Duration);
         _vx=Clamp(velocityX,target.X-from.X);_vy=Clamp(velocityY,target.Y-from.Y);
         _interpolateSize=interpolateSize;_vw=Clamp(velocityWidth,target.Width-from.Width);_vh=Clamp(velocityHeight,target.Height-from.Height);
     }

@@ -29,6 +29,8 @@ public sealed class NativeTilingSession : IDisposable
         public TileRect? LastRequest;
         public long SubmittedAt;
         public bool MinimizeOutstanding;
+        public bool UserMinimizePending;
+        public long VisibilitySubmittedAt;
         public int OwnRestoreEvents;
         public int MinimumWidth=480,MinimumHeight=320;
         public (int Left,int Top,int Right,int Bottom)? FrameInsets;
@@ -71,24 +73,30 @@ public sealed class NativeTilingSession : IDisposable
     public void FinishInitialPlacement(long id){if(_members.TryGetValue(id,out var member))member.InitialPlacementPending=false;}
     public bool CanFollowActivation(long id)=>_members.TryGetValue(id,out var member)&&(!member.MinimizedByUs||member.RestoredExternally);
     public TileRect? LastPlacement(long id)=>_members.TryGetValue(id,out var member)?member.LastRequest:null;
-    public bool ObserveNativeMinimize(long id)
+    public bool ObserveNativeMinimize(long id,bool userRequest=false)
     {
         if(!_members.TryGetValue(id,out var member))return false;
+        if(!userRequest&&!NativeMethods.IsIconic(new(id)))return false;
         member.MinimizeOutstanding=false;
-        if(member.MinimizedByUs||member.UserMinimized)return false;
-        member.UserMinimized=true;member.PendingRestore=false;return true;
+        if(member.MinimizedByUs||!userRequest&&member.PendingRestore||member.UserMinimized)return false;
+        member.UserMinimized=true;member.UserMinimizePending=userRequest;member.PendingRestore=false;return true;
     }
     public void ObserveNativeRestore(long id)
     {
         if(!_members.TryGetValue(id,out var member))return;
         // An acknowledgement of our older restore can arrive after a later
         // workspace switch. It is not a user's request to bring this app back.
-        if(member.OwnRestoreEvents>0){member.OwnRestoreEvents--;return;}
+        if(member.OwnRestoreEvents>0)
+        {
+            member.OwnRestoreEvents--;member.MinimizeOutstanding=false;
+            if(member.OwnRestoreEvents==0||!NativeMethods.IsIconic(new(id)))member.PendingRestore=false;
+            return;
+        }
         if(member.MinimizedByUs&&member.Workspace!=ActiveWorkspace(member.Monitor)&&!NativeMethods.IsIconic(new(id)))member.RestoredExternally=true;
     }
     public bool HasTiles(string monitor)=>_members.Any(p=>p.Value.Monitor==monitor&&p.Value.Workspace==ActiveWorkspace(monitor)&&!p.Value.Floating&&!p.Value.Hidden&&!p.Value.UserMinimized);
     public IReadOnlyList<long> ManagedWindows=>_members.Keys.ToArray();
-    public string DescribeForDiagnostics(long id)=>$"focused={_focused}, window={id}, floating={(_members.TryGetValue(id,out var member)?member.Floating:null)}, hidden={member?.Hidden}, minimized={member?.UserMinimized}, minimum={member?.MinimumWidth}x{member?.MinimumHeight}, nativeZoomed={IsZoomed(new(id))}, borderHR={member?.Border.LastResult:X8}, borderColor={member?.Border.Applied:X8}";
+    public string DescribeForDiagnostics(long id)=>$"focused={_focused}, window={id}, floating={(_members.TryGetValue(id,out var member)?member.Floating:null)}, hidden={member?.Hidden}, minimized={member?.UserMinimized}, workspace={member?.Workspace}, ownMin={member?.MinimizedByUs}, pendingRestore={member?.PendingRestore}, outstandingMin={member?.MinimizeOutstanding}, ownRestores={member?.OwnRestoreEvents}, minimum={member?.MinimumWidth}x{member?.MinimumHeight}, nativeZoomed={IsZoomed(new(id))}, borderHR={member?.Border.LastResult:X8}, borderColor={member?.Border.Applied:X8}";
     public void SetExcluded(string names)=>_excluded=new(names.Split(';',StringSplitOptions.RemoveEmptyEntries|StringSplitOptions.TrimEntries),StringComparer.OrdinalIgnoreCase);
     private bool Owns(long hwnd,Member member)
     {NativeMethods.GetWindowThreadProcessId(new(hwnd),out var pid);return pid==member.Pid&&NativeMethods.IsWindow(new(hwnd));}
@@ -99,7 +107,7 @@ public sealed class NativeTilingSession : IDisposable
     private string CurrentMonitor()=>_members.TryGetValue(_focused,out var m)?m.Monitor:(MonitorHelper.FromCursor()??_monitors.FirstOrDefault())?.DeviceName??"";
     public void RefreshMonitors()=>_monitors=MonitorHelper.GetMonitors();
     public bool Forget(long window)
-    {if(!_members.Remove(window,out var member))return false;if(Owns(window,member))member.Border.Restore(new(window));Tree(member).Remove(window);return true;}
+    {if(!_members.Remove(window,out var member))return false;if(Owns(window,member))member.Border.Restore(new(window));Tree(member).Remove(window);if(_focused==window)_focused=0;foreach(var key in _lastFocused.Where(p=>p.Value==window).Select(p=>p.Key).ToArray())_lastFocused.Remove(key);return true;}
     public bool CanManageNew(WindowInfo window)
     {
         var hwnd=new IntPtr(window.Hwnd);
@@ -137,13 +145,17 @@ public sealed class NativeTilingSession : IDisposable
             if(!_monitors.Any(m=>m.DeviceName==member.Monitor))
             {Tree(member).Remove(id);member.Monitor=_monitors.FirstOrDefault()?.DeviceName??"";member.Workspace=1;if(!member.Floating)AddBalanced(id,member);changed=true;}
             if(member.Workspace>WorkspaceCount){Tree(member).Remove(id);member.Workspace=1;if(!member.Floating)AddBalanced(id,member);changed=true;}
-            bool iconic=NativeMethods.IsIconic(new(id));if(!iconic&&!IsZoomed(new(id)))member.PendingRestore=false;
-            bool minimized=iconic&&!member.MinimizedByUs&&!member.PendingRestore;
+            bool iconic=NativeMethods.IsIconic(new(id));
+            if(iconic){member.MinimizeOutstanding=false;member.UserMinimizePending=false;}
+            if(!iconic&&!IsZoomed(new(id))&&!member.MinimizeOutstanding)member.PendingRestore=false;
+            bool minimized=member.UserMinimizePending||iconic&&!member.MinimizedByUs&&!member.PendingRestore;
             if(minimized!=member.UserMinimized){member.UserMinimized=minimized;if(!minimized&&!member.Floating&&!member.Hidden)AddBalanced(id,member);changed=true;}
             // Maximizing deliberately floats an existing window. User resizing is handled on move/size end.
             var memberMonitor=_monitors.FirstOrDefault(m=>m.DeviceName==member.Monitor);
             bool fullscreen=memberMonitor is not null&&FullscreenDetector.IsWindowFullscreenOn(new(id),memberMonitor.Handle,0);
-            if((IsZoomed(new(id))||fullscreen||(NativeMethods.GetStyle(new(id))&NativeMethods.WS_THICKFRAME)==0)&&!member.Floating&&!member.PendingRestore){Tree(member).Remove(id);member.Floating=true;changed=true;}
+            bool ownPlacement=member.LastRequest is { } placed&&NativeMethods.GetWindowRect(new(id),out var positioned)&&
+                Math.Abs(positioned.Left-placed.X)<=2&&Math.Abs(positioned.Top-placed.Y)<=2&&Math.Abs(positioned.Width-placed.Width)<=2&&Math.Abs(positioned.Height-placed.Height)<=2;
+            if((IsZoomed(new(id))||fullscreen&&!ownPlacement||(NativeMethods.GetStyle(new(id))&NativeMethods.WS_THICKFRAME)==0)&&!member.Floating&&!member.PendingRestore){Tree(member).Remove(id);member.Floating=true;changed=true;}
         }
         foreach(var window in windows)
         {
@@ -173,7 +185,7 @@ public sealed class NativeTilingSession : IDisposable
         foreach(var monitor in _monitors)
         {
             if(ActiveWorkspace(monitor.DeviceName)>WorkspaceCount){_active[monitor.DeviceName]=1;changed=true;}
-            if(changed)ApplyWorkspaceVisibility(monitor.DeviceName);
+            ApplyWorkspaceVisibility(monitor.DeviceName);
         }
         if(_members.TryGetValue(foreground,out var focused))
         {
@@ -256,17 +268,21 @@ public sealed class NativeTilingSession : IDisposable
         {
             if(!Owns(id,member)||member.Hidden)continue;
             if(member.Workspace!=workspace)
-            {if(!member.MinimizedByUs&&!NativeMethods.IsIconic(new(id)))
+            {
+                if(member.UserMinimized)continue;
+                bool newlyHidden=!member.MinimizedByUs;
+                member.MinimizedByUs=true;member.RestoredExternally=false;member.PendingRestore=false;
+                if(newlyHidden||!NativeMethods.IsIconic(new(id))&&!member.MinimizeOutstanding)
                 {
-                    member.MinimizedByUs=true;member.RestoredExternally=false;member.PendingRestore=false;
-                    void Minimize(){if(Owns(id,member)&&member.MinimizedByUs)member.MinimizeOutstanding=NativeMethods.ShowWindowAsync(new(id),6);}
+                    void Minimize(){if(Owns(id,member)&&member.MinimizedByUs&&member.Workspace!=ActiveWorkspace(member.Monitor)){member.VisibilitySubmittedAt=Stopwatch.GetTimestamp();member.MinimizeOutstanding=NativeMethods.ShowWindowAsync(new(id),6);}}
                     if(VisibilityTransition is { } transition)transition(id,false,Minimize);else Minimize();
-                }}
-            else if(member.MinimizedByUs)
+                }
+            }
+            else if(!member.UserMinimized&&(member.MinimizedByUs||member.PendingRestore&&NativeMethods.IsIconic(new(id))&&!member.MinimizeOutstanding&&Stopwatch.GetElapsedTime(member.VisibilitySubmittedAt).TotalMilliseconds>750))
             {
                 bool expectEvent=NativeMethods.IsIconic(new(id))||member.MinimizeOutstanding;
                 member.MinimizedByUs=false;member.RestoredExternally=false;member.PendingRestore=true;
-                void RestoreWindow(){if(Owns(id,member)&&!member.MinimizedByUs&&NativeMethods.ShowWindowAsync(new(id),4)&&expectEvent)member.OwnRestoreEvents++;}
+                void RestoreWindow(){if(Owns(id,member)&&!member.MinimizedByUs&&!member.UserMinimized&&member.Workspace==ActiveWorkspace(member.Monitor)){member.VisibilitySubmittedAt=Stopwatch.GetTimestamp();if(NativeMethods.ShowWindowAsync(new(id),4)&&expectEvent)member.OwnRestoreEvents++;}}
                 if(VisibilityTransition is { } transition)transition(id,true,RestoreWindow);else RestoreWindow();
             }
         }
@@ -275,10 +291,23 @@ public sealed class NativeTilingSession : IDisposable
     {
         if(_disposed||!_members.TryGetValue(id,out var member)||!Owns(id,member))return false;
         bool changed=member.Workspace!=ActiveWorkspace(member.Monitor);
+        bool restore=member.UserMinimized||member.UserMinimizePending;
+        if(restore){member.UserMinimized=false;member.UserMinimizePending=false;member.PendingRestore=true;member.InitialPlacementPending=false;}
+        if(member.Hidden&&NativeMethods.IsWindowVisible(new(id))){member.Hidden=false;changed=true;}
         if(changed)
         {
             if(BringActivatedWindows){Tree(member).Remove(id);member.Workspace=ActiveWorkspace(member.Monitor);if(!member.Floating)AddBalanced(id,member);ApplyWorkspaceVisibility(member.Monitor);}
             else SwitchWorkspace(member.Workspace,member.Monitor);
+        }
+        if(restore)
+        {
+            if(!member.Floating)AddBalanced(id,member);
+            if(NativeMethods.IsIconic(new(id)))
+            {
+                void RestoreUserWindow(){if(Owns(id,member)&&member.Workspace==ActiveWorkspace(member.Monitor)){member.VisibilitySubmittedAt=Stopwatch.GetTimestamp();NativeMethods.ShowWindowAsync(new(id),4);}}
+                if(VisibilityTransition is { } transition)transition(id,true,RestoreUserWindow);else RestoreUserWindow();
+            }
+            changed=true;
         }
         _focused=id;_lastFocused[(member.Monitor,member.Workspace)]=id;UpdateBorders();return changed;
     }

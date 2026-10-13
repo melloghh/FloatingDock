@@ -26,16 +26,13 @@ internal sealed class TilingManager : IDisposable
         public readonly WindowTransitionSurface Surface=surface;
         public readonly TileRect From=from,Target=target;
         public readonly double Queued=now;
-        public double Started=now;
+        public readonly double Started=now;
         public readonly int Duration=duration;
         public readonly bool Hiding=hiding;
         public readonly byte FromOpacity=opacity;
         public readonly bool GentleStart=gentleStart;
         public readonly bool DockMotion=dockMotion;
-        public bool Placed=hiding;
-        public TileMotion Motion=new(from,target,now,duration,momentum?.VelocityX??0,momentum?.VelocityY??0,interpolateSize:true,velocityWidth:momentum?.VelocityWidth??0,velocityHeight:momentum?.VelocityHeight??0);
-        public void Begin(double now)
-        {Placed=true;Started=now;Motion=new(From,Target,now,Duration,momentum?.VelocityX??0,momentum?.VelocityY??0,interpolateSize:true,velocityWidth:momentum?.VelocityWidth??0,velocityHeight:momentum?.VelocityHeight??0);}
+        public readonly TileMotion Motion=new(from,target,now,duration,momentum?.VelocityX??0,momentum?.VelocityY??0,interpolateSize:true,velocityWidth:momentum?.VelocityWidth??0,velocityHeight:momentum?.VelocityHeight??0);
     }
     private readonly Dictionary<long,HeldWindow> _held=new();
     private readonly Dictionary<long,Presentation> _presentations=new();
@@ -83,6 +80,7 @@ internal sealed class TilingManager : IDisposable
             _normalBounds[window]=new(bounds.Left,bounds.Top,bounds.Width,bounds.Height);
         if(kind==WindowEventKind.MinimizeStart)
         {
+            if(!NativeMethods.IsIconic(hwnd)&&_session?.IsUserMinimized(window)!=true)return;
             bool managed=_session?.IsManaged(window)==true;
             if(!managed&&!_normalBounds.ContainsKey(window))return;
             // A native acknowledgement can arrive after the compositor surface
@@ -203,7 +201,7 @@ internal sealed class TilingManager : IDisposable
         foreach(var (id,held) in _held.ToArray())
             if(!NativeMethods.IsWindow(new(id))||Now-held.Started>1800){held.Lease.Dispose();_held.Remove(id);}
         var tracked=_app.Running.Snapshot();
-        var snapshot=tracked.Concat(_held.Values.Where(h=>!h.Returning&&!tracked.Any(w=>w.Hwnd==h.Info.Hwnd)).Select(h=>h.Info)).ToArray();
+        var snapshot=tracked.Concat(_held.Values.Where(h=>!tracked.Any(w=>w.Hwnd==h.Info.Hwnd)&&NativeMethods.IsWindow(new(h.Info.Hwnd))).Select(h=>h.Info)).ToArray();
         // Hold new, eligible windows before the previous startup wait. They stay
         // in the shell, but their saved placement is never used as the opening visual.
         if(_primed)foreach(var window in snapshot)if(_session.CanManageNew(window))HoldNewWindow(new(window.Hwnd));
@@ -292,7 +290,7 @@ internal sealed class TilingManager : IDisposable
         long id=hwnd.ToInt64();
         if(NativeMethods.IsIconic(hwnd))return false;
         if(!_minimized.Add(id))return true;
-        if(_session?.IsManaged(id)==true)_session.ObserveNativeMinimize(id);
+        if(_session?.IsManaged(id)==true)_session.ObserveNativeMinimize(id,userRequest:true);
         TransitionVisibility(id,false,()=>NativeMethods.ShowWindowAsync(hwnd,NativeMethods.SW_MINIMIZE),_settings.IconAnimation?_settings.IconAnimationMs:0);
         if(_session is not null){AnimateLayout();Schedule();}
         return true;
@@ -308,6 +306,7 @@ internal sealed class TilingManager : IDisposable
         foreach(var id in _moves.Keys.ToArray())
             if(!targets.ContainsKey(id)||_dragging.Contains(id))_moves.Remove(id);
         int duration=Views.SurfaceMotion.Enabled?_settings.TilingAnimationMs:0;
+        if(duration>0)duration=Math.Max(duration,220);
         if(duration>0&&(_presentations.Values.Any(p=>p.DockMotion)||_held.Values.Any(h=>h.Returning)))
             duration=Math.Max(duration,DockDuration(true));
         foreach(var (id,target) in targets)
@@ -320,7 +319,9 @@ internal sealed class TilingManager : IDisposable
             if(_dragging.Contains(id)||!NativeMethods.GetWindowRect(new(id),out var current))continue;
             var from=new TileRect(current.Left,current.Top,current.Width,current.Height);
             if(showing is not null)from=showing.Surface.Bounds;
-            TileMotionSample? sample=showing is {Hiding:false,Placed:true}?showing.Motion.Sample(Now):pending?.Sample(Now);if(pending is not null&&sample is { } ongoing)from=new(ongoing.Bounds.X,ongoing.Bounds.Y,from.Width,from.Height);
+            TileMotionSample? sample=showing is {Hiding:false,DockMotion:false}?showing.Motion.Sample(Now):pending?.Sample(Now);
+            if(showing is {Hiding:false,DockMotion:false}&&sample is { } rendered)from=rendered.Bounds;
+            else if(pending is not null&&sample is { } ongoing)from=new(ongoing.Bounds.X,ongoing.Bounds.Y,from.Width,from.Height);
             _moves.Remove(id);
             bool opening=_held.TryGetValue(id,out var held)||!_session.HasBeenPlaced(id);
             bool dockReveal=held?.Returning==true||showing is {Hiding:false,DockMotion:true};
@@ -362,13 +363,6 @@ internal sealed class TilingManager : IDisposable
             if(!p.Hiding&&_session is null){ReleasePresentation(id);continue;}
             double now=Now;
             bool atTarget=NativeMethods.GetWindowRect(new(id),out var actual)&&!NativeMethods.IsIconic(new(id))&&Math.Abs(actual.Left-p.Target.X)<=2&&Math.Abs(actual.Top-p.Target.Y)<=2&&Math.Abs(actual.Width-p.Target.Width)<=2&&Math.Abs(actual.Height-p.Target.Height)<=2;
-            if(!p.Placed)
-            {
-                if(atTarget)
-                {p.Begin(now);}
-                else if(now-p.Queued>1000){ReleasePresentation(id);_session!.ReleaseFailedPlacement(id);Schedule();continue;}
-                else {_session!.Move(id,p.Target);continue;}
-            }
             if(!p.Hiding&&!atTarget)
             {
                 if(now-p.Queued>1000){ReleasePresentation(id);_session!.ReleaseFailedPlacement(id);Schedule();continue;}

@@ -11,6 +11,70 @@ public sealed class TilingPlacementTests
 {
     [DllImport("user32.dll",EntryPoint="GetWindowLongPtrW")] private static extern IntPtr GetWindowLongPtr(IntPtr h,int index);
     [Fact]
+    public async Task DelayedOwnMinimizeEventCannotMinimizeAnAlreadyRestoredWindow()
+    {
+        using var fixture=new BusyWindow();long id=fixture.Handle.ToInt64();
+        using var session=new NativeTilingSession {DiagnosticWindows=new HashSet<long>{id}};
+        var info=new WindowInfo(id,Environment.ProcessId,null,null,"Owned delayed event fixture","STATIC",false);
+        session.Reconcile(new[]{info},0);var mon=FloatingDock.Windows.Display.MonitorHelper.Primary()!;
+        session.SwitchWorkspace(2,mon.DeviceName);await Task.Delay(100);
+        session.SwitchWorkspace(1,mon.DeviceName);await Task.Delay(100);
+        Assert.False(session.ObserveNativeMinimize(id));
+        Assert.False(session.IsUserMinimized(id));
+    }
+    [Fact]
+    public async Task SwitchingAwayWhileRestoreIsQueuedKeepsTheWindowOnItsWorkspace()
+    {
+        using var fixture=new BusyWindow();long id=fixture.Handle.ToInt64();
+        using var session=new NativeTilingSession {DiagnosticWindows=new HashSet<long>{id}};
+        var info=new WindowInfo(id,Environment.ProcessId,null,null,"Owned queued workspace fixture","STATIC",false);
+        session.Reconcile(new[]{info},0);var mon=FloatingDock.Windows.Display.MonitorHelper.Primary()!;
+        session.SwitchWorkspace(2,mon.DeviceName);await Task.Delay(100);session.ObserveNativeMinimize(id);
+        fixture.Block();
+        try {session.SwitchWorkspace(1,mon.DeviceName);session.SwitchWorkspace(2,mon.DeviceName);}
+        finally {fixture.Release();}
+        await Task.Delay(150);session.Reconcile(new[]{info},0);await Task.Delay(150);
+        Assert.False(session.CanFollowActivation(id));
+        Assert.DoesNotContain(id,session.Targets().Keys);
+        session.SwitchWorkspace(1,mon.DeviceName);await Task.Delay(100);session.Reconcile(new[]{info},0);
+        Assert.Contains(id,session.Targets().Keys);
+    }
+    [Fact]
+    public async Task ExplicitMinimizeSurvivesATrackerPassWhileItsOwnerIsBusy()
+    {
+        using var fixture=new BusyWindow();long id=fixture.Handle.ToInt64();
+        using var session=new NativeTilingSession {DiagnosticWindows=new HashSet<long>{id}};
+        var info=new WindowInfo(id,Environment.ProcessId,null,null,"Owned pending minimize fixture","STATIC",false);
+        session.Reconcile(new[]{info},0);fixture.Block();
+        try{Assert.True(session.ObserveNativeMinimize(id,userRequest:true));session.Reconcile(new[]{info},0);Assert.True(session.IsUserMinimized(id));Assert.DoesNotContain(id,session.Targets().Keys);}
+        finally{fixture.Release();}
+        session.ActivateWindow(id);session.Reconcile(new[]{info},0);Assert.Contains(id,session.Targets().Keys);
+    }
+    [Fact]
+    public async Task ExplicitActivationMovesAUserMinimizedWindowAndRestoresItsTile()
+    {
+        using var first=new BusyWindow();using var second=new BusyWindow();long a=first.Handle.ToInt64(),b=second.Handle.ToInt64();
+        using var session=new NativeTilingSession {DiagnosticWindows=new HashSet<long>{a,b}};
+        WindowInfo Info(BusyWindow w)=>new(w.Handle.ToInt64(),Environment.ProcessId,null,null,"Owned two workspace fixture","STATIC",false);
+        var mon=FloatingDock.Windows.Display.MonitorHelper.Primary()!;
+        session.Reconcile(new[]{Info(first)},0);session.SwitchWorkspace(2,mon.DeviceName);await Task.Delay(100);
+        session.Reconcile(new[]{Info(first),Info(second)},0);ShowWindow(second.Handle,6);await Task.Delay(100);session.ObserveNativeMinimize(b);
+        session.SwitchWorkspace(1,mon.DeviceName);await Task.Delay(100);ShowWindow(first.Handle,6);session.ObserveNativeMinimize(a,userRequest:true);
+        Assert.True(session.ActivateWindow(b));await Task.Delay(100);session.Reconcile(new[]{Info(first),Info(second)},0);
+        Assert.Equal(1,session.ActiveWorkspace(mon.DeviceName));Assert.Contains(b,session.Targets().Keys);Assert.DoesNotContain(a,session.Targets().Keys);
+        Assert.False(session.IsUserMinimized(b));Assert.True(session.IsUserMinimized(a));
+    }
+    [Fact]
+    public async Task OurFullMonitorPlacementDoesNotAccidentallyFloatTheOnlyTile()
+    {
+        using var fixture=new BusyWindow();long id=fixture.Handle.ToInt64();
+        using var session=new NativeTilingSession {DiagnosticWindows=new HashSet<long>{id},Gap=0,OuterGap=0};
+        var info=new WindowInfo(id,Environment.ProcessId,null,null,"Owned zero gap fixture","STATIC",false);
+        session.Reconcile(new[]{info},0);var bounds=FloatingDock.Windows.Display.MonitorHelper.Primary()!.Bounds;
+        Assert.True(session.Move(id,new(bounds.Left,bounds.Top,bounds.Width,bounds.Height)));await Task.Delay(100);
+        session.Reconcile(new[]{info},0);Assert.Contains(id,session.Targets().Keys);
+    }
+    [Fact]
     public async Task BusyOwnerDoesNotBlockOpacityAcquisitionOrRestoration()
     {
         using var fixture=new BusyWindow();long original=GetWindowLongPtr(fixture.Handle,-20).ToInt64();

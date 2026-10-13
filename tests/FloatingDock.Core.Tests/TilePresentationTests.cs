@@ -42,6 +42,16 @@ public sealed class TilePresentationTests
         }
         Assert.Equal(target,resumed.Sample(310).Bounds);Assert.True(resumed.Complete(310));
     }
+    [Fact] public void ReversedReflowBrakesBeforeChangingDirectionInsteadOfResettingVelocity()
+    {
+        var initial=new TileMotion(new(0,0,500,400),new(800,500,500,400),0,220);
+        var current=initial.Sample(70);var target=new TileRect(-300,-200,500,400);
+        var reversed=new TileMotion(current.Bounds,target,70,220,current.VelocityX,current.VelocityY);
+        Assert.Equal(current.Bounds,reversed.Sample(70).Bounds);
+        Assert.Equal(current.VelocityX,reversed.Sample(70).VelocityX,10);
+        Assert.Equal(current.VelocityY,reversed.Sample(70).VelocityY,10);
+        Assert.Equal(target,reversed.Sample(290).Bounds);
+    }
     [Fact] public void UntiledMotionStartsGentlyAndOnlyShrinksTowardsTheIcon()
     {
         var from=new TileRect(1500,80,960,600);var dock=new TileRect(20,600,40,40);

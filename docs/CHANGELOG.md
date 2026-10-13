@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.4.10
+
+- Pick one live window and decide repeat-click minimization before preparing its workspace. Restoring or focusing a target during preparation cannot immediately minimize it again; other windows of an app remain in their workspaces.
+- Separate pending user minimization from workspace hiding. Preserve user intent while async native operations are queued, reassert workspace visibility after late operations, and ignore minimize acknowledgements for windows that are already restored.
+- Explicit activation restores a user-minimized tile and clears its startup-placement wait. Include held returning windows during tracker gaps, clear completed restore bookkeeping, prune forgotten focus references, and avoid treating our own full-monitor zero-gap placement as application fullscreen.
+- Start reflow representations without waiting for the application's final native placement, use a minimum 220 ms reflow, and retain bounded momentum when reversing direction. Snapshot minimized state from the actual HWND rather than a delayed event's name.
+- Add regressions for queued workspace restore, stale native acknowledgements, pending user minimize, cross-workspace activation, zero-gap placement, grouped app selection, both activation policies, rapid switching, tile drop and reversed reflow. Two native regressions were confirmed failing before the fixes.
+
 ## 1.4.9
 
 - Give tiled minimize and restore a curved, finite dock path with coordinated scaling. Restore unfolds the actual application image with a fast damped settling curve; visibility transitions use the dock animation duration (300/336 ms with the current 240 ms icon duration) instead of a short reflow fade.
