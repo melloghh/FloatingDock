@@ -114,6 +114,21 @@ internal sealed class MenuBarWindow : IDisposable
 {
     [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern short GetAsyncKeyState(int key);
     internal Button SearchButtonForDiagnostics=>_searchButton;
+    internal int ButtonPointerEntriesForDiagnostics { get; private set; }
+    internal void UseStockButtonsForDiagnostics(bool stock)
+    {
+        void Visit(DependencyObject node)
+        {
+            if(node is Button button)
+            {
+                if(stock)button.ClearValue(FrameworkElement.StyleProperty);
+                else button.Style=(Style)Application.Current.Resources["MenuBarButtonStyle"];
+                return;
+            }
+            for(int i=0;i<VisualTreeHelper.GetChildrenCount(node);i++)Visit(VisualTreeHelper.GetChild(node,i));
+        }
+        Visit(_root);
+    }
     internal bool SearchTogglePointerActive
     {
         get
@@ -218,6 +233,8 @@ internal sealed class MenuBarWindow : IDisposable
     private Button ActionButton(UIElement content,string tip,Action action)
     {
         var b=new Button { Content=content,Height=24,MinWidth=28,VerticalAlignment=VerticalAlignment.Center,Padding=new Thickness(7,0,7,0),BorderThickness=new Thickness(0),Background=new SolidColorBrush(Colors.Transparent),Foreground=new SolidColorBrush(Colors.White),CornerRadius=new CornerRadius(8) };
+        b.Style=(Style)Application.Current.Resources["MenuBarButtonStyle"];
+        if(Program.IsSmokeTest)b.PointerEntered+=(_,_)=>ButtonPointerEntriesForDiagnostics++;
         ToolTipService.SetToolTip(b,L.Text(tip));b.Click+=(_,_)=> { if(!IgnoreRealCursorForDiagnostics){if(b!=_trayButton)CloseTray();action();} };return b;
     }
     internal Task OpenTrayForDiagnostics()=>OpenTrayAsync();

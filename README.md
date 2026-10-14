@@ -88,7 +88,7 @@ GitHub Actions builds and tests the Windows x64 project and uploads the portable
 
 See [Architecture](docs/ARCHITECTURE.md), [Icon-pack format](docs/ICON-PACKS.md) and [Changelog](docs/CHANGELOG.md).
 
-Version **1.5.1** includes the 1.4.x fixes for workspace restoration, browser activation, menu animation, search toggling and tray positioning. Local desktop suites cover previews, language changes, Launchpad, search cancellation, owned-window tiling and actual Zen restoration. File search caches personal filenames; bounded snapshots may return partial results. Tray compatibility depends on Explorer accessibility and Windows icon snapshots, which may lag a state change. Testing across multiple physical monitors and DPI combinations is limited. Launchpad has no folders or pages.
+Version **1.5.2** includes the 1.4.x fixes for workspace restoration, browser activation, menu animation, search toggling and tray positioning. Local desktop suites cover previews, language changes, Launchpad, search cancellation, owned-window tiling and actual Zen restoration. File search caches personal filenames; bounded snapshots may return partial results. Tray compatibility depends on Explorer accessibility and Windows icon snapshots, which may lag a state change. Testing across multiple physical monitors and DPI combinations is limited. Launchpad has no folders or pages.
 
 For built-in window management, see [tiling controls and limits](docs/TILING.md).
 

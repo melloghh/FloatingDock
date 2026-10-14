@@ -1,4 +1,4 @@
-FloatingDock 1.5.1 reduces CPU work in top-bar menu animations and avoids repeated native buffer creation during tiling transitions.
+FloatingDock 1.5.2 fixes the menu animation regression in 1.5.1 and reduces CPU usage when moving the pointer across top-bar buttons.
 
 ### Download
 
@@ -10,11 +10,10 @@ FloatingDock 1.5.1 reduces CPU work in top-bar menu animations and avoids repeat
 
 ### Highlights
 
-- Menu scale, slide and fade run on the compositor; native glass boundaries use a bounded synchronization clock. Animations, rapid reversal and reduced motion are preserved.
-- Duplicate glass updates and full-window repaint requests are removed from the animation loop.
-- Tiling reuses transparent destination buffers, skips identical thumbnail updates and releases its cache on disable/shutdown.
-- In a repeatable local workload on a 12-thread machine, twelve menu cycles used about 47% less process CPU time (3266 → 1734 ms); six owned-window openings used about 17% less (750 → 625 ms). Results depend on hardware and workload; the window benchmark includes fixture rendering.
-- Desktop checks cover menu clipping, search toggling, tiled minimize/restore, rapid reversal, bounded buffer reuse and restored source visibility.
+- Menu content and native glass boundaries share one animation clock again, including rapid reversal and reduced motion.
+- Top-bar buttons use lightweight local hover and pressed highlights, retaining clicks, keyboard focus, tooltips and workspace selection.
+- A local A/B workload with native mouse input measured about 2.79% → 1.97% total-machine CPU for stock versus lightweight buttons in one process on a 12-thread machine. Results depend on hardware and workload.
+- Tiling buffer reuse from 1.5.1 is retained. Desktop checks now include actual pointer movement and intermediate menu poses as well as search toggling and native glass clipping.
 
 ### Getting started
 
@@ -30,4 +29,4 @@ Core and native Windows tests run in GitHub Actions before tagged releases are p
 
 ---
 
-**По-русски:** В 1.5.1 снижена нагрузка анимаций верхней панели и повторное создание буферов тайлинга. В локальном сравнении расход CPU уменьшился примерно на 47% для меню и на 17% для тестового сценария окон; результат зависит от устройства и действий. Setup устанавливает приложение для текущего пользователя; Portable нужно распаковать целиком. Настройки и иконки сохраняются. Сборка пока без цифровой подписи.
+**По-русски:** В 1.5.2 исправлена регрессия анимаций меню из 1.5.1 и снижена нагрузка при движении курсора по кнопкам верхней панели. В локальном A/B-сравнении CPU при активном движении мыши уменьшился с 2,79% до 1,97%; результат зависит от устройства и действий. Настройки и иконки сохраняются. Setup и Portable пока без цифровой подписи.

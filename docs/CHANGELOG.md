@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.5.2
+
+- Fix the 1.5.1 menu-motion regression: transform, opacity and native glass clipping use one presentation sample at the configured frame rate. Reversals continue from the last presented pose; native region changes request repaint again.
+- Give top-bar buttons a small template with local hover/pressed highlights, preserving Button clicks, focus, tooltips and workspace selection while avoiding default background transitions on pointer crossings.
+- Add real mouse movement across the bar to the opt-in CPU workload and assert intermediate menu poses and content/glass synchronization. A local A/B workload using native mouse input measured about 2.79% to 1.97% total-machine CPU for stock versus lightweight buttons in one process on a 12-thread machine; hardware and workloads vary.
+- Keep the bounded tiling buffer reuse and redundant backdrop-write suppression from 1.5.1.
+
 ## 1.5.1
 
 - Run top-bar menu scale, translation and opacity on the compositor. Bound native glass-clip synchronization to 60 Hz while preserving compositor motion at display refresh rate, sampled damped curves, reversal, and reduced motion.

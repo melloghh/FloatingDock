@@ -44,13 +44,20 @@ internal static partial class RuntimeSmoke
                 uint outside=GetPixel(dc,bounds.Left+bounds.Width/2,bounds.Bottom-8);NativeMethods.ReleaseDC(IntPtr.Zero,dc);
                 Check(outside==backgroundColour,"Glass leaked outside the animated menu boundary: "+kind);
                 if(kind=="main")OwnWindowCapture.Capture(hwnd).Save(Path.Combine(app.Paths.Root,"menu-opening.png"));
-                await Task.Delay(320);
+                var poses=new HashSet<float>();
+                for(int frame=0;frame<24;frame++)
+                {
+                    Check(motion.VisualMatchesProgressForDiagnostics,"Menu content and native glass use different presentation samples: "+kind);
+                    poses.Add(motion.Progress);await Task.Delay(14);
+                }
+                Check(poses.Count>=5,"The menu did not present enough intermediate opening poses: "+kind);
                 var full=MenuRegion148(hwnd);NativeMethods.GetWindowRect(hwnd,out bounds);
                 Check(!motion.IsRunning&&motion.Progress==1&&full.Width>=bounds.Width&&full.Height>=bounds.Height,"Menu animation did not settle at its usable size: "+kind);
                 if(kind=="main")OwnWindowCapture.Capture(hwnd).Save(Path.Combine(app.Paths.Root,"menu-open.png"));
                 var context=SynchronizationContext.Current;SynchronizationContext.SetSynchronizationContext(null);
                 try{bar.Menus.Close();}finally{SynchronizationContext.SetSynchronizationContext(context);}
                 await Task.Delay(65);var closing=MenuRegion148(hwnd);
+                Check(motion.VisualMatchesProgressForDiagnostics,"Closing content and native glass are out of sync: "+kind);
                 Check(WindowStyler.IsVisible(hwnd)&&motion.IsRunning&&closing.Width<full.Width&&closing.Height<full.Height,"The whole menu did not fold towards the panel on close: "+kind);
                 if(kind=="main")OwnWindowCapture.Capture(hwnd).Save(Path.Combine(app.Paths.Root,"menu-closing.png"));
                 await Task.Delay(180);Check(!bar.Menus.SurfaceVisible&&!WindowStyler.IsVisible(hwnd)&&!motion.IsRunning,"Close left a surface or frame clock alive: "+kind);
