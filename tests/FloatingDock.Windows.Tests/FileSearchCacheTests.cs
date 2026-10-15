@@ -2,6 +2,7 @@ using FloatingDock.Windows.Shell;
 using Xunit;
 
 namespace FloatingDock.Windows.Tests;
+[Collection("FileSearch cache")]
 public sealed class FileSearchCacheTests
 {
     [Fact] public void CacheIsReusedAcrossQueriesAndRefreshIsExplicit()
