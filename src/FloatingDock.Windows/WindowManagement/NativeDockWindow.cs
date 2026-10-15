@@ -22,6 +22,9 @@ public sealed class NativeDockWindow : IDisposable
     public event Action? CloseRequested;
     public event Action<Exception>? InputFailed;
     public int PointerMessages { get; private set; }
+    /// <summary>Optional accessible XAML host for an input-only surface.</summary>
+    public IntPtr AccessibilityHost { get; set; }
+    [DllImport("user32.dll")] private static extern IntPtr SendMessage(IntPtr hwnd,uint message,IntPtr wParam,IntPtr lParam);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct Tracking { public uint Size, Flags; public IntPtr Window; public uint HoverTime; }
@@ -99,6 +102,8 @@ public sealed class NativeDockWindow : IDisposable
         }
         switch (message)
         {
+            case 0x3d when AccessibilityHost!=IntPtr.Zero: return SendMessage(AccessibilityHost,message,wParam,lParam); // WM_GETOBJECT
+            case >=0x100 and <=0x109 when AccessibilityHost!=IntPtr.Zero: return SendMessage(AccessibilityHost,message,wParam,lParam);
             case 0x10: CloseRequested?.Invoke(); return IntPtr.Zero; // restore taskbar through application shutdown
             case 0x14: return new IntPtr(1); // no opaque GDI background
             case 0x20 when (lParam.ToInt64() & 0xffff) == 1:

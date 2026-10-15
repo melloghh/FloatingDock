@@ -41,7 +41,7 @@ internal static partial class RuntimeSmoke
                 NativeMethods.GetWindowRect(bar.Handle,out var bounds);
                 int y=bounds.Top+bounds.Height/2;
                 SetCursorPos(bounds.Right-160,y);await Task.Delay(300);
-                Check(NativeMethods.GetAncestor(WindowFromPoint(new POINT{X=bounds.Right-160,Y=y}),NativeMethods.GA_ROOT)==bar.Handle,"The bar hover test is covered by another window.");
+                Check(NativeMethods.GetAncestor(WindowFromPoint(new POINT{X=bounds.Right-160,Y=y}),NativeMethods.GA_ROOT)==bar.InputHandle,"The bar hover test is covered by another window.");
                 async Task Hover()
                 {
                     int entries=bar.ButtonPointerEntriesForDiagnostics;
@@ -50,19 +50,16 @@ internal static partial class RuntimeSmoke
                     while(time.ElapsedMilliseconds<3500)
                     {
                         int x=bounds.Right-310+(int)(280*(.5+.49*Math.Sin(time.ElapsedMilliseconds/170.0)));
-                        Check(NativeMethods.GetAncestor(WindowFromPoint(new POINT{X=x,Y=y}),NativeMethods.GA_ROOT)==bar.Handle,"Hover left the actual bar surface.");
+                        Check(NativeMethods.GetAncestor(WindowFromPoint(new POINT{X=x,Y=y}),NativeMethods.GA_ROOT)==bar.InputHandle,"Hover left the actual bar surface.");
                         var move=new INPUT{U=new(){mi=new(){dx=(int)((x-left+.5)*65536/width),dy=(int)((y-top+.5)*65536/height),dwFlags=0xC001}}};
                         Check(NativeMethods.SendInput(1,new[]{move},Marshal.SizeOf<INPUT>())==1,"Real mouse movement could not be injected.");
                         await Task.Delay(8);
                     }
-                    Check(bar.ButtonPointerEntriesForDiagnostics-entries>=12,"Native moves did not reach the actual XAML button states.");
+                    Check(bar.ButtonPointerEntriesForDiagnostics-entries>=12,"Native moves did not reach the bar button hit targets.");
                 }
-                bar.UseStockButtonsForDiagnostics(true);await Task.Delay(500);
-                await Measure("panelStockButtonHover",Hover);
-                bar.UseStockButtonsForDiagnostics(false);await Task.Delay(500);
                 await Measure("panelButtonHover",Hover);
             }
-            finally {bar.UseStockButtonsForDiagnostics(false);SetCursorPos(cursor.X,cursor.Y);dock.IgnoreRealCursorForDiagnostics=true;bar.IgnoreRealCursorForDiagnostics=true;}
+            finally {SetCursorPos(cursor.X,cursor.Y);dock.IgnoreRealCursorForDiagnostics=true;bar.IgnoreRealCursorForDiagnostics=true;}
             bar.OpenMenuForDiagnostics("main");await Task.Delay(350);
             await Measure("menuIdle",()=>Task.Delay(2500));bar.Menus.Close();await Task.Delay(220);
             await Measure("menuInteractions",async()=>

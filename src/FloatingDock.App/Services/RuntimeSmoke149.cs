@@ -25,7 +25,7 @@ internal static partial class RuntimeSmoke
             async Task Click(int hold=35)
             {
                 SetCursorPos(x,y);
-                Check(NativeMethods.GetAncestor(WindowFromPoint(new POINT{X=x,Y=y}),NativeMethods.GA_ROOT)==bar.Handle,"The search test button is covered by another window.");
+                Check(NativeMethods.GetAncestor(WindowFromPoint(new POINT{X=x,Y=y}),NativeMethods.GA_ROOT)==bar.InputHandle,"The search test button is covered by another window.");
                 bar.IgnoreRealCursorForDiagnostics=false;
                 var down=new INPUT{U=new(){mi=new(){dwFlags=2}}};
                 var up=new INPUT{U=new(){mi=new(){dwFlags=4}}};

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.5.3
+
+- Route top-bar pointer input through a transparent native window with compositor hover highlights. Cache button geometry until layout changes, avoiding XAML pointer processing during mouse movement.
+- Preserve menu animation timing, native glass clipping, clicks, accessible button providers, keyboard handling, tooltips, search toggling, workspace controls and auto-hide behavior.
+- Validate all seven menus with real mouse clicks, tooltip display, workspace switching, capture visibility and hide/reveal alignment. Keep internal input-driver CPU separate from product measurements.
+- An external input driver comparing public 1.5.2 against this implementation measured approximately 3.2–3.7% → 0.6–0.8% total-machine CPU while moving across the bar on a 12-thread Windows 11 machine. Results vary with hardware and workload.
+
 ## 1.5.2
 
 - Fix the 1.5.1 menu-motion regression: transform, opacity and native glass clipping use one presentation sample at the configured frame rate. Reversals continue from the last presented pose; native region changes request repaint again.

@@ -28,6 +28,10 @@ internal static partial class RuntimeSmoke
         string? error = null;
         try
         {
+            if(Environment.GetCommandLineArgs().Contains("--test-only-hover154"))
+            {await CheckHover154Async(app,checks);Check(Program.UiFailureCount==0,"XAML failure in real pointer checks.");success=true;return;}
+            if(Environment.GetCommandLineArgs().Contains("--test-only-input154"))
+            {await CheckBarInput154Async(app,checks);Check(Program.UiFailureCount==0,"XAML failure in native bar interaction checks.");success=true;return;}
             if(Environment.GetCommandLineArgs().Contains("--test-only-perf153"))
             {await CheckPerformance153Async(app,checks);Check(Program.UiFailureCount==0,"XAML failure in performance checks.");success=true;return;}
             if(Environment.GetCommandLineArgs().Contains("--test-only-browser152"))

@@ -115,20 +115,14 @@ internal sealed class MenuBarWindow : IDisposable
     [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern short GetAsyncKeyState(int key);
     internal Button SearchButtonForDiagnostics=>_searchButton;
     internal int ButtonPointerEntriesForDiagnostics { get; private set; }
-    internal void UseStockButtonsForDiagnostics(bool stock)
-    {
-        void Visit(DependencyObject node)
-        {
-            if(node is Button button)
-            {
-                if(stock)button.ClearValue(FrameworkElement.StyleProperty);
-                else button.Style=(Style)Application.Current.Resources["MenuBarButtonStyle"];
-                return;
-            }
-            for(int i=0;i<VisualTreeHelper.GetChildrenCount(node);i++)Visit(VisualTreeHelper.GetChild(node,i));
-        }
-        Visit(_root);
-    }
+    internal int PointerMovesForDiagnostics { get; private set; }
+    internal IntPtr InputHandle=>_pointerSurface?.Handle??Handle;
+    internal IntPtr TooltipHandleForDiagnostics=>_pointerSurface.TipHandle;
+    internal string TooltipStateForDiagnostics=>$"{_pointerSurface.TipDiagnostic}, pointed={_pointed is not null}, menu={_menuOpen}, timer={_tooltipTimer.IsRunning}";
+    internal int XamlPointerMovesForDiagnostics { get; private set; }
+    internal IReadOnlyList<Button> WorkspaceButtonsForDiagnostics=>_workspaceButtons;
+    internal Button ButtonForDiagnostics(string kind)=>kind switch {"main"=>_mainButton,"sound"=>_soundButton,"network"=>_networkButton,"language"=>_languageButton,"calendar"=>_clockButton,"media"=>_mediaButton,"tray"=>_trayButton,"search"=>_searchButton,_=>throw new ArgumentException("Unknown bar action")};
+    internal void SetHitTestingForDiagnostics(bool enabled)=>_root.IsHitTestVisible=enabled;
     internal bool SearchTogglePointerActive
     {
         get
@@ -144,6 +138,14 @@ internal sealed class MenuBarWindow : IDisposable
     internal const int TopInsetDip=4,SideInsetDip=12,BottomInsetDip=4;
     private readonly DockApp _app=DockApp.Current;
     private readonly Window _window;
+    private readonly MenuBarPointerSurface _pointerSurface;
+    private readonly List<(Button Button,Action Action,string Tip)> _actions=new();
+    private readonly List<(Button Button,global::Windows.Foundation.Rect Bounds)> _hitTargets=new();
+    private readonly DispatcherQueueTimer _tooltipTimer;
+    private Button? _pointed,_pressed;
+    private bool _hitTargetsDirty=true;
+    private bool _inputReady;
+    private double _hitScale=1;
     private readonly Grid _root=new() { RequestedTheme=ElementTheme.Dark, Background=new SolidColorBrush(ColorHelper.FromArgb(96,18,21,27)), CornerRadius=new CornerRadius(14), BorderThickness=new Thickness(0) };
     private readonly TextBlock _name=new() { Text=L.Text("Desktop"),FontSize=13,FontWeight=Microsoft.UI.Text.FontWeights.SemiBold,VerticalAlignment=VerticalAlignment.Center,TextTrimming=TextTrimming.CharacterEllipsis,MaxWidth=420 };
     private readonly TextBlock _clock=new() { FontSize=13,VerticalAlignment=VerticalAlignment.Center };
@@ -221,8 +223,15 @@ internal sealed class MenuBarWindow : IDisposable
         Grid.SetColumn(right,2);_root.Children.Add(right);
         _window=new Window { Title="FloatingDock menu bar",Content=_root,SystemBackdrop=new GlassBackdrop() };
         WindowSetup.MakeBorderless(_window);Handle=WindowSetup.Hwnd(_window);WindowStyler.MakeOverlayWindow(Handle,noActivate:true);
+        _pointerSurface=new MenuBarPointerSurface(Handle);_pointerSurface.Pointer+=OnBarPointer;
+        _tooltipTimer=_app.UiQueue.CreateTimer();_tooltipTimer.IsRepeating=false;_tooltipTimer.Interval=TimeSpan.FromMilliseconds(650);
+        _tooltipTimer.Tick+=(_,_)=>ShowBarTooltip();
+        _root.LayoutUpdated+=(_,_)=>_hitTargetsDirty=true;
+        _root.Loaded+=(_,_)=>{_inputReady=true;_hitTargetsDirty=true;};
+        _root.Unloaded+=(_,_)=>_inputReady=false;
         _root.PointerEntered+=(_,_)=> { if(IgnoreRealCursorForDiagnostics)return;_hover=true;Reveal(); };
         _root.PointerExited+=(_,_)=> { if(IgnoreRealCursorForDiagnostics)return;_hover=false;_lastHover=DateTime.UtcNow; };
+        if(Program.IsSmokeTest)_root.PointerMoved+=(_,_)=>XamlPointerMovesForDiagnostics++;
         _languageTimer=_app.UiQueue.CreateTimer();_languageTimer.Interval=TimeSpan.FromMilliseconds(75);_languageTimer.Tick+=(_,_)=>RefreshLanguage();
         _clockTimer=_app.UiQueue.CreateTimer();_clockTimer.Interval=TimeSpan.FromSeconds(1);_clockTimer.Tick+=(_,_)=>RefreshClock();
         _edgeTimer=_app.UiQueue.CreateTimer();_edgeTimer.Interval=TimeSpan.FromMilliseconds(100);_edgeTimer.Tick+=(_,_)=>CheckEdge();
@@ -235,9 +244,79 @@ internal sealed class MenuBarWindow : IDisposable
         var b=new Button { Content=content,Height=24,MinWidth=28,VerticalAlignment=VerticalAlignment.Center,Padding=new Thickness(7,0,7,0),BorderThickness=new Thickness(0),Background=new SolidColorBrush(Colors.Transparent),Foreground=new SolidColorBrush(Colors.White),CornerRadius=new CornerRadius(8) };
         b.Style=(Style)Application.Current.Resources["MenuBarButtonStyle"];
         if(Program.IsSmokeTest)b.PointerEntered+=(_,_)=>ButtonPointerEntriesForDiagnostics++;
-        ToolTipService.SetToolTip(b,L.Text(tip));b.Click+=(_,_)=> { if(!IgnoreRealCursorForDiagnostics){if(b!=_trayButton)CloseTray();action();} };return b;
+        string tooltip=L.Text(tip);ToolTipService.SetToolTip(b,tooltip);
+        _actions.Add((b,action,tooltip));
+        b.Click+=(_,_)=> { if(!IgnoreRealCursorForDiagnostics){HideBarTooltip();if(b!=_trayButton)CloseTray();action();} };return b;
+    }
+    private void HideBarTooltip(){_tooltipTimer?.Stop();_pointerSurface?.HideTip();}
+    private void ShowBarTooltip()
+    {
+        if(_disposed||_capture||_suspended||_pointed is null||_pressed is not null||_menuOpen)return;
+        if(NativeMethods.GetCursorPos(out var cursor)&&NativeMethods.GetWindowRect(InputHandle,out var bounds))
+        {
+            var target=HitButton(cursor.X-bounds.Left,cursor.Y-bounds.Top);
+            if(target!=_pointed){PointAt(target);return;}
+        }
+        _pointerSurface.ShowTip(_actions.First(a=>a.Button==_pointed).Tip,_hitTargets.First(t=>t.Button==_pointed).Bounds,_hitScale);
+    }
+    private Button? HitButton(int x,int y)
+    {
+        if(_hitTargetsDirty)
+        {
+            _hitScale=_root.XamlRoot.RasterizationScale;
+            _hitTargets.Clear();
+            foreach(var action in _actions.Where(a=>a.Button.IsLoaded&&a.Button.Visibility==Visibility.Visible&&a.Button.IsEnabled))
+            {
+                if(_workspaceButtons.Contains(action.Button)&&_workspaces.Visibility!=Visibility.Visible)continue;
+                var p=action.Button.TransformToVisual(_root).TransformPoint(new(0,0));
+                _hitTargets.Add((action.Button,new(p.X,p.Y,action.Button.ActualWidth,action.Button.ActualHeight)));
+            }
+            _hitTargetsDirty=false;
+        }
+        var point=new global::Windows.Foundation.Point(x/_hitScale,y/_hitScale);
+        foreach(var target in _hitTargets)if(target.Bounds.Contains(point))return target.Button;
+        return null;
+    }
+    private void PointAt(Button? button,bool pressed=false)
+    {
+        if(_pointed!=button)
+        {
+            HideBarTooltip();_pointed=button;
+            if(button is not null){if(Program.IsSmokeTest)ButtonPointerEntriesForDiagnostics++;_tooltipTimer.Start();}
+        }
+        if(button is null){_pointerSurface.Highlight(null,_hitScale);return;}
+        var bounds=_hitTargets.First(t=>t.Button==button).Bounds;
+        _pointerSurface.Highlight(bounds,_hitScale,pressed);
+    }
+    private void OnBarPointer(DockPointerEvent pointer)
+    {
+        if(IgnoreRealCursorForDiagnostics||_disposed||!_inputReady)return;
+        if(Program.IsSmokeTest)PointerMovesForDiagnostics++;
+        if(pointer.Kind==DockPointerKind.Leave){_hover=false;_lastHover=DateTime.UtcNow;PointAt(null);return;}
+        if(pointer.Kind==DockPointerKind.Cancel){_pressed=null;PointAt(null);return;}
+        if(!_hover){_hover=true;Reveal();}
+        bool layoutChanged=_hitTargetsDirty;
+        var button=HitButton(pointer.X,pointer.Y);
+        switch(pointer.Kind)
+        {
+            case DockPointerKind.Move:
+                if(button!=_pointed||layoutChanged)PointAt(button,_pressed==button&&button is not null);
+                break;
+            case DockPointerKind.LeftDown:
+                _pressed=button;HideBarTooltip();PointAt(button,button is not null);_tooltipTimer.Stop();_pointerSurface.Capture();break;
+            case DockPointerKind.LeftUp:
+                var pressed=_pressed;_pressed=null;_pointerSurface.Release();PointAt(button);
+                if(button is not null&&button==pressed)
+                {
+                    var peer=new Microsoft.UI.Xaml.Automation.Peers.ButtonAutomationPeer(button);
+                    ((Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)peer.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)).Invoke();
+                }
+                break;
+        }
     }
     internal Task OpenTrayForDiagnostics()=>OpenTrayAsync();
+    private void ShowBar(){WindowStyler.Show(Handle,false);_pointerSurface.Sync(Handle,Monitor.Scale);}
+    private void HideBar(){HideBarTooltip();PointAt(null);WindowStyler.Hide(Handle);_pointerSurface.Sync(Handle,Monitor.Scale);}
     internal bool TrayVisible=>_menus.ActiveKind=="tray"&&_menus.SurfaceVisible;
     private async Task OpenTrayAsync()
     {
@@ -266,8 +345,8 @@ internal sealed class MenuBarWindow : IDisposable
         WindowStyler.SetBounds(Handle,m.Bounds.Left+inset,ShownTop-(int)Math.Round(HideDistance*_hide),Math.Max(100,m.Bounds.Width-2*inset),height);
         WindowStyler.SetRoundedRegion(Handle,Math.Max(100,m.Bounds.Width-2*inset),height,(int)Math.Round(14*m.Scale));
         RefreshClock();
-        if(s.TopBarEnabled) { if(!_capture&&!_suspended&&!(_fullscreen&&_hide>=1))WindowStyler.Show(Handle,false);_clockTimer.Start(); }
-        else { CloseTray();_menus.Close();WindowStyler.Hide(Handle);_clockTimer.Stop();_languageTimer.Stop();_edgeTimer.Stop();_slideTimer.Stop();return; }
+        if(s.TopBarEnabled) { if(!_capture&&!_suspended&&!(_fullscreen&&_hide>=1))ShowBar();_clockTimer.Start(); }
+        else { CloseTray();_menus.Close();HideBar();_clockTimer.Stop();_languageTimer.Stop();_edgeTimer.Stop();_slideTimer.Stop();return; }
         if(s.TopBarAutoHide||_fullscreen) _edgeTimer.Start();else _edgeTimer.Stop();
         UpdateLanguageTimer();Target(!_hover&&!_menuOpen&&(s.TopBarAutoHide||_fullscreen)); // settings changes cancel any prior slide target
     }
@@ -276,9 +355,11 @@ internal sealed class MenuBarWindow : IDisposable
     {
         var settings=_app.Settings.Current;var session=_app.Tiling.Session;
         _workspaces.Visibility=settings.TilingEnabled&&settings.TilingShowWorkspaces&&session is not null&&Monitor.Bounds.Width/Monitor.Scale>=1000?Visibility.Visible:Visibility.Collapsed;
-        if(_workspaces.Visibility==Visibility.Collapsed)return;
+        if(_workspaces.Visibility==Visibility.Collapsed){if(_pointed is not null&&_workspaceButtons.Contains(_pointed))PointAt(null);return;}
         if(_workspaceButtons.Count!=settings.TilingWorkspaces)
         {
+            if(_pointed is not null&&_workspaceButtons.Contains(_pointed))PointAt(null);
+            _actions.RemoveAll(a=>_workspaceButtons.Contains(a.Button));
             _workspaces.Children.Clear();_workspaceButtons.Clear();
             for(int workspace=1;workspace<=settings.TilingWorkspaces;workspace++)
             {
@@ -345,21 +426,21 @@ internal sealed class MenuBarWindow : IDisposable
     {
         if(_capture==hidden)return;_capture=hidden;
         _menus.CaptureActive=hidden;
-        if(hidden) { _slideTimer.Stop();_languageTimer.Stop(); }
+        if(hidden) { _slideTimer.Stop();_languageTimer.Stop();HideBarTooltip();PointAt(null);_hover=false;_pressed=null;_pointerSurface.Release(); }
         else { Target(_targetHidden);UpdateLanguageTimer(); }
     }
     internal void SetSuspended(bool hidden)
     {
         _suspended=hidden;
-        if(hidden) { CloseTray();_app.Palette?.Hide();_menus.Close(immediately:true);WindowStyler.Hide(Handle);_languageTimer.Stop(); }
-        else if(_settings.TopBarEnabled&&!_capture) { WindowStyler.Show(Handle,false);Target(_settings.TopBarAutoHide||_fullscreen);UpdateLanguageTimer(); }
+        if(hidden) { CloseTray();_app.Palette?.Hide();_menus.Close(immediately:true);HideBar();_languageTimer.Stop(); }
+        else if(_settings.TopBarEnabled&&!_capture) { ShowBar();Target(_settings.TopBarAutoHide||_fullscreen);UpdateLanguageTimer(); }
     }
     internal void SetFullscreen(bool fullscreen)
     {
         if(_capture)return;
         if(_fullscreen==fullscreen)return;_fullscreen=fullscreen;
         if(fullscreen){CloseTray();_app.Palette?.Hide();_menus.Close(immediately:true);}
-        else if(_settings.TopBarEnabled&&!_capture&&!_suspended)WindowStyler.Show(Handle,false);
+        else if(_settings.TopBarEnabled&&!_capture&&!_suspended)ShowBar();
         if(_settings.TopBarEnabled) { if(fullscreen||_settings.TopBarAutoHide)_edgeTimer.Start();else _edgeTimer.Stop();Target(fullscreen||_settings.TopBarAutoHide); }
     }
     internal void Reveal() { if(_fullscreen)return;_lastHover=DateTime.UtcNow;Target(false); }
@@ -391,17 +472,19 @@ internal sealed class MenuBarWindow : IDisposable
         long now=System.Diagnostics.Stopwatch.GetTimestamp();
         float dt=(float)Math.Clamp((now-_lastSlideTicks)/(double)System.Diagnostics.Stopwatch.Frequency,0,.1);_lastSlideTicks=now;
         _hide=target>_hide?Math.Min(target,_hide+dt/(_settings.TopBarHideMs/1000f)):Math.Max(target,_hide-dt/(_settings.TopBarShowMs/1000f));
-        Move();UpdateLanguageTimer();if(_hide==target) { _slideTimer.Stop();if(_fullscreen&&_hide>=1)WindowStyler.Hide(Handle); }
+        Move();UpdateLanguageTimer();if(_hide==target) { _slideTimer.Stop();if(_fullscreen&&_hide>=1)HideBar(); }
     }
     private void Move()
     {
         int h=(int)Math.Ceiling(HeightDip*Monitor.Scale);
         float ease=_hide*_hide*(3-2*_hide);
         WindowStyler.Move(Handle,Monitor.Bounds.Left+(int)Math.Round(SideInsetDip*Monitor.Scale),ShownTop-(int)Math.Round(HideDistance*ease));
+        _pointerSurface.Sync(Handle,Monitor.Scale);
     }
     public void Dispose()
     {
-        _disposed=true;CloseTray();_menus.Dispose();NetworkChange.NetworkAvailabilityChanged-=OnNetwork;_clockTimer.Stop();_edgeTimer.Stop();_slideTimer.Dispose();_languageTimer.Stop();_window.Close();
+        _disposed=true;HideBarTooltip();_pointerSurface.Dispose();CloseTray();_menus.Dispose();NetworkChange.NetworkAvailabilityChanged-=OnNetwork;_clockTimer.Stop();_edgeTimer.Stop();_slideTimer.Dispose();_languageTimer.Stop();
+        _window.Close();
     }
 }
 

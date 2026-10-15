@@ -1,4 +1,4 @@
-FloatingDock 1.5.2 fixes the menu animation regression in 1.5.1 and reduces CPU usage when moving the pointer across top-bar buttons.
+FloatingDock 1.5.3 reduces CPU usage when moving the pointer over the top bar while preserving menu animations.
 
 ### Download
 
@@ -10,10 +10,10 @@ FloatingDock 1.5.2 fixes the menu animation regression in 1.5.1 and reduces CPU 
 
 ### Highlights
 
-- Menu content and native glass boundaries share one animation clock again, including rapid reversal and reduced motion.
-- Top-bar buttons use lightweight local hover and pressed highlights, retaining clicks, keyboard focus, tooltips and workspace selection.
-- A local A/B workload with native mouse input measured about 2.79% → 1.97% total-machine CPU for stock versus lightweight buttons in one process on a 12-thread machine. Results depend on hardware and workload.
-- Tiling buffer reuse from 1.5.1 is retained. Desktop checks now include actual pointer movement and intermediate menu poses as well as search toggling and native glass clipping.
+- Native pointer handling and compositor hover highlights avoid XAML input processing while moving over the bar. Button geometry is cached until layout changes.
+- Menu animation timing and glass clipping are preserved, including reversal and reduced motion. Real mouse checks cover all seven menus, second-click dismissal, tooltips, workspace switching and search toggling.
+- An external input driver comparing public 1.5.2 with this implementation measured approximately 3.2–3.7% → 0.6–0.8% total-machine CPU while moving across the bar on a 12-thread Windows 11 machine. Results vary with hardware and workload.
+- Tiling buffer reuse is retained. Settings and custom icons are preserved.
 
 ### Getting started
 
@@ -29,4 +29,4 @@ Core and native Windows tests run in GitHub Actions before tagged releases are p
 
 ---
 
-**По-русски:** В 1.5.2 исправлена регрессия анимаций меню из 1.5.1 и снижена нагрузка при движении курсора по кнопкам верхней панели. В локальном A/B-сравнении CPU при активном движении мыши уменьшился с 2,79% до 1,97%; результат зависит от устройства и действий. Настройки и иконки сохраняются. Setup и Portable пока без цифровой подписи.
+**По-русски:** В 1.5.3 обработка движения мыши по верхней панели перенесена в нативный слой. Анимации меню сохранены. В локальном сравнении с публичной 1.5.2 нагрузка при движении курсора снизилась примерно с 3,2–3,7% до 0,6–0,8%; ввод генерировался отдельным процессом. Результат зависит от устройства и действий. Настройки и иконки сохраняются. Setup и Portable пока без цифровой подписи.
