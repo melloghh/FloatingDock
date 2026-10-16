@@ -86,7 +86,8 @@ internal static partial class RuntimeSmoke
             if(Environment.GetCommandLineArgs().Contains("--test-only-ui141")||unknownBrowser)
             {
                 NativeMethods.ShowWindowAsync(new(playerId),NativeMethods.SW_MINIMIZE);
-                await Wait(()=>NativeMethods.IsIconic(new(playerId))&&app.Tiling.PresentationsForDiagnostics.ContainsKey(playerId),"A user minimize did not animate to the dock.");
+                await Wait(()=>NativeMethods.IsIconic(new(playerId)),"A user minimize did not reach native state.");
+                Check(!app.Tiling.PresentationsForDiagnostics.ContainsKey(playerId),"A native user minimize started a second image.");
                 await Wait(()=>!app.Tiling.Animating&&session.Targets().Count==3,"A user-minimized window continued occupying a tile.");
                 RestoredOpacity();
                 NativeMethods.ShowWindowAsync(new(playerId),NativeMethods.SW_RESTORE);

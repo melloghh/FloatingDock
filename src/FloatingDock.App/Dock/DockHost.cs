@@ -55,7 +55,7 @@ internal sealed class DockHost : IDisposable
 
     public void Start()
     {
-        _app.Msg.AnimationRectProvider = AnimationRectFor;
+        _app.Msg.AnimationRectProvider = CurrentAnimationRectFor;
         _app.Pinned.Changed += OnPinnedChanged;
         _app.Running.Changed += OnRunningChanged;
         _app.Running.NativeWindowChanged += OnNativeWindowChanged;

@@ -85,6 +85,34 @@ public sealed class TilingPlacementTests
         fixture.Release();for(int i=0;i<20&&GetWindowLongPtr(fixture.Handle,-20).ToInt64()!=original;i++)await Task.Delay(20);
         Assert.Equal(original,GetWindowLongPtr(fixture.Handle,-20).ToInt64());
     }
+    [Theory]
+    [InlineData(255,false)]
+    [InlineData(192,true)]
+    public void OpacityLeaseHidesOnlyItsSourceAndRestoresItsOriginalAlpha(byte originalAlpha,bool layered)
+    {
+        using var fixture=new BusyWindow();
+        if(layered)
+        {
+            SetFixtureStyle(fixture.Handle,-20,new(GetWindowLongPtr(fixture.Handle,-20).ToInt64()|0x80000));
+            Assert.True(SetFixtureAlpha(fixture.Handle,0,originalAlpha,2));
+        }
+        long originalStyle=GetWindowLongPtr(fixture.Handle,-20).ToInt64();
+        using(var lease=WindowOpacityLease.TryAcquire(fixture.Handle))
+        {
+            Assert.NotNull(lease);
+            Assert.True(GetFixtureAlpha(fixture.Handle,out _,out byte alpha,out _));
+            Assert.Equal(0,alpha);
+        }
+        Assert.Equal(originalStyle,GetWindowLongPtr(fixture.Handle,-20).ToInt64());
+        if(layered)
+        {
+            Assert.True(GetFixtureAlpha(fixture.Handle,out _,out byte alpha,out _));
+            Assert.Equal(originalAlpha,alpha);
+        }
+    }
+    [DllImport("user32.dll",EntryPoint="SetLayeredWindowAttributes")] private static extern bool SetFixtureAlpha(IntPtr h,uint key,byte alpha,uint flags);
+    [DllImport("user32.dll",EntryPoint="GetLayeredWindowAttributes")] private static extern bool GetFixtureAlpha(IntPtr h,out uint key,out byte alpha,out uint flags);
+    [DllImport("user32.dll",EntryPoint="SetWindowLongPtrW")] private static extern IntPtr SetFixtureStyle(IntPtr h,int index,IntPtr value);
     [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr window,out RECT rect);
     [DllImport("user32.dll",CharSet=CharSet.Unicode)] private static extern IntPtr CreateWindowEx(uint exStyle,string cls,string title,uint style,int x,int y,int width,int height,IntPtr parent,IntPtr menu,IntPtr instance,IntPtr parameter);
     [DllImport("user32.dll")] private static extern bool DestroyWindow(IntPtr window);

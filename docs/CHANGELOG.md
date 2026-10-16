@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.5.5
+
+- Prevent doubled window images during minimization: titlebar/system minimization keeps the native Windows transition instead of starting a second DWM thumbnail after the minimize event. A transition that already owns a hidden source can still finish through the dock.
+- Preserve dock-click and workspace animations. Acquire exclusive animation ownership before hiding the source; fall back to native rendering if Windows rejects it. Restore the original source opacity and layered style after the transition.
+- Resolve native shell animation destinations from the current dock icon geometry instead of a stale remembered click rectangle.
+- Extend desktop regression checks to both titlebar and dock minimization, intermediate rendered frames, separate-process fixtures, delayed acknowledgements and rapid restore. Verify opaque and already-layered sources recover their original opacity.
+
 ## 1.5.4
 
 - Reuse the main menu's controls and measured popup scroll container. Invalidate cached rows when language or the auto-hide selection changes; keep all opening/closing animations and native glass clipping.

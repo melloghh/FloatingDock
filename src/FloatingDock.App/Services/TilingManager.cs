@@ -88,7 +88,12 @@ internal sealed class TilingManager : IDisposable
             // not merely until its short-lived presentation is disposed.
             if(!_minimized.Add(window)){_session?.ObserveNativeMinimize(window);return;}
             if(_presentations.TryGetValue(window,out var existing)&&existing.Hiding){_session?.ObserveNativeMinimize(window);return;}
-            if(managed?_session!.ObserveNativeMinimize(window):_normalBounds.ContainsKey(window))TransitionVisibility(window,false,()=>{},_settings.IconAnimation?_settings.IconAnimationMs:0);
+            if(managed)_session!.ObserveNativeMinimize(window);
+            // Out-of-context WinEvents arrive after Windows has started its
+            // minimize animation. A second thumbnail here duplicates that image.
+            // Only reuse a surface that already owned an invisible source before
+            // minimization; otherwise keep the native animation and shell anchor.
+            if(existing is not null)TransitionVisibility(window,false,()=>{},_settings.IconAnimation?_settings.IconAnimationMs:0);
             if(managed){AnimateLayout();Schedule();}
             return;
         }

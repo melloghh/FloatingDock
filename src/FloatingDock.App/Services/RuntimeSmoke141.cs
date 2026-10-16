@@ -28,16 +28,16 @@ internal static partial class RuntimeSmoke
             var dock=app.Dock.PrimaryWindowForDiagnostics!;dock.SetFullscreenHidden(true,blockEdgeReveal:true);
             var origin=app.Dock.AnimationRectFor(hwnd);Check(origin is not null,"Hidden dock lost its animation destination.");
             NativeMethods.ShowWindowAsync(hwnd,NativeMethods.SW_MINIMIZE);
-            await Wait(()=>app.Tiling.PresentationsForDiagnostics.ContainsKey(id),"Untiled user minimize did not get a dock animation.");
-            await Task.Delay(70);
-            var shown=app.Tiling.PresentationsForDiagnostics[id];var image=OwnWindowCapture.Capture(shown.Handle);NativeMethods.GetWindowRect(shown.Handle,out var viewport);
-            int centerX=(int)shown.Bounds.CenterX-viewport.Left,centerY=(int)shown.Bounds.CenterY-viewport.Top,pixel=(centerY*image.Width+centerX)*4;
-            Check(pixel>=0&&pixel+3<image.Pixels.Length&&image.Pixels[pixel]>90&&image.Pixels[pixel+1]>45,"Untiled minimized thumbnail is empty.");checks["untiledMinimizedThumbnailRendered"]=true;
-            var bounds=new List<TileRect>();
-            while(app.Tiling.Animating){if(app.Tiling.PresentationsForDiagnostics.TryGetValue(id,out var p))bounds.Add(p.Bounds);await Task.Delay(12);}
-            Check(bounds.Distinct().Count()>5&&bounds[^1].Width<100,"Untiled minimize did not shrink to the hidden dock icon.");
-            Check(origin is { } r&&Math.Abs(bounds[^1].CenterX-(r.Left+r.Width/2d))<80&&Math.Abs(bounds[^1].CenterY-(r.Top+r.Height/2d))<80,"Untiled minimize went towards the Windows taskbar.");
-            Check((NativeMethods.GetExStyle(hwnd)&0x80000)==0,"Untiled minimize leaked its opacity lease.");checks["untiledMinimizeWithHiddenDock"]=new{frames=bounds.Distinct().Count(),destination=origin,last=bounds[^1]};
+            await Wait(()=>NativeMethods.IsIconic(hwnd),"Untiled user minimize did not reach native state.");
+            var destination=app.Msg.AnimationRectProvider?.Invoke(hwnd);
+            Check(origin is { } r&&destination is { } d&&r.Left==d.Left&&r.Top==d.Top&&r.Right==d.Right&&r.Bottom==d.Bottom,"Native minimize lost the hidden dock icon destination.");
+            for(int sample=0;sample<25;sample++)
+            {
+                Check(!app.Tiling.PresentationsForDiagnostics.ContainsKey(id),"Untiled native minimization started a second image.");
+                await Task.Delay(12);
+            }
+            Check(NativeMethods.IsIconic(hwnd)&&(NativeMethods.GetExStyle(hwnd)&0x80000)==0,"Native minimize leaked visibility or an opacity lease.");
+            checks["untiledMinimizeWithHiddenDock"]=new{renderer="native",destination,duplicateSurfaces=0};
             NativeMethods.ShowWindowAsync(hwnd,NativeMethods.SW_RESTORE);front.Activate();await Task.Delay(200);dock.SetFullscreenHidden(false);
             app.ToggleSearch();await app.Palette!.SearchForDiagnostics("");Check(app.Palette.ResultCount==0,"Fresh search displayed unsolicited apps.");
             await app.Palette.SearchForDiagnostics("Деинсталлировать");Check(app.Palette.ResultCount==0,"Search included an uninstaller.");app.Palette.Hide();checks["emptyPaletteAndNoiseFilter"]=true;
