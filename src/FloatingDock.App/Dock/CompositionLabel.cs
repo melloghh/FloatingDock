@@ -26,6 +26,19 @@ internal sealed class CompositionLabel : IDisposable
     private double _selectedScale;
     private bool _working, _disposed;
     internal SpriteVisual Visual { get; }
+    internal Vector2 Size { get; private set; }
+    private Vector3 _offset = new(float.NaN);
+    private float _opacity;
+    internal void SetOffset(Vector3 offset)
+    {
+        if (_offset == offset) return;
+        Visual.Offset = offset; _offset = offset;
+    }
+    internal void SetOpacity(float opacity)
+    {
+        if (_opacity == opacity) return;
+        Visual.Opacity = opacity; _opacity = opacity;
+    }
     internal int Rasterizations { get; private set; }
     internal bool IsPreparing => _working;
 
@@ -41,7 +54,7 @@ internal sealed class CompositionLabel : IDisposable
         if (_selectedText == text && _selectedScale == scale && _wanted is not null && _cache.ContainsKey(_wanted)) return true;
         string key = text + "|" + scale.ToString(System.Globalization.CultureInfo.InvariantCulture);
         _wanted = key; _selectedText = text; _selectedScale = scale;
-        if (_cache.TryGetValue(key, out var texture)) { _brush.Surface = texture.Surface; Visual.Size = texture.Size; return true; }
+        if (_cache.TryGetValue(key, out var texture)) { _brush.Surface = texture.Surface; Visual.Size = Size = texture.Size; return true; }
         Prepare(text, scale); return false;
     }
 
@@ -76,7 +89,7 @@ internal sealed class CompositionLabel : IDisposable
                         if (oldest.Key is not null) { _cache.Remove(oldest.Key); oldest.Value.Surface.Dispose(); }
                     }
                     _cache[request.Key] = texture; surface = null; Rasterizations++;
-                    if (_wanted == request.Key) { _brush.Surface = texture.Surface; Visual.Size = texture.Size; }
+                    if (_wanted == request.Key) { _brush.Surface = texture.Surface; Visual.Size = Size = texture.Size; }
                     _invalidate();
                 }
                 catch (Exception ex) { if (!_disposed) DockApp.Current.Log.Warn("label preparation failed: " + ex.Message); }

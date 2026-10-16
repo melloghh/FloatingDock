@@ -38,6 +38,7 @@ internal sealed class DockWindowPreview : IDisposable
     private readonly List<Button> _closeButtons=new();
     private readonly Dictionary<long,(int Width,int Height)> _sourceSizes=new();
     private Window? _window;
+    private IntPtr _hwnd;
     private readonly GlassBackdrop _glass=new();
     private Border? _root;
     private DockEntry? _entry;
@@ -52,7 +53,7 @@ internal sealed class DockWindowPreview : IDisposable
     private string? _dismissedKey;
     private readonly Dictionary<long,bool> _minimized=new();
     internal event Action? VisibilityChanged;
-    internal IntPtr Handle=>_window is null?IntPtr.Zero:WindowSetup.Hwnd(_window);
+    internal IntPtr Handle=>_hwnd;
     internal bool Visible=>Handle!=IntPtr.Zero&&NativeMethods.IsWindowVisible(Handle);
     internal int ThumbnailCount=>_thumbnails.Count;
     internal IReadOnlyList<Button> CloseButtons=>_closeButtons;
@@ -104,6 +105,11 @@ internal sealed class DockWindowPreview : IDisposable
         if(entry is null&&diagnostic)_dismissedKey=null;
         else if(entry is not null&&_dismissedKey==entry.Key)return;
         else if(entry is not null)_dismissedKey=null;
+        // Show validates pending previews at their deadline; the visible timer
+        // checks liveness/minimization. Movement over the same immutable snapshot
+        // only updates its anchor, without duplicating HWND/DWM checks per frame.
+        if(entry is not null&&ReferenceEquals(_entry,entry)&&!_hidePending)
+        { _anchor=anchor;_edge=edge;return; }
         if(entry is null||!entry.Windows.Any(WindowActivator.IsLive))
         {
             if(Visible&&!PointerInside&&!_hidePending){_hidePending=true;_deadline=Stopwatch.GetTimestamp()+Stopwatch.Frequency*3/10;_timer.Interval=TimeSpan.FromMilliseconds(50);_timer.Start();}
@@ -137,6 +143,7 @@ internal sealed class DockWindowPreview : IDisposable
         if(_window is null)
         {
             _window=new Window { Title="FloatingDock window previews",SystemBackdrop=_glass };
+            _hwnd=WindowSetup.Hwnd(_window);
             WindowSetup.MakeBorderless(_window);WindowStyler.MakeOverlayWindow(Handle,noActivate:true);
         }
         ClearThumbnails();

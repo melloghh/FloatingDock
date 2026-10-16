@@ -13,6 +13,7 @@ public sealed class NativeDockWindow : IDisposable
     private static readonly WndProc Proc = WindowProc;
     private static readonly Dictionary<IntPtr, NativeDockWindow> Windows = new();
     private static bool _registered;
+    private static IntPtr _arrowCursor;
     private bool _tracking;
     private bool _releasingCapture;
     public IntPtr Handle { get; private set; }
@@ -40,12 +41,13 @@ public sealed class NativeDockWindow : IDisposable
         var module = NativeMethods.GetModuleHandle(null);
         if (!_registered)
         {
+            _arrowCursor = NativeMethods.LoadCursor(IntPtr.Zero, new IntPtr(32512));
             var cls = new WNDCLASSEX
             {
                 cbSize = Marshal.SizeOf<WNDCLASSEX>(),
                 lpfnWndProc = Marshal.GetFunctionPointerForDelegate(Proc),
                 hInstance = module,
-                hCursor = NativeMethods.LoadCursor(IntPtr.Zero, new IntPtr(32512)),
+                hCursor = _arrowCursor,
                 lpszClassName = ClassName,
             };
             if (NativeMethods.RegisterClassEx(ref cls) == 0) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
@@ -107,8 +109,11 @@ public sealed class NativeDockWindow : IDisposable
             case 0x10: CloseRequested?.Invoke(); return IntPtr.Zero; // restore taskbar through application shutdown
             case 0x14: return new IntPtr(1); // no opaque GDI background
             case 0x20 when (lParam.ToInt64() & 0xffff) == 1:
-                SetCursor(NativeMethods.LoadCursor(IntPtr.Zero, new IntPtr(32512)));
+                SetCursor(_arrowCursor);
                 return new IntPtr(1);
+            case 0x1a: // WM_SETTINGCHANGE: follow system cursor-scheme changes.
+                _arrowCursor = NativeMethods.LoadCursor(IntPtr.Zero, new IntPtr(32512));
+                break;
             case 0x21: // WM_MOUSEACTIVATE: preserve the foreground for normal dock clicks
                 return new IntPtr((NativeMethods.GetExStyle(Handle) & NativeMethods.WS_EX_NOACTIVATE) != 0 ? 3 : 1);
             case 0x100: KeyDown?.Invoke(wParam.ToInt32()); return IntPtr.Zero;

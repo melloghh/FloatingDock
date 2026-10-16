@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.5.4
+
+- Reuse the main menu's controls and measured popup scroll container. Invalidate cached rows when language or the auto-hide selection changes; keep all opening/closing animations and native glass clipping.
+- Cache native preview/menu handles and label dimensions, skip unchanged compositor property writes, and validate unchanged preview snapshots on their existing deadline/lifetime timers instead of every animation frame.
+- Reuse the exact saturated magnification integral and the shared arrow cursor; skip unused native geometry queries and motion calculations during tile hiding. Preserve configured frame rates, durations, curves and artwork.
+- Continue interrupted tile reflows from their last presented bounds, preventing an existing between-frame retarget jump.
+- Verify exact saturated-integral results and menu reuse/invalidation; exercise actual language switches, pointer clicks, menu/search reversals, previews, rendering, minimize/restore and workspaces.
+
 ## 1.5.3
 
 - Route top-bar pointer input through a transparent native window with compositor hover highlights. Cache button geometry until layout changes, avoiding XAML pointer processing during mouse movement.

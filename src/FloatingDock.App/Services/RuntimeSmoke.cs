@@ -28,6 +28,8 @@ internal static partial class RuntimeSmoke
         string? error = null;
         try
         {
+            if(Environment.GetCommandLineArgs().Contains("--test-only-cpu155"))
+            {await CheckCpu155Async(app,checks);Check(Program.UiFailureCount==0,"XAML failure in CPU regression checks.");success=true;return;}
             if(Environment.GetCommandLineArgs().Contains("--test-only-hover154"))
             {await CheckHover154Async(app,checks);Check(Program.UiFailureCount==0,"XAML failure in real pointer checks.");success=true;return;}
             if(Environment.GetCommandLineArgs().Contains("--test-only-input154"))

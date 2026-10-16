@@ -13,6 +13,7 @@ internal sealed class MenuSurfaceMotion : IDisposable
 {
     private readonly IntPtr _hwnd;
     private readonly Microsoft.UI.Composition.Visual _visual;
+    private readonly Microsoft.UI.Composition.CompositionPropertySet _properties;
     private readonly GlassBackdrop _glass;
     private readonly FrameScheduler _clock;
     private readonly float _minX,_minY,_lift;
@@ -24,6 +25,8 @@ internal sealed class MenuSurfaceMotion : IDisposable
     private float _from, _to;
     private Action? _completed;
     private (int L, int T, int R, int B, int Radius)? _clip;
+    private Vector3 _scale = new(float.NaN), _translation = new(float.NaN);
+    private float _opacity = float.NaN;
     internal float Progress { get; private set; }
     internal bool IsRunning => _clock.IsRunning;
     internal (int L, int T, int R, int B, int Radius)? Clip => _clip;
@@ -37,6 +40,7 @@ internal sealed class MenuSurfaceMotion : IDisposable
         _minX=minX;_minY=minY;_lift=lift;_radius=radius;
         ElementCompositionPreview.SetIsTranslationEnabled(root,true);
         _visual=ElementCompositionPreview.GetElementVisual(root);
+        _properties=_visual.Properties;
         _clock=new(action=>DockApp.Current.UiQueue.TryEnqueue(()=>action()),Tick);
     }
 
@@ -49,6 +53,8 @@ internal sealed class MenuSurfaceMotion : IDisposable
 
     internal void Prepare(float progress)
     {
+        // HidePopup may reset this visual outside the motion controller.
+        _scale=new(float.NaN);_translation=new(float.NaN);_opacity=float.NaN;
         Stop();Progress=Math.Clamp(progress,0,1);
         var visual=_visual;
         visual.StopAnimation("Scale");visual.StopAnimation("Opacity");visual.StopAnimation("Translation");
@@ -84,9 +90,10 @@ internal sealed class MenuSurfaceMotion : IDisposable
         if(_width<=0||_height<=0)return;
         float p=Progress,sx=_minX+(1-_minX)*p,sy=_minY+(1-_minY)*p,y=_lift*(1-p);
         var visual=_visual;
-        visual.Scale=new Vector3(sx,sy,1);
-        visual.Properties.InsertVector3("Translation",new Vector3(0,y,0));
-        visual.Opacity=Math.Clamp(p*3,0,1);
+        var scale=new Vector3(sx,sy,1);var translation=new Vector3(0,y,0);float opacity=Math.Clamp(p*3,0,1);
+        if(_scale!=scale){visual.Scale=scale;_scale=scale;}
+        if(_translation!=translation){_properties.InsertVector3("Translation",translation);_translation=translation;}
+        if(_opacity!=opacity){visual.Opacity=opacity;_opacity=opacity;}
         _glass.SetOpacity(Math.Clamp(p*3,0,1));
         int left=(int)Math.Round(_pivot*_dpi*(1-sx));
         int top=Math.Max(0,(int)Math.Round(y*_dpi));

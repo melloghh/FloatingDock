@@ -8,6 +8,7 @@ namespace FloatingDock.Core.Geometry;
 public static class Magnification
 {
     private static readonly float E4 = MathF.Exp(-4f);
+    private static readonly float ErfTwo = Erf(2f);
 
     /// <summary>Bell 0..1: (exp(-4 (t/R)^2) - e^-4) / (1 - e^-4) for |t| &lt; R, 0 beyond.</summary>
     public static float Bell(float t, float radius)
@@ -22,7 +23,10 @@ public static class Magnification
     public static float BellInt(float t, float radius)
     {
         var a = MathF.Min(MathF.Abs(t), radius);
-        var v = (radius * 0.44311346f * Erf(2f * a / radius) - E4 * a) / (1f - E4);
+        // Most icons are outside the hover radius. Its saturated integral is
+        // constant; preserve the same arithmetic without re-evaluating exp/erf.
+        var erf = a == radius ? ErfTwo : Erf(2f * a / radius);
+        var v = (radius * 0.44311346f * erf - E4 * a) / (1f - E4);
         return t < 0 ? -v : v;
     }
 

@@ -36,6 +36,19 @@ public class MagnificationTests
     }
 
     [Fact]
+    public void SaturatedIntegral_PreservesOriginalFloatResults()
+    {
+        float e4=MathF.Exp(-4f);
+        for(int radius=1;radius<=1024;radius++)
+        {
+            float original=(radius*0.44311346f*Magnification.Erf(2f*radius/radius)-e4*radius)/(1f-e4);
+            Assert.Equal(original,Magnification.BellInt(radius,radius));
+            Assert.Equal(original,Magnification.BellInt(radius*3f,radius));
+            Assert.Equal(-original,Magnification.BellInt(-radius*3f,radius));
+        }
+    }
+
+    [Fact]
     public void WarpIsStrictlyIncreasing_SoIconsNeverOverlapOrReorder()
     {
         const float R = 150f, A = 0.9f;

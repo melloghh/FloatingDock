@@ -322,8 +322,9 @@ internal sealed class TilingManager : IDisposable
             var from=new TileRect(current.Left,current.Top,current.Width,current.Height);
             if(showing is not null)from=showing.Surface.Bounds;
             TileMotionSample? sample=showing is {Hiding:false,DockMotion:false}?showing.Motion.Sample(Now):pending?.Sample(Now);
-            if(showing is {Hiding:false,DockMotion:false}&&sample is { } rendered)from=rendered.Bounds;
-            else if(pending is not null&&sample is { } ongoing)from=new(ongoing.Bounds.X,ongoing.Bounds.Y,from.Width,from.Height);
+            // Retarget from the last presented bounds. Sampling ahead here can
+            // visibly jump when the UI thread is between two animation frames.
+            if(showing is null&&pending is not null&&sample is { } ongoing)from=new(ongoing.Bounds.X,ongoing.Bounds.Y,from.Width,from.Height);
             _moves.Remove(id);
             bool opening=_held.TryGetValue(id,out var held)||!_session.HasBeenPlaced(id);
             bool dockReveal=held?.Returning==true||showing is {Hiding:false,DockMotion:true};
@@ -364,16 +365,15 @@ internal sealed class TilingManager : IDisposable
             if(!NativeMethods.IsWindow(new(id))){ReleasePresentation(id);continue;}
             if(!p.Hiding&&_session is null){ReleasePresentation(id);continue;}
             double now=Now;
-            bool atTarget=NativeMethods.GetWindowRect(new(id),out var actual)&&!NativeMethods.IsIconic(new(id))&&Math.Abs(actual.Left-p.Target.X)<=2&&Math.Abs(actual.Top-p.Target.Y)<=2&&Math.Abs(actual.Width-p.Target.Width)<=2&&Math.Abs(actual.Height-p.Target.Height)<=2;
+            bool atTarget=!p.Hiding&&NativeMethods.GetWindowRect(new(id),out var actual)&&!NativeMethods.IsIconic(new(id))&&Math.Abs(actual.Left-p.Target.X)<=2&&Math.Abs(actual.Top-p.Target.Y)<=2&&Math.Abs(actual.Width-p.Target.Width)<=2&&Math.Abs(actual.Height-p.Target.Height)<=2;
             if(!p.Hiding&&!atTarget)
             {
                 if(now-p.Queued>1000){ReleasePresentation(id);_session!.ReleaseFailedPlacement(id);Schedule();continue;}
                 _session!.Move(id,p.Target);
             }
             double t=Math.Clamp((now-p.Started)/Math.Max(1,p.Duration),0,1),ease=t*t*t*(10+t*(-15+6*t));
-            var bounds=p.Motion.Sample(now).Bounds;
-            if(p.DockMotion)bounds=TileDockMotion.Sample(p.From,p.Hiding?TileMinimizeMotion.FitAtDock(p.From,p.Target):p.Target,t,!p.Hiding);
-            else if(p.Hiding)bounds=TileMinimizeMotion.Sample(p.From,p.Target,t,p.GentleStart);
+            var bounds=p.DockMotion?TileDockMotion.Sample(p.From,p.Hiding?TileMinimizeMotion.FitAtDock(p.From,p.Target):p.Target,t,!p.Hiding)
+                :p.Hiding?TileMinimizeMotion.Sample(p.From,p.Target,t,p.GentleStart):p.Motion.Sample(now).Bounds;
             double fade=Math.Clamp((t-.82)/.18,0,1);fade=fade*fade*(3-2*fade);
             double reveal=p.DockMotion?Math.Min(1,t*5):ease;
             byte alpha=(byte)Math.Clamp(p.Hiding?Math.Round(p.FromOpacity*(1-fade)):Math.Round(p.FromOpacity+(255-p.FromOpacity)*reveal),0,255);

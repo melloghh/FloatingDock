@@ -144,7 +144,7 @@ internal sealed class DockWindow : IDisposable
 
         _compositionLabel = new CompositionLabel(_graphics, Invalidate);
         _hoverWatch.Tick+=(_,_)=> { if(_disposed||IgnoreRealCursorForDiagnostics&&_hoverCursorForDiagnostics is null||_diagnosticHover||_dragging||_menuOpen||_kbMode)return;var point=CursorDip();if(point is null||!_m.KeepZone.Contains(point.Value.X,point.Value.Y))EndHover(); };
-        _preview.VisibilityChanged+=()=> { if(_disposed)return;if(_preview.Visible){_labelAlpha=0;_compositionLabel.Visual.Opacity=0;}Invalidate(); };
+        _preview.VisibilityChanged+=()=> { if(_disposed)return;if(_preview.Visible){_labelAlpha=0;_compositionLabel.SetOpacity(0);}Invalidate(); };
         _itemsVisual.Children.InsertAtTop(_compositionLabel.Visual);
         _window.Pointer += OnNativePointer;
         _window.KeyDown += OnKeyDown;
@@ -854,7 +854,7 @@ internal sealed class DockWindow : IDisposable
 
     private void UpdateLabel((float X, float Y)? cur)
     {
-        if(_preview.Visible){_labelAlpha=0;_compositionLabel.Visual.Opacity=0;return;}
+        if(_preview.Visible){_labelAlpha=0;_compositionLabel.SetOpacity(0);return;}
         int idx = -1;
         bool show = _s.ShowLabels && (_mag.Hovering || _kbMode) && !_menuOpen && !_dragging && !_strip;
         if (show)
@@ -871,21 +871,21 @@ internal sealed class DockWindow : IDisposable
             if (!string.IsNullOrEmpty(name))
             {
                 target = _compositionLabel.Select(name, _scale) ? 1 : 0;
-                float w = _compositionLabel.Visual.Size.X, h = _compositionLabel.Visual.Size.Y;
+                float w = _compositionLabel.Size.X, h = _compositionLabel.Size.Y;
                 float x = Math.Clamp(it.X + it.Size * 0.5f - w * 0.5f, 2, Math.Max(2, _m.WindowWidth - w - 2));
                 float y = Math.Max(2, it.Top - h - 8);
-                if (!Vertical) _compositionLabel.Visual.Offset = new Vector3(x,y,0);
+                if (!Vertical) _compositionLabel.SetOffset(new Vector3(x,y,0));
                 else
                 {
                     var icon=Axis.ToPhysical(new Rect(it.X,it.Top,it.Size,it.Size));
                     float sideX=_s.Edge==DockEdge.Left?icon.Right+12:icon.X-w-12;
-                    _compositionLabel.Visual.Offset=new Vector3(Math.Clamp(sideX,2,Math.Max(2,Axis.CrossExtent-w-2)),Math.Clamp(icon.Y+icon.Height*.5f-h*.5f,2,Math.Max(2,_m.WindowWidth-h-2)),0);
+                    _compositionLabel.SetOffset(new Vector3(Math.Clamp(sideX,2,Math.Max(2,Axis.CrossExtent-w-2)),Math.Clamp(icon.Y+icon.Height*.5f-h*.5f,2,Math.Max(2,_m.WindowWidth-h-2)),0));
                 }
             }
         }
         _labelAlpha += (target - _labelAlpha) * (1f - MathF.Exp(-26f * _frameDelta));
         if (Math.Abs(target - _labelAlpha) < 0.01f) _labelAlpha = target;
-        _compositionLabel.Visual.Opacity = _labelAlpha;
+        _compositionLabel.SetOpacity(_labelAlpha);
     }
 
     // ------------------------------------------------------------------ pointer input
@@ -1182,7 +1182,7 @@ internal sealed class DockWindow : IDisposable
         _menuOpen = true;
         StopLoop();
         _labelAlpha = 0;
-        _compositionLabel.Visual.Opacity = 0;
+        _compositionLabel.SetOpacity(0);
     }
 
     private void ResumeAfterMenu()

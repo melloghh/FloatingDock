@@ -28,11 +28,16 @@ internal sealed class MenuBarMenus : IDisposable
     private IntPtr _lastForeground;
     private IntPtr _returnFocus;
     private Window? _popupWindow;
+    private IntPtr _popupHwnd;
     private Border? _popupRoot;
+    private ScrollViewer? _scroll;
+    private StackPanel? _mainPanel;
+    private (FloatingDock.Core.Configuration.InterfaceLanguage Language, bool AutoHide)? _mainState;
+    internal int MainContentBuildsForDiagnostics { get; private set; }
     private bool _showing;
     private Button? _anchor;
     private Action? _resizePopup;
-    internal IntPtr PopupHandle => _popupWindow is null?IntPtr.Zero:WindowSetup.Hwnd(_popupWindow);
+    internal IntPtr PopupHandle => _popupHwnd;
     private int _generation;
     private long _openingUntil;
     private bool Opening=>System.Diagnostics.Stopwatch.GetTimestamp()<_openingUntil;
@@ -101,7 +106,10 @@ internal sealed class MenuBarMenus : IDisposable
             if(_popupWindow is null)
             {
                 _popupRoot=new Border { RequestedTheme=ElementTheme.Dark,Background=Brush(96,20,22,27),BorderBrush=Brush(26,255,255,255),BorderThickness=new Thickness(1),CornerRadius=new CornerRadius(16),Padding=new Thickness(16) };
+                _scroll=new ScrollViewer { HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled,VerticalScrollBarVisibility=ScrollBarVisibility.Auto };
+                _popupRoot.Child=_scroll;
                 _popupWindow=new Window { Title="FloatingDock quick menu",Content=_popupRoot,SystemBackdrop=_glass };
+                _popupHwnd=WindowSetup.Hwnd(_popupWindow);
                 WindowSetup.MakeBorderless(_popupWindow);WindowStyler.MakeOverlayWindow(PopupHandle,noActivate:false);
                 _motion=new MenuSurfaceMotion(PopupHandle,_popupRoot,_glass);
                 _popupWindow.Activated+=(_,e)=> { if(!CaptureActive&&!Opening&&!_showing&&e.WindowActivationState==WindowActivationState.Deactivated&&NativeMethods.GetForegroundWindow()!=PopupHandle&&!PointerOverAnchor())Close(); };
@@ -109,8 +117,9 @@ internal sealed class MenuBarMenus : IDisposable
             }
             var monitor=FloatingDock.Windows.Display.MonitorHelper.Describe(NativeMethods.MonitorFromWindow(Microsoft.UI.Win32Interop.GetWindowFromWindowId(anchor.XamlRoot.ContentIslandEnvironment.AppWindowId),NativeMethods.MONITOR_DEFAULTTONEAREST))!;
             double maxHeight=Math.Max(160,(monitor.Bounds.Height-70)/monitor.Scale);
-            _popupRoot!.Child=new ScrollViewer { Content=content,MaxHeight=maxHeight-34,HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled,VerticalScrollBarVisibility=ScrollBarVisibility.Auto };
-            _popupRoot.IsHitTestVisible=true;
+            _scroll!.MaxHeight=maxHeight-34;
+            if(!ReferenceEquals(_scroll.Content,content))_scroll.Content=content;
+            _popupRoot!.IsHitTestVisible=true;
             _popupRoot.Measure(new global::Windows.Foundation.Size(334,maxHeight));
             int width=(int)Math.Ceiling(334*monitor.Scale),height=(int)Math.Ceiling(_popupRoot.DesiredSize.Height*monitor.Scale);
             var point=anchor.TransformToVisual(anchor.XamlRoot.Content).TransformPoint(new global::Windows.Foundation.Point(anchor.ActualWidth,anchor.ActualHeight));
@@ -174,7 +183,8 @@ internal sealed class MenuBarMenus : IDisposable
         if(_popupRoot is not null)
         {
             SurfaceMotion.Reset(Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(_popupRoot),0);
-            _popupRoot.Child=null;
+            // Keep the last measured tree attached while its HWND is hidden.
+            // Reopening a static menu reuses its templates and layout resources.
         }
         SurfaceVisible=false;_opened(false);
         // Restore the app underneath only when this menu still owns focus. An outside
@@ -189,7 +199,10 @@ internal sealed class MenuBarMenus : IDisposable
     internal void Main(Button anchor)
     {
         if(ActiveKind=="main") { Close();return; }
-        var app=DockApp.Current;var panel=Panel();panel.Spacing=5;
+        var app=DockApp.Current;
+        var state=(app.Settings.Current.Language,app.Settings.Current.TopBarAutoHide);
+        if(_mainState==state&&_mainPanel is not null){Show(anchor,_mainPanel,"main");return;}
+        var panel=Panel();panel.Spacing=5;
         void Add(string name,string glyph,Action action,bool selected=false)=>panel.Children.Add(Row(name,"",glyph,()=> { Close(immediately:true);action(); },selected));
         Add("Search","\uE721",app.ToggleSearch);
         Add("Launchpad","\uE80A",app.ToggleLaunchpad);
@@ -198,6 +211,7 @@ internal sealed class MenuBarMenus : IDisposable
         Add(L.Text("Auto-hide menu bar"),"\uE890",()=>app.Settings.Update(s=>s.TopBarAutoHide=!s.TopBarAutoHide),app.Settings.Current.TopBarAutoHide);
         Add(L.Text("Hide menu bar"),"\uE8F4",()=>app.Settings.Update(s=>s.TopBarEnabled=false));
         panel.Children.Add(Divider());Add(L.Text("Quit FloatingDock"),"\uE7E8",app.Shutdown);
+        _mainState=state;_mainPanel=panel;MainContentBuildsForDiagnostics++;
         Show(anchor,panel,"main");
     }
     private bool PointerOverAnchor()
