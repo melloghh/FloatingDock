@@ -34,6 +34,7 @@ internal sealed class MenuBarMenus : IDisposable
     private StackPanel? _mainPanel;
     private (FloatingDock.Core.Configuration.InterfaceLanguage Language, bool AutoHide)? _mainState;
     internal int MainContentBuildsForDiagnostics { get; private set; }
+    internal ScrollViewer? ScrollForDiagnostics=>_scroll;
     private bool _showing;
     private Button? _anchor;
     private Action? _resizePopup;
@@ -119,6 +120,7 @@ internal sealed class MenuBarMenus : IDisposable
             double maxHeight=Math.Max(160,(monitor.Bounds.Height-70)/monitor.Scale);
             _scroll!.MaxHeight=maxHeight-34;
             if(!ReferenceEquals(_scroll.Content,content))_scroll.Content=content;
+            _scroll.ChangeView(0,0,null,true); // Reopening starts at the top, like a fresh popup.
             _popupRoot!.IsHitTestVisible=true;
             _popupRoot.Measure(new global::Windows.Foundation.Size(334,maxHeight));
             int width=(int)Math.Ceiling(334*monitor.Scale),height=(int)Math.Ceiling(_popupRoot.DesiredSize.Height*monitor.Scale);

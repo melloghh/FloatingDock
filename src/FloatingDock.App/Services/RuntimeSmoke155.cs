@@ -1,6 +1,7 @@
 using FloatingDock.Core.Configuration;
 using FloatingDock.Windows.Native;
 using FloatingDock.Windows.WindowManagement;
+using Microsoft.UI.Xaml.Controls;
 
 namespace FloatingDock.UI.Services;
 
@@ -24,6 +25,17 @@ internal static partial class RuntimeSmoke
                 bar.Menus.Close();await Task.Delay(230);
                 Check(!bar.Menus.SurfaceVisible&&!NativeMethods.IsWindowVisible(bar.Menus.PopupHandle),"Cached controls left a visible surface.");
             }
+            bar.OpenMenuForDiagnostics("main");await Task.Delay(360);
+            var scroll=bar.Menus.ScrollForDiagnostics!;var panel=(StackPanel)scroll.Content;
+            var spacer=new Border{Height=1800};panel.Children.Add(spacer);
+            try
+            {
+                scroll.UpdateLayout();scroll.ChangeView(null,200,null,true);await Task.Delay(100);
+                Check(scroll.VerticalOffset>0,"Scroll reuse fixture did not scroll.");
+                bar.Menus.Close(immediately:true);bar.OpenMenuForDiagnostics("main");await Task.Delay(360);
+                Check(scroll.VerticalOffset==0,"Reused menu kept the previous scroll position.");
+            }
+            finally {panel.Children.Remove(spacer);bar.Menus.Close(immediately:true);}
             app.Settings.Update(s=>s.Language=InterfaceLanguage.Russian);await Task.Delay(150);
             bar.OpenMenuForDiagnostics("main");await Task.Delay(360);
             Check(bar.Menus.MainContentBuildsForDiagnostics==start+2,"Language change did not invalidate menu content.");
@@ -33,7 +45,7 @@ internal static partial class RuntimeSmoke
             bar.OpenMenuForDiagnostics("main");await Task.Delay(360);
             Check(bar.Menus.MainContentBuildsForDiagnostics==start+3,"Auto-hide change did not invalidate the selected row.");
             bar.Menus.Close(immediately:true);
-            checks["mainMenuReuse"]=new{reopenCycles=4,languageInvalidation=true,selectionInvalidation=true};
+            checks["mainMenuReuse"]=new{reopenCycles=5,scrollReset=true,languageInvalidation=true,selectionInvalidation=true};
         }
         finally
         {
