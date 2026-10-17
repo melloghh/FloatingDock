@@ -26,16 +26,18 @@ public sealed class WindowOpacityLease : IDisposable
         uint key=0,flags=2;byte alpha=255;
         // UpdateLayeredWindow and color-key owners retain their own rendering policy.
         if(!added&&(!GetLayeredWindowAttributes(window,out key,out alpha,out flags)||(flags&1)!=0||alpha==0))return null;
-        // Disable transitions before hiding the source. Do not publish a second
-        // representation unless Windows accepted exclusive animation ownership.
-        // Some DWM versions expose this attribute only for writes.
-        if(NativeMethods.DwmGetWindowAttribute(window,3,out var transitions,4)<0)transitions=0;
-        int disabled=1;if(NativeMethods.DwmSetWindowAttribute(window,3,ref disabled,4)<0)return null;
+        // Establish the layered source before changing its transition policy,
+        // preserving the browser composition setup used by opening/restoration.
         if(added)NativeMethods.SetWindowLongPtr(window,NativeMethods.GWL_EXSTYLE,new(style|0x80000));
         if(!SetLayeredWindowAttributes(window,key,0,2))
+        {if(added)NativeMethods.SetWindowLongPtr(window,NativeMethods.GWL_EXSTYLE,new(style));return null;}
+        if(NativeMethods.DwmGetWindowAttribute(window,3,out var transitions,4)<0)transitions=0;
+        int disabled=1;
+        if(NativeMethods.DwmSetWindowAttribute(window,3,ref disabled,4)<0)
         {
+            SetLayeredWindowAttributes(window,key,alpha,flags);
             if(added)NativeMethods.SetWindowLongPtr(window,NativeMethods.GWL_EXSTYLE,new(style));
-            NativeMethods.DwmSetWindowAttribute(window,3,ref transitions,4);return null;
+            return null;
         }
         return new(window,pid,key,alpha,flags,added,transitions);
     }

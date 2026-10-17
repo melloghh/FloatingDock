@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.5.6
+
+- Restore the source-opacity/layered-style setup order used before 1.5.5 when preparing tiled window opening and browser restoration. Disable native transitions after establishing the layered source, before publishing its animation surface.
+- Keep native-transition failure rollback and the 1.5.5 protection against starting a second minimization image.
+- Validate browser dock restoration, rapid reversal, tile opening and both minimization paths with isolated desktop checks.
+
 ## 1.5.5
 
 - Prevent doubled window images during minimization: titlebar/system minimization keeps the native Windows transition instead of starting a second DWM thumbnail after the minimize event. A transition that already owns a hidden source can still finish through the dock.
