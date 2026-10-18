@@ -56,9 +56,9 @@ internal sealed class MenuBarPointerSurface : IDisposable
         finally {if(target!=IntPtr.Zero)Marshal.Release(target);if(interop!=IntPtr.Zero)Marshal.Release(interop);Marshal.Release(compositor);}
     }
 
-    internal void Sync(IntPtr host,double scale)
+    internal void Sync(IntPtr host,double scale,bool captureActive=false)
     {
-        if(!NativeMethods.IsWindowVisible(host)||!NativeMethods.GetWindowRect(host,out var bounds))
+        if(captureActive||!NativeMethods.IsWindowVisible(host)||!NativeMethods.GetWindowRect(host,out var bounds))
         {WindowStyler.Hide(Handle);return;}
         // Only called for geometry/visibility changes, never for mouse movement.
         NativeMethods.SetWindowPos(Handle,NativeMethods.HWND_TOPMOST,bounds.Left,bounds.Top,bounds.Width,bounds.Height,NativeMethods.SWP_NOACTIVATE);

@@ -33,6 +33,10 @@ public static class WindowStyler
     public static void SetBounds(IntPtr hwnd, int x, int y, int w, int h, bool topmost = true) =>
         NativeMethods.SetWindowPos(hwnd, topmost ? NativeMethods.HWND_TOPMOST : IntPtr.Zero, x, y, w, h, NativeMethods.SWP_NOACTIVATE | (topmost ? 0u : NativeMethods.SWP_NOZORDER));
 
+    public static void SetTopmost(IntPtr hwnd, bool topmost) =>
+        NativeMethods.SetWindowPos(hwnd, topmost ? NativeMethods.HWND_TOPMOST : NativeMethods.HWND_NOTOPMOST, 0, 0, 0, 0,
+            NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOACTIVATE);
+
     public static void Move(IntPtr hwnd, int x, int y) =>
         NativeMethods.SetWindowPos(hwnd, IntPtr.Zero, x, y, 0, 0, NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOZORDER | NativeMethods.SWP_NOACTIVATE);
 

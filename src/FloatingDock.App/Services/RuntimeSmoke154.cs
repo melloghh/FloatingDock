@@ -2,6 +2,10 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using FloatingDock.Core.Configuration;
 using FloatingDock.Windows.Native;
+using FloatingDock.Windows.WindowManagement;
+using FloatingDock.UI.Views;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Controls;
 
 namespace FloatingDock.UI.Services;
@@ -33,6 +37,9 @@ internal static partial class RuntimeSmoke
                 await Task.Delay(350);await Click(bar.ButtonForDiagnostics(kind));await Task.Delay(260);
                 Check(bar.Menus.ActiveKind is null&&!bar.Menus.SurfaceVisible,"Native click did not close "+kind);
             }
+            string? openedUri=null;bar.OpenUriForDiagnostics=uri=>openedUri=uri;
+            await Click(bar.ButtonForDiagnostics("settings"));bar.OpenUriForDiagnostics=null;
+            Check(openedUri=="ms-settings:","The settings gear did not open Windows settings.");checks["settingsGearUri"]=openedUri!;
             var search=bar.ButtonForDiagnostics("search");var searchPoint=search.TransformToVisual(search.XamlRoot.Content).TransformPoint(new(search.ActualWidth/2,search.ActualHeight/2));
             NativeMethods.GetWindowRect(bar.Handle,out var barBounds);double searchScale=search.XamlRoot.RasterizationScale;
             int tipX=barBounds.Left+(int)(searchPoint.X*searchScale),tipY=barBounds.Top+(int)(searchPoint.Y*searchScale);
@@ -47,7 +54,33 @@ internal static partial class RuntimeSmoke
             Check(app.Tiling.Session!.ActiveWorkspace(bar.Monitor.DeviceName)==2,"Native workspace click did not switch the workspace.");
             bar.SetSuspended(true);Check(!NativeMethods.IsWindowVisible(bar.InputHandle),"Suspending the bar left an input blocker.");
             bar.SetSuspended(false);await Task.Delay(100);
-            bar.SetCaptureHidden(true);Check(NativeMethods.IsWindowVisible(bar.Handle)&&NativeMethods.IsWindowVisible(bar.InputHandle),"Screen capture hid the bar.");bar.SetCaptureHidden(false);
+            await bar.OpenTrayForDiagnostics();await Task.Delay(350);
+            var dock=app.Dock.PrimaryWindowForDiagnostics!;
+            var panelBounds=WindowStyler.GetRect(bar.Handle);var dockBounds=WindowStyler.GetRect(dock.Handle);
+            bool Topmost(IntPtr handle)=>(NativeMethods.GetExStyle(handle)&NativeMethods.WS_EX_TOPMOST)!=0;
+            app.Dock.BeginCaptureShortcut();
+            Window? selection=null;
+            try
+            {
+                Check(NativeMethods.IsWindowVisible(bar.Handle)&&!NativeMethods.IsWindowVisible(bar.InputHandle),"Capture left the bar input blocker visible.");
+                Check(!Topmost(bar.Handle)&&!Topmost(dock.Handle)&&!Topmost(bar.Menus.PopupHandle),"Capture left a panel or menu above selection UI.");
+                selection=new Window {Title="FloatingDock capture selection fixture",Content=new Grid {Background=new SolidColorBrush(global::Windows.UI.Color.FromArgb(255,72,98,120))}};
+                var overlay=WindowSetup.Hwnd(selection);WindowStyler.MakeOverlayWindow(overlay,noActivate:true);
+                var monitor=bar.Monitor.Bounds;WindowStyler.SetBounds(overlay,monitor.Left,monitor.Top,monitor.Width,monitor.Height);WindowStyler.Show(overlay,false);
+                // A layout update must not promote panels while the selection overlay is active.
+                bar.Apply(app.Settings.Current,bar.Monitor);await Task.Delay(120);
+                foreach(var handle in new[]{bar.Handle,dock.Handle,bar.Menus.PopupHandle})
+                {
+                    Check(!Topmost(handle),"Layout promoted a capture surface.");
+                    NativeMethods.GetWindowRect(handle,out var rect);var point=new POINT{X=rect.Left+rect.Width/2,Y=rect.Top+rect.Height/2};
+                    Check(NativeMethods.GetAncestor(WindowFromPoint(point),NativeMethods.GA_ROOT)==overlay,"A panel intercepts screenshot selection.");
+                }
+                Check(WindowStyler.GetRect(bar.Handle)==panelBounds&&WindowStyler.GetRect(dock.Handle)==dockBounds,"Capture moved the desktop panels.");
+            }
+            finally {selection?.Close();bar.SetCaptureHidden(false);dock.SetCaptureHidden(false);bar.Menus.Close(immediately:true);}
+            await Task.Delay(2200);
+            Check(Topmost(bar.Handle)&&Topmost(dock.Handle)&&NativeMethods.IsWindowVisible(bar.InputHandle),"Capture did not restore panel stacking and input.");
+            checks["captureSelectionStacking"]=new{panelsAndMenuBelowSelection=true,inputReleased=true,geometryPreserved=true,restored=true};
             SetCursorPos(bar.Monitor.Bounds.Left+200,bar.Monitor.Bounds.Top+300);await Task.Delay(40);
             bar.Target(true);await Task.Delay(400);Check(bar.HideAmount>=.99,"The bar did not hide.");
             NativeMethods.GetWindowRect(bar.Handle,out var host);NativeMethods.GetWindowRect(bar.InputHandle,out var input);
@@ -58,7 +91,7 @@ internal static partial class RuntimeSmoke
         }
         finally
         {
-            bar.Menus.Close(immediately:true);SetCursorPos(cursor.X,cursor.Y);app.Settings.Update(s=>s.TilingEnabled=false);app.Tiling.Apply(app.Settings.Current);app.Tiling.DiagnosticWindows=null;
+            bar.OpenUriForDiagnostics=null;bar.SetCaptureHidden(false);app.Dock.PrimaryWindowForDiagnostics?.SetCaptureHidden(false);bar.Menus.Close(immediately:true);SetCursorPos(cursor.X,cursor.Y);app.Settings.Update(s=>s.TilingEnabled=false);app.Tiling.Apply(app.Settings.Current);app.Tiling.DiagnosticWindows=null;
             app.Dock.HoldFullscreenStateForDiagnostics=false;
             app.Settings.Update(s=>{foreach(var property in typeof(DockSettings).GetProperties().Where(p=>p.CanWrite))property.SetValue(s,property.GetValue(saved));});
         }

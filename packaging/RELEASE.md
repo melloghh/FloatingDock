@@ -1,6 +1,6 @@
-FloatingDock 1.5.6 fixes the tiled-window opening/browser restoration regression introduced in 1.5.5.
+FloatingDock 1.5.7 opens Windows Settings from the menu bar gear and fixes panels appearing above screenshot selection.
 
-The window source now establishes its layered style and opacity before changing the DWM transition policy, restoring the setup order used before 1.5.5. Native-transition failure rollback and protection against a second minimization image remain in place. Dock appearance, configured animation timing, tiling settings and custom icons are preserved.
+During screenshot selection, the dock, menu bar and open quick menu move below the selection overlay. The transparent bar input surface is temporarily hidden so it cannot intercept selection clicks. Panel positions are preserved, and normal stacking and input return when selection ends. FloatingDock settings remain in the main menu.
 
 ### Downloads
 
@@ -10,10 +10,10 @@ The window source now establishes its layered style and opacity before changing 
 
 .NET and Windows App SDK are included. Windows 10 1809+ / Windows 11 x64; builds are unsigned.
 
-Validation includes real-browser dock restore cycles and rapid reversal with tiling enabled, tile opening, source-opacity restoration and titlebar/dock minimization. Automated Core/Windows tests run before tagged publication.
+Validation: 325 Core/Windows tests; desktop regression checks for native gear clicks, seven quick menus, capture overlay hit testing, layout changes during capture and recovery afterward.
 
 [Report a problem](https://github.com/melloghh/FloatingDock/issues/new/choose) · [Full changelog](https://github.com/melloghh/FloatingDock/blob/main/docs/CHANGELOG.md)
 
 ---
 
-**По-русски:** 1.5.6 исправляет регрессию открытия окон и восстановления браузера при включённом тайлинге после 1.5.5. Возвращён прежний порядок подготовки прозрачности и оконной композиции. Исправление раздвоения при системном сворачивании сохранено. Внешний вид, длительности анимаций, настройки тайлинга и иконки не меняются.
+**По-русски:** шестерёнка верхней панели теперь открывает параметры Windows. Исправлено наложение панелей и перехват мыши поверх выделения области скриншота. После завершения выделения обычная работа панелей восстанавливается. Настройки дока доступны в его главном меню.

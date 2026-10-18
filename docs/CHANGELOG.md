@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.5.7
+
+- Open Windows Settings from the menu bar gear. FloatingDock settings remain available in the main menu.
+- Lower the dock, menu bar and open quick menu beneath screenshot selection UI; release the transparent bar input surface until selection ends. Preserve panel geometry and restore stacking and input afterward.
+- Validate native gear clicks, screenshot overlay hit testing, layout updates during selection and capture recovery alongside existing panel input checks.
+
 ## 1.5.6
 
 - Restore the source-opacity/layered-style setup order used before 1.5.5 when preparing tiled window opening and browser restoration. Disable native transitions after establishing the layered source, before publishing its animation surface.

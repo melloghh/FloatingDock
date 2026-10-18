@@ -114,6 +114,8 @@ internal sealed class MenuBarWindow : IDisposable
 {
     [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern short GetAsyncKeyState(int key);
     internal Button SearchButtonForDiagnostics=>_searchButton;
+    private readonly Button _settingsButton;
+    internal Action<string>? OpenUriForDiagnostics { get; set; }
     internal int ButtonPointerEntriesForDiagnostics { get; private set; }
     internal int PointerMovesForDiagnostics { get; private set; }
     internal IntPtr InputHandle=>_pointerSurface?.Handle??Handle;
@@ -121,7 +123,7 @@ internal sealed class MenuBarWindow : IDisposable
     internal string TooltipStateForDiagnostics=>$"{_pointerSurface.TipDiagnostic}, pointed={_pointed is not null}, menu={_menuOpen}, timer={_tooltipTimer.IsRunning}";
     internal int XamlPointerMovesForDiagnostics { get; private set; }
     internal IReadOnlyList<Button> WorkspaceButtonsForDiagnostics=>_workspaceButtons;
-    internal Button ButtonForDiagnostics(string kind)=>kind switch {"main"=>_mainButton,"sound"=>_soundButton,"network"=>_networkButton,"language"=>_languageButton,"calendar"=>_clockButton,"media"=>_mediaButton,"tray"=>_trayButton,"search"=>_searchButton,_=>throw new ArgumentException("Unknown bar action")};
+    internal Button ButtonForDiagnostics(string kind)=>kind switch {"main"=>_mainButton,"sound"=>_soundButton,"network"=>_networkButton,"language"=>_languageButton,"calendar"=>_clockButton,"media"=>_mediaButton,"tray"=>_trayButton,"search"=>_searchButton,"settings"=>_settingsButton,_=>throw new ArgumentException("Unknown bar action")};
     internal void SetHitTestingForDiagnostics(bool enabled)=>_root.IsHitTestVisible=enabled;
     internal bool SearchTogglePointerActive
     {
@@ -218,7 +220,8 @@ internal sealed class MenuBarWindow : IDisposable
         _networkButton=ActionButton(_network,"Network",()=> { _menus.Network(_networkButton!); });right.Children.Add(_networkButton);
         _soundButton=ActionButton(new FontIcon { Glyph="\uE767",FontSize=15 },"Sound",()=> { _menus.Sound(_soundButton!); });right.Children.Add(_soundButton);
         _languageButton=ActionButton(_language,"Input language",()=> { RefreshLanguage();_menus.Language(_languageButton!,_diagnosticLanguageTarget??(NativeMethods.IsWindow(_languageSource)?_languageSource:null)); });right.Children.Add(_languageButton);
-        right.Children.Add(ActionButton(new FontIcon { Glyph="\uE713",FontSize=15 },"FloatingDock settings",()=>_app.ShowSettings()));
+        _settingsButton=ActionButton(new FontIcon { Glyph="\uE713",FontSize=15 },"Windows settings",()=>Open("ms-settings:"));
+        right.Children.Add(_settingsButton);
         _clockButton=ActionButton(_clock,"Date and time",ShowCalendar);right.Children.Add(_clockButton);
         Grid.SetColumn(right,2);_root.Children.Add(right);
         _window=new Window { Title="FloatingDock menu bar",Content=_root,SystemBackdrop=new GlassBackdrop() };
@@ -315,8 +318,8 @@ internal sealed class MenuBarWindow : IDisposable
         }
     }
     internal Task OpenTrayForDiagnostics()=>OpenTrayAsync();
-    private void ShowBar(){WindowStyler.Show(Handle,false);_pointerSurface.Sync(Handle,Monitor.Scale);}
-    private void HideBar(){HideBarTooltip();PointAt(null);WindowStyler.Hide(Handle);_pointerSurface.Sync(Handle,Monitor.Scale);}
+    private void ShowBar(){WindowStyler.Show(Handle,false);_pointerSurface.Sync(Handle,Monitor.Scale,_capture);}
+    private void HideBar(){HideBarTooltip();PointAt(null);WindowStyler.Hide(Handle);_pointerSurface.Sync(Handle,Monitor.Scale,_capture);}
     internal bool TrayVisible=>_menus.ActiveKind=="tray"&&_menus.SurfaceVisible;
     private async Task OpenTrayAsync()
     {
@@ -329,7 +332,7 @@ internal sealed class MenuBarWindow : IDisposable
         _menus.Tray(_trayButton,items);
     }
     private void CloseTray(){_trayGeneration++;if(_menus.ActiveKind=="tray")_menus.Close();_trayOpen=false;}
-    private void Open(string uri) { if(!ShellLauncher.Execute(uri,null,null)) _app.Log.Warn("Could not open "+uri); }
+    private void Open(string uri) { if(Program.IsSmokeTest&&OpenUriForDiagnostics is { } probe){probe(uri);return;}if(!ShellLauncher.Execute(uri,null,null)) _app.Log.Warn("Could not open "+uri); }
     internal void Apply(DockSettings s,MonitorDescriptor m)
     {
         _settings=s;Monitor=m;
@@ -342,7 +345,7 @@ internal sealed class MenuBarWindow : IDisposable
 
         int height=(int)Math.Ceiling(HeightDip*m.Scale);
         int inset=(int)Math.Round(SideInsetDip*m.Scale);
-        WindowStyler.SetBounds(Handle,m.Bounds.Left+inset,ShownTop-(int)Math.Round(HideDistance*_hide),Math.Max(100,m.Bounds.Width-2*inset),height);
+        WindowStyler.SetBounds(Handle,m.Bounds.Left+inset,ShownTop-(int)Math.Round(HideDistance*_hide),Math.Max(100,m.Bounds.Width-2*inset),height,topmost:!_capture);
         WindowStyler.SetRoundedRegion(Handle,Math.Max(100,m.Bounds.Width-2*inset),height,(int)Math.Round(14*m.Scale));
         RefreshClock();
         if(s.TopBarEnabled) { if(!_capture&&!_suspended&&!(_fullscreen&&_hide>=1))ShowBar();_clockTimer.Start(); }
@@ -427,7 +430,10 @@ internal sealed class MenuBarWindow : IDisposable
         if(_capture==hidden)return;_capture=hidden;
         _menus.CaptureActive=hidden;
         if(hidden) { _slideTimer.Stop();_languageTimer.Stop();HideBarTooltip();PointAt(null);_hover=false;_pressed=null;_pointerSurface.Release(); }
-        else { Target(_targetHidden);UpdateLanguageTimer(); }
+        // Leave desktop pixels in place, but put every interactive surface below selection UI.
+        WindowStyler.SetTopmost(Handle,!hidden);
+        _pointerSurface.Sync(Handle,Monitor.Scale,hidden);
+        if(!hidden) { Target(_targetHidden);UpdateLanguageTimer(); }
     }
     internal void SetSuspended(bool hidden)
     {
@@ -479,7 +485,7 @@ internal sealed class MenuBarWindow : IDisposable
         int h=(int)Math.Ceiling(HeightDip*Monitor.Scale);
         float ease=_hide*_hide*(3-2*_hide);
         WindowStyler.Move(Handle,Monitor.Bounds.Left+(int)Math.Round(SideInsetDip*Monitor.Scale),ShownTop-(int)Math.Round(HideDistance*ease));
-        _pointerSurface.Sync(Handle,Monitor.Scale);
+        _pointerSurface.Sync(Handle,Monitor.Scale,_capture);
     }
     public void Dispose()
     {

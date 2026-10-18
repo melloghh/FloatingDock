@@ -54,13 +54,19 @@ internal static partial class RuntimeSmoke
             if(Environment.GetCommandLineArgs().Contains("--test-real-capture141"))
             {
                 INPUT Key(ushort key,bool up=false)=>new(){type=NativeMethods.INPUT_KEYBOARD,U=new(){ki=new(){wVk=key,dwFlags=up?NativeMethods.KEYEVENTF_KEYUP:0}}};
-                var keys=new[]{Key(0x5B),Key(0x10),Key(0x53),Key(0x53,true),Key(0x10,true),Key(0x5B,true)};
-                Check(NativeMethods.SendInput((uint)keys.Length,keys,Marshal.SizeOf<INPUT>())==keys.Length,"Could not issue the screenshot shortcut.");
+                Check(FloatingDock.Windows.Shell.ShellLauncher.Execute("ms-screenclip:",null,null),"Could not open screenshot selection.");
                 var monitor=new CaptureOverlayMonitor();
                 await Wait(()=>{monitor.Scan();return monitor.IsActive;},"Win+Shift+S did not open the capture overlay while the tray was open.",6000);
-                for(int sample=0;sample<4;sample++){PanelsUnchanged();Check(bar.Menus.SurfaceVisible,"Screenshot selection dismissed the custom tray.");await Task.Delay(80);}
+                for(int sample=0;sample<4;sample++)
+                {
+                    PanelsUnchanged();Check(bar.Menus.SurfaceVisible,"Screenshot selection dismissed the custom tray.");
+                    Check(!NativeMethods.IsWindowVisible(bar.InputHandle),"Capture input surface covers the real selection overlay.");
+                    foreach(var panel in new[]{bar.Handle,dock.Handle,bar.Menus.PopupHandle})
+                        Check((NativeMethods.GetExStyle(panel)&NativeMethods.WS_EX_TOPMOST)==0,"A panel remains topmost during real screenshot selection.");
+                    await Task.Delay(80);
+                }
                 var escape=new[]{Key(0x1B),Key(0x1B,true)};NativeMethods.SendInput(2,escape,Marshal.SizeOf<INPUT>());
-                await Wait(()=>{monitor.Scan();return !monitor.IsActive;},"Capture overlay did not close.");checks["realWinShiftSWithTray"]=true;
+                await Wait(()=>{monitor.Scan();return !monitor.IsActive;},"Capture overlay did not close.");checks["realScreenshotSelectionWithTray"]=true;
             }
             else app.Dock.BeginCaptureShortcut();
             PanelsUnchanged();

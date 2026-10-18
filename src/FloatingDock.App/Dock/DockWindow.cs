@@ -347,9 +347,9 @@ internal sealed class DockWindow : IDisposable
     }
     private void SetWindowBounds()
     {
-        if (!_strip) WindowStyler.SetBounds(_hwnd,_winX,_winY,_winW,_winH,topmost:!_menuOpen);
-        else if (!Vertical) WindowStyler.SetBounds(_hwnd,_winX,BaseEdge()-2,_winW,2,topmost:!_menuOpen);
-        else WindowStyler.SetBounds(_hwnd,_s.Edge==DockEdge.Left?BaseEdge():BaseEdge()-2,_winY,2,_winH,topmost:!_menuOpen);
+        if (!_strip) WindowStyler.SetBounds(_hwnd,_winX,_winY,_winW,_winH,topmost:!_menuOpen&&!_captureHidden);
+        else if (!Vertical) WindowStyler.SetBounds(_hwnd,_winX,BaseEdge()-2,_winW,2,topmost:!_menuOpen&&!_captureHidden);
+        else WindowStyler.SetBounds(_hwnd,_s.Edge==DockEdge.Left?BaseEdge():BaseEdge()-2,_winY,2,_winH,topmost:!_menuOpen&&!_captureHidden);
         _app.TopBar?.ReassertMenus();
     }
     private void ApplyBlur()
@@ -555,10 +555,11 @@ internal sealed class DockWindow : IDisposable
     {
         if (_captureHidden == hidden) return;
         _captureHidden = hidden;
+        WindowStyler.SetTopmost(_hwnd,!hidden&&!_menuOpen);
         if (_traceInput) _app.Log.Info("screen capture overlay: frozen=" + hidden);
         if (hidden)
         {
-            CancelPress(); StopLoop();
+            _preview.Hide(); CancelPress(); StopLoop();
         }
         else
         {
@@ -779,7 +780,7 @@ internal sealed class DockWindow : IDisposable
         if (!_strip) return;
         _strip = false;
         _hide = Math.Max(_hide, 1f);
-        WindowStyler.SetBounds(_hwnd, _winX, _winY, _winW, _winH);
+        WindowStyler.SetBounds(_hwnd, _winX, _winY, _winW, _winH,topmost:!_menuOpen&&!_captureHidden);
         UpdateVisibility();
         _regionApplied = false;
         UpdateRegion(true);

@@ -43,7 +43,16 @@ internal sealed class MenuBarMenus : IDisposable
     private long _openingUntil;
     private bool Opening=>System.Diagnostics.Stopwatch.GetTimestamp()<_openingUntil;
     internal bool SurfaceVisible { get; private set; }
-    internal bool CaptureActive { get; set; }
+    private bool _captureActive;
+    internal bool CaptureActive
+    {
+        get=>_captureActive;
+        set
+        {
+            if(_captureActive==value)return;_captureActive=value;
+            if(PopupHandle!=IntPtr.Zero)WindowStyler.SetTopmost(PopupHandle,!value);
+        }
+    }
     internal string? ActiveKind { get; private set; }
     internal Slider? VolumeSlider { get; private set; }
     internal ToggleButton? MuteButton { get; private set; }
@@ -128,7 +137,7 @@ internal sealed class MenuBarMenus : IDisposable
             NativeMethods.GetWindowRect(Microsoft.UI.Win32Interop.GetWindowFromWindowId(anchor.XamlRoot.ContentIslandEnvironment.AppWindowId),out var owner);
             int x=Math.Clamp(owner.Left+(int)((kind=="main"?point.X-anchor.ActualWidth:point.X)*monitor.Scale)-(kind=="main"?0:width),monitor.Bounds.Left+8,monitor.Bounds.Right-width-8);
             int y=owner.Bottom+(int)Math.Ceiling(6*monitor.Scale);
-            WindowStyler.SetBounds(PopupHandle,x,y,width,Math.Max(height,100));
+            WindowStyler.SetBounds(PopupHandle,x,y,width,Math.Max(height,100),topmost:!CaptureActive);
             _glass.SetVisible(true);SurfaceVisible=true;
             // Clip the actual glass HWND to the same anchored transform as its XAML plate.
             double pivot=(owner.Left+(point.X-anchor.ActualWidth/2)*monitor.Scale-x)/monitor.Scale;
@@ -147,7 +156,7 @@ internal sealed class MenuBarMenus : IDisposable
                 if(generation!=_generation||ActiveKind!=kind)return;
                 _popupRoot.UpdateLayout();content.Measure(new global::Windows.Foundation.Size(300,double.PositiveInfinity));
                 int finalHeight=(int)Math.Ceiling(Math.Min(maxHeight,content.DesiredSize.Height+34)*monitor.Scale);
-                WindowStyler.SetBounds(PopupHandle,x,y,width,Math.Max(finalHeight,100));
+                WindowStyler.SetBounds(PopupHandle,x,y,width,Math.Max(finalHeight,100),topmost:!CaptureActive);
                 _motion.SetGeometry(width,Math.Max(finalHeight,100),monitor.Scale,pivot);
             });
             _resizePopup();
