@@ -1,6 +1,8 @@
-FloatingDock 1.5.7 opens Windows Settings from the menu bar gear and fixes panels appearing above screenshot selection.
+FloatingDock 1.5.8 fixes native minimization falling back to the hidden Windows taskbar after launching an application from search.
 
-During screenshot selection, the dock, menu bar and open quick menu move below the selection overlay. The transparent bar input surface is temporarily hidden so it cannot intercept selection clicks. Panel positions are preserved, and normal stacking and input return when selection ends. FloatingDock settings remain in the main menu.
+Windows animation destination requests are now answered by a dedicated message thread using immutable current dock geometry, without waiting for WinUI layout or search work. New windows can match their app icon before the running-window scan finishes; while an unpinned icon is entering, the first minimize still targets the dock. Geometry updates follow dock movement and monitor placement.
+
+Native titlebar minimization remains a single Windows animation. Existing browser opening/restoration composition and custom dock animations are retained. The new thread sleeps between messages; unchanged geometry is not republished.
 
 ### Downloads
 
@@ -10,10 +12,10 @@ During screenshot selection, the dock, menu bar and open quick menu move below t
 
 .NET and Windows App SDK are included. Windows 10 1809+ / Windows 11 x64; builds are unsigned.
 
-Validation: 325 Core/Windows tests; desktop regression checks for native gear clicks, seven quick menus, capture overlay hit testing, layout changes during capture and recovery afterward.
+Validation: 326 Core/Windows tests, including shell replies while the owner thread is blocked. Desktop checks cover a new Zen window launched through search, first-minimize tracking delays, busy UI, left/right dock changes, native shrink trajectories on a solid-color fixture, duplicate-image protection, browser restoration and quick-menu reuse.
 
 [Report a problem](https://github.com/melloghh/FloatingDock/issues/new/choose) · [Full changelog](https://github.com/melloghh/FloatingDock/blob/main/docs/CHANGELOG.md)
 
 ---
 
-**По-русски:** шестерёнка верхней панели теперь открывает параметры Windows. Исправлено наложение панелей и перехват мыши поверх выделения области скриншота. После завершения выделения обычная работа панелей восстанавливается. Настройки дока доступны в его главном меню.
+**По-русски:** исправлен уход анимации сворачивания к скрытой панели задач после запуска из поиска. Ответ Windows с координатами дока больше не ждёт поток интерфейса; первое сворачивание нового окна тоже получает привязку к доку. Сохранены системная анимация без второй копии окна и исправления открытия/восстановления браузера.

@@ -351,6 +351,29 @@ internal sealed class DockWindow : IDisposable
         else if (!Vertical) WindowStyler.SetBounds(_hwnd,_winX,BaseEdge()-2,_winW,2,topmost:!_menuOpen&&!_captureHidden);
         else WindowStyler.SetBounds(_hwnd,_s.Edge==DockEdge.Left?BaseEdge():BaseEdge()-2,_winY,2,_winH,topmost:!_menuOpen&&!_captureHidden);
         _app.TopBar?.ReassertMenus();
+        PublishShellAnchors();
+    }
+    private readonly List<(DockEntry Entry,RECT Rect)> _publishedShellGeometry=new();
+    private (int X,int Y,int Size,IntPtr Monitor)? _publishedShellFallback;
+    private void PublishShellAnchors()
+    {
+        var plate=PlateScreenForDiagnostics;int size=Math.Max(1,(int)Math.Round(_s.IconSize*_scale));
+        int x=(plate.Left+plate.Right-size)/2,y=(plate.Top+plate.Bottom-size)/2;
+        var fallback=(x,y,size,Monitor.Handle);bool changed=_publishedShellFallback!=fallback;int index=0;
+        foreach(var item in _motion.Items)
+            if(!item.Leaving&&item.Entry.Kind==DockEntryKind.App&&item.Entry.App is not null&&AnimationRectFor(item) is { } rect)
+            {
+                if(index>=_publishedShellGeometry.Count)changed=true;
+                else {var last=_publishedShellGeometry[index];if(!ReferenceEquals(last.Entry,item.Entry)||last.Rect.Left!=rect.Left||last.Rect.Top!=rect.Top||last.Rect.Right!=rect.Right||last.Rect.Bottom!=rect.Bottom)changed=true;}
+                index++;
+            }
+        if(!changed&&index==_publishedShellGeometry.Count)return;
+        _publishedShellFallback=fallback;_publishedShellGeometry.Clear();
+        var anchors=new List<ShellAnchorCache.Anchor>();
+        foreach(var item in _motion.Items)
+            if(!item.Leaving&&item.Entry.Kind==DockEntryKind.App&&item.Entry.App is { } app&&AnimationRectFor(item) is { } rect)
+            {anchors.Add(new(app.Clone(),item.Entry.Windows,rect));_publishedShellGeometry.Add((item.Entry,rect));}
+        _app.Dock.ShellAnchors.Update(_hwnd,Monitor.Handle,new RECT{Left=x,Top=y,Right=x+size,Bottom=y+size},anchors.ToArray());
     }
     private void ApplyBlur()
     {
@@ -813,6 +836,7 @@ internal sealed class DockWindow : IDisposable
     {
         var items = _motion.Items;
         var res = DockLayout.Compute(_gp, _m, items, _mag.CursorX, _mag.Zoom, _layoutResult);
+        PublishShellAnchors();
 
         float pl = res.PlateLeft, pw = Math.Max(0, res.PlateRight - res.PlateLeft);
         _compositionPlate.SetBounds(pl, _m.PlateTop, pw, _s.DockHeight);
@@ -1278,6 +1302,7 @@ internal sealed class DockWindow : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        _app.Dock.ShellAnchors.Remove(_hwnd);
         _hoverWatch.Stop();
         _preview.Dispose();
         StopLoop();

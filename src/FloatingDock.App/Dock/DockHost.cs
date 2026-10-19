@@ -13,6 +13,8 @@ namespace FloatingDock.UI.Dock;
 internal sealed class DockHost : IDisposable
 {
     private readonly DockApp _app;
+    private readonly ShellAnchorCache _shellAnchors = new();
+    internal ShellAnchorCache ShellAnchors => _shellAnchors;
     private readonly DockViewModel _vm = new();
     private readonly List<DockWindow> _windows = new();
     private readonly AppBarReservation _appBar = new();
@@ -55,7 +57,7 @@ internal sealed class DockHost : IDisposable
 
     public void Start()
     {
-        _app.Msg.AnimationRectProvider = CurrentAnimationRectFor;
+        _app.Msg.AnimationRectProvider = _shellAnchors.Get;
         _app.Pinned.Changed += OnPinnedChanged;
         _app.Running.Changed += OnRunningChanged;
         _app.Running.NativeWindowChanged += OnNativeWindowChanged;

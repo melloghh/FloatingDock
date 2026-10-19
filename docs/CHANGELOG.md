@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.5.8
+
+- Answer native minimize/restore destination requests on a dedicated sleeping message thread, so search or a busy WinUI frame cannot delay the shell's response and send a window toward the hidden taskbar.
+- Publish immutable current dock geometry to that thread. Match new windows by application identity before the running-window scan completes, and use the dock itself while an unpinned icon is entering.
+- Keep native titlebar minimization as a single Windows animation; retain existing browser opening/restore composition and custom dock animation behavior.
+- Add a blocked-owner-thread regression test and desktop checks for launching from search, the first untracked minimize, busy UI, left/right dock movement and visible native shrink trajectories.
+
 ## 1.5.7
 
 - Open Windows Settings from the menu bar gear. FloatingDock settings remain available in the main menu.

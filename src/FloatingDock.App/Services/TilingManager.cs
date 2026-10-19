@@ -235,7 +235,7 @@ internal sealed class TilingManager : IDisposable
     }
     private TileRect DockOrigin(long id,TileRect fallback)
     {
-        if(_app.Dock.CurrentAnimationRectFor(new(id)) is { } r)return new(r.Left,r.Top,Math.Max(1,r.Width),Math.Max(1,r.Height));
+        if((_app.Dock.CurrentAnimationRectFor(new(id))??_app.Msg.AnimationRectProvider?.Invoke(new(id))) is { } r)return new(r.Left,r.Top,Math.Max(1,r.Width),Math.Max(1,r.Height));
         var mon=FloatingDock.Windows.Display.MonitorHelper.Describe(NativeMethods.MonitorFromWindow(new(id),NativeMethods.MONITOR_DEFAULTTONEAREST));
         return mon is null?fallback with{Width=32,Height=32}:new(mon.Bounds.Left+mon.Bounds.Width/2-16,mon.Bounds.Bottom-40,32,32);
     }

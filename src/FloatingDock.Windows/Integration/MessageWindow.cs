@@ -19,13 +19,18 @@ public sealed class MessageWindow : IDisposable
     private readonly uint _taskbarCreatedMessage;
     private readonly uint _shellMessage;
     private readonly HashSet<int> _hotkeys = new();
+    private readonly ShellAnimationWindow _animationWindow;
+    private Func<IntPtr, RECT?>? _animationRectProvider;
+    private int _animationRectsUpdated;
 
     public IntPtr Handle { get; private set; }
-    public bool AnimationRectHookRegistered { get; private set; }
-    public Func<IntPtr, RECT?>? AnimationRectProvider { get; set; }
-    public int AnimationRectsUpdated { get; private set; }
-    [DllImport("user32.dll")] private static extern bool RegisterShellHookWindow(IntPtr hwnd);
-    [DllImport("user32.dll")] private static extern bool DeregisterShellHookWindow(IntPtr hwnd);
+    public bool AnimationRectHookRegistered => _animationWindow.Registered;
+    public IntPtr AnimationRectMessageHandle => _animationWindow.Handle;
+    /// <summary>Invoked on the shell thread. Must read immutable state and never call the UI thread.</summary>
+    public Func<IntPtr, RECT?>? AnimationRectProvider { get=>Volatile.Read(ref _animationRectProvider); set=>Volatile.Write(ref _animationRectProvider,value); }
+    public int AnimationRectsUpdated => Volatile.Read(ref _animationRectsUpdated);
+    /// <summary>Optional diagnostic callback, also invoked on the shell thread.</summary>
+    public Action<IntPtr, RECT, RECT?>? AnimationRectDiagnostic { get; set; }
 
     public event Action<int>? HotkeyPressed;
     public event Action? DisplayChanged;
@@ -55,7 +60,7 @@ public sealed class MessageWindow : IDisposable
         Handle = NativeMethods.CreateWindowEx((uint)NativeMethods.WS_EX_TOOLWINDOW, ClassName, "FloatingDock", (uint)NativeMethods.WS_POPUP, 0, 0, 0, 0, IntPtr.Zero, IntPtr.Zero, inst, IntPtr.Zero);
         if (Handle == IntPtr.Zero) throw new InvalidOperationException("CreateWindowEx failed: " + Marshal.GetLastWin32Error());
         lock (Instances) Instances[Handle] = this;
-        AnimationRectHookRegistered = _shellMessage != 0 && RegisterShellHookWindow(Handle);
+        _animationWindow = new(UpdateAnimationRect,()=>NativeMethods.PostMessage(Handle,NativeMethods.WM_APP+2,IntPtr.Zero,IntPtr.Zero));
     }
 
     /// <summary>Registers a global hotkey; returns false if the combination is taken by another program.</summary>
@@ -85,18 +90,13 @@ public sealed class MessageWindow : IDisposable
     {
         if (msg == _taskbarCreatedMessage)
         {
-            AnimationRectHookRegistered = _shellMessage != 0 && RegisterShellHookWindow(Handle);
             TaskbarCreated?.Invoke(); return IntPtr.Zero;
         }
-        if (msg == _shellMessage && wParam.ToInt64() == 5 && AnimationRectProvider is { } provider &&
-            ShellAnimationRect.TryUpdate(lParam, provider))
-        {
-            AnimationRectsUpdated++;
-            return new IntPtr(1);
-        }
+        if (msg == _shellMessage && wParam.ToInt64() == 5) return UpdateAnimationRect(lParam);
         if (msg == _shellMessage && wParam.ToInt64() == 8) { InputLanguageChanged?.Invoke(); return IntPtr.Zero; }
         switch (msg)
         {
+            case NativeMethods.WM_APP+2: InputLanguageChanged?.Invoke(); return IntPtr.Zero;
             case NativeMethods.WM_HOTKEY: HotkeyPressed?.Invoke((int)wParam); return IntPtr.Zero;
             case NativeMethods.WM_DISPLAYCHANGE: DisplayChanged?.Invoke(); return IntPtr.Zero;
             case NativeMethods.WM_SETTINGCHANGE: WorkAreaOrSettingsChanged?.Invoke(); return IntPtr.Zero;
@@ -107,14 +107,19 @@ public sealed class MessageWindow : IDisposable
         return NativeMethods.DefWindowProc(hwnd, msg, wParam, lParam);
     }
 
+    private IntPtr UpdateAnimationRect(IntPtr payload)
+    {
+        if(AnimationRectProvider is not { } provider||!ShellAnimationRect.TryUpdate(payload,provider,AnimationRectDiagnostic))return IntPtr.Zero;
+        Interlocked.Increment(ref _animationRectsUpdated);return new IntPtr(1);
+    }
     public void Dispose()
     {
         foreach (var id in _hotkeys.ToList()) UnregisterHotkey(id);
         if (Handle != IntPtr.Zero)
         {
-            if (AnimationRectHookRegistered) DeregisterShellHookWindow(Handle);
-            AnimationRectHookRegistered = false;
             AnimationRectProvider = null;
+            _animationWindow.Dispose();
+            AnimationRectDiagnostic = null;
             lock (Instances) Instances.Remove(Handle);
             NativeMethods.DestroyWindow(Handle);
             Handle = IntPtr.Zero;

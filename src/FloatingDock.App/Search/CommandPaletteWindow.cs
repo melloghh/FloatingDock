@@ -176,6 +176,11 @@ internal sealed class CommandPaletteWindow : IDisposable
         { if(_results.Count>0)Select(Math.Clamp(_selectedIndex+(e.Key==global::Windows.System.VirtualKey.Down?1:-1),0,_results.Count-1));e.Handled=true; }
         else if(e.Key==global::Windows.System.VirtualKey.Enter&&_selectedIndex>=0&&_selectedIndex<_results.Count){Open(_results[_selectedIndex]);e.Handled=true;}
     }
+    internal void OpenApplicationForDiagnostics(AppRef app)
+    {
+        if(!Program.IsSmokeTest)throw new InvalidOperationException("Search launch probe requires smoke-test mode.");
+        Open(new Result(app.Name,"","App",App:app));
+    }
     private void Open(Result result)
     {
         Hide();

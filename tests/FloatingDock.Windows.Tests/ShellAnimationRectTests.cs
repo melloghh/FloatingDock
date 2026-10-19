@@ -11,6 +11,7 @@ public class ShellAnimationRectTests
     [StructLayout(LayoutKind.Sequential)] private struct Info { public IntPtr Window; public RECT Rect; }
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr SendMessage(IntPtr h, uint msg, IntPtr w, IntPtr l);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern uint RegisterWindowMessage(string message);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr SendMessageTimeout(IntPtr h,uint message,IntPtr w,IntPtr l,uint flags,uint timeout,out IntPtr result);
 
     [Fact]
     public void InvalidPointerDoesNotCallTheProvider()
@@ -92,6 +93,22 @@ public class ShellAnimationRectTests
         });
         window.Dispose();
         Assert.False(window.AnimationRectHookRegistered);
+    }
+
+    [Fact]
+    public void ShellRectangleIsAnsweredWhileTheOwnerThreadIsBlocked()
+    {
+        using var window=new MessageWindow();
+        int owner=Environment.CurrentManagedThreadId,providerThread=0;
+        window.AnimationRectProvider=_=>{providerThread=Environment.CurrentManagedThreadId;return new RECT{Left=20,Top=400,Right=60,Bottom=440};};
+        WithPayload(new Info{Window=new IntPtr(7),Rect=new RECT{Left=100,Top=100,Right=140,Bottom=140}},payload=>
+        {
+            var request=Task.Run(()=>SendMessageTimeout(window.AnimationRectMessageHandle,RegisterWindowMessage("SHELLHOOK"),new IntPtr(5),payload,2,150,out _));
+            // No message pumping on the owner thread, just as during a costly UI frame.
+            Assert.True(request.Wait(1000));Assert.NotEqual(IntPtr.Zero,request.Result);
+            Assert.NotEqual(owner,providerThread);Assert.Equal(20,Marshal.PtrToStructure<Info>(payload).Rect.Left);
+            Assert.Equal(1,window.AnimationRectsUpdated);
+        });
     }
 
     private static void WithPayload(Info info, Action<IntPtr> action)
