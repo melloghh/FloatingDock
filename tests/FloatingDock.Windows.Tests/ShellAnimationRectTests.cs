@@ -12,6 +12,29 @@ public class ShellAnimationRectTests
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr SendMessage(IntPtr h, uint msg, IntPtr w, IntPtr l);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern uint RegisterWindowMessage(string message);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr SendMessageTimeout(IntPtr h,uint message,IntPtr w,IntPtr l,uint flags,uint timeout,out IntPtr result);
+    [DllImport("kernel32.dll")] private static extern IntPtr VirtualAlloc(IntPtr address,nuint size,uint type,uint protection);
+    [DllImport("kernel32.dll")] private static extern bool VirtualProtect(IntPtr address,nuint size,uint protection,out uint previous);
+    [DllImport("kernel32.dll")] private static extern bool VirtualFree(IntPtr address,nuint size,uint type);
+
+    [Fact]
+    public void PackedPayloadAtPageBoundaryDoesNotRequireTrailingStorage()
+    {
+        int page=Environment.SystemPageSize;
+        var memory=VirtualAlloc(IntPtr.Zero,(nuint)(page*2),0x3000,4);
+        Assert.NotEqual(IntPtr.Zero,memory);
+        try
+        {
+            Assert.True(VirtualProtect(memory+page,(nuint)page,1,out _));
+            var payload=memory+page-IntPtr.Size-8;
+            Marshal.WriteIntPtr(payload,new IntPtr(7));
+            Marshal.WriteInt32(payload,IntPtr.Size,100|(900<<16));
+            Marshal.WriteInt32(payload,IntPtr.Size+4,140|(940<<16));
+            Assert.True(ShellAnimationRect.TryUpdate(payload,_=>new RECT{Left=200,Top=500,Right=240,Bottom=540}));
+            Assert.Equal(200|(500<<16),Marshal.ReadInt32(payload,IntPtr.Size));
+            Assert.Equal(240|(540<<16),Marshal.ReadInt32(payload,IntPtr.Size+4));
+        }
+        finally {VirtualFree(memory,0,0x8000);}
+    }
 
     [Fact]
     public void InvalidPointerDoesNotCallTheProvider()
@@ -56,6 +79,22 @@ public class ShellAnimationRectTests
             Assert.Equal(-1750, (short)(r.Top & 0xffff));
             Assert.Equal(-50, (short)(r.Top >> 16));
             Assert.Equal(0, r.Right); Assert.Equal(0, r.Bottom);
+        });
+    }
+
+    [Theory]
+    [InlineData(123,456)]
+    [InlineData(int.MaxValue,int.MaxValue)]
+    [InlineData(-1,-1)]
+    public void PackedPointsDoNotDependOnTrailingPadding(int trailingA,int trailingB)
+    {
+        WithPayload(new Info { Window = new IntPtr(7), Rect = new RECT { Left = 100 | (900 << 16), Top = 140 | (940 << 16), Right = trailingA, Bottom = trailingB } }, p =>
+        {
+            Assert.True(ShellAnimationRect.TryUpdate(p, _ => new RECT { Left = 200, Top = 500, Right = 240, Bottom = 540 }));
+            var r = Marshal.PtrToStructure<Info>(p).Rect;
+            Assert.Equal(200 | (500 << 16), r.Left);
+            Assert.Equal(240 | (540 << 16), r.Top);
+            Assert.Equal(trailingA, r.Right); Assert.Equal(trailingB, r.Bottom);
         });
     }
 

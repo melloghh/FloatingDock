@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.5.10
+
+- Decode packed shell animation coordinates without relying on trailing zero padding, including payloads ending at a memory-page boundary.
+- Keep a known window's dock destination during hidden transition states and use the nearest dock fallback when process identity cannot be read.
+- Verify and commit the first DWM thumbnail frame before minimizing or repositioning the source; abandon failed thumbnail setup instead of animating an empty surface.
+- Add shell payload regressions and repeated bottom/left/right minimize checks.
+
 ## 1.5.9
 
 - Reuse frame-dispatch callbacks and tiling frame buffers; avoid temporary enumerators in dock layout and rendering without changing animation pacing.

@@ -22,7 +22,7 @@ internal sealed class ShellAnchorCache
     {
         var docks=Volatile.Read(ref _snapshot);if(docks.Length==0)return null;
         var root=NativeMethods.GetAncestor(window,NativeMethods.GA_ROOTOWNER);if(root!=IntPtr.Zero)window=root;
-        if(!NativeMethods.IsWindow(window)||!NativeMethods.IsWindowVisible(window))return null;
+        if(!NativeMethods.IsWindow(window))return null;
         NativeMethods.GetWindowThreadProcessId(window,out var pid);
         var monitor=NativeMethods.MonitorFromWindow(window,NativeMethods.MONITOR_DEFAULTTONEAREST);
         // Exact HWND/PID wins, with the nearest displayed dock preferred on multiple monitors.
@@ -37,7 +37,9 @@ internal sealed class ShellAnchorCache
         foreach(bool nearest in new[]{true,false})foreach(var dock in docks)
             if((dock.Monitor==monitor)==nearest)foreach(var anchor in dock.Anchors)
                 if(AppMatching.Matches(anchor.App,info))return anchor.Rect;
-        if(exe is null||!WindowFilter.IsCandidate(window,(uint)Environment.ProcessId)||WindowFilter.IsIgnoredExe(exe))return null;
+        // Process queries can fail for elevated/protected or exiting owners.
+        // A valid shell request still needs the dock fallback in that case.
+        if(pid==(uint)Environment.ProcessId||exe is not null&&WindowFilter.IsIgnoredExe(exe))return null;
         // An unpinned icon may still be entering. Keep even that first minimize on the dock.
         return (docks.FirstOrDefault(d=>d.Monitor==monitor)??docks[0]).Fallback;
     }

@@ -67,6 +67,7 @@ public sealed class WindowTransitionSurface : IDisposable
     [DllImport("dwmapi.dll")] private static extern int DwmUnregisterThumbnail(IntPtr thumbnail);
     [DllImport("dwmapi.dll")] private static extern int DwmUpdateThumbnailProperties(IntPtr thumbnail,ref Properties properties);
     [DllImport("dwmapi.dll")] private static extern int DwmExtendFrameIntoClientArea(IntPtr window,ref Margins margins);
+    [DllImport("dwmapi.dll")] private static extern int DwmFlush();
     [DllImport("gdi32.dll")] private static extern IntPtr GetStockObject(int index);
     [StructLayout(LayoutKind.Sequential)] private struct Blend {public byte Operation,Flags,Alpha,Format;}
     [DllImport("user32.dll")] private static extern bool UpdateLayeredWindow(IntPtr window,IntPtr destination,in POINT position,in SIZE size,IntPtr source,in POINT origin,uint key,in Blend blend,uint flags);
@@ -135,8 +136,14 @@ public sealed class WindowTransitionSurface : IDisposable
         if(window==IntPtr.Zero||DwmExtendFrameIntoClientArea(window,ref margins)<0||DwmRegisterThumbnail(window,source,out var thumbnail)<0)
         {if(window!=IntPtr.Zero)NativeMethods.DestroyWindow(window);if(acquired)lease.Dispose();return null;}
         int disabled=1;NativeMethods.DwmSetWindowAttribute(window,3,ref disabled,4);
-        var surface=new WindowTransitionSurface(window,thumbnail,lease,left,top,right-left,bottom-top);surface.Update(from,255);
-        NativeMethods.ShowWindow(window,4);return surface;
+        var surface=new WindowTransitionSurface(window,thumbnail,lease,left,top,right-left,bottom-top);
+        if(!surface.Update(from,255)){surface.Dispose();return null;}
+        NativeMethods.ShowWindow(window,4);
+        // Registration/update success only queues composition. Commit the first
+        // visible thumbnail before the caller minimizes or repositions its source.
+        // Otherwise a cold destination can start with no source image at all.
+        if(DwmFlush()<0){surface.Dispose();return null;}
+        return surface;
     }
     public bool Update(TileRect rect,byte opacity)
     {
