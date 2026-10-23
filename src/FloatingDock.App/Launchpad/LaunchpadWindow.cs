@@ -223,10 +223,11 @@ internal sealed class LaunchpadWindow : IDisposable
     }
     internal async Task<bool> AddApplicationPathAsync(string path)
     {
-        var result=await _app.Worker.Run(()=>UserTileImporter.Import(path,_app.Paths.AppLibraryShortcutsDir,key=>_app.UserTiles.Contains(key)));
         if(_disposed)return false;
-        if(result.Status==TileImportStatus.Added&&result.App is not null)return _app.UserTiles.Add(result.App);
-        ShowToast(L.Text(result.Status==TileImportStatus.Duplicate?"Already added.":"This file type is not supported."));return false;
+        var result=await _app.Worker.Run(()=>UserTileImporter.ImportAndSave(path,_app.Paths.AppLibraryShortcutsDir,_app.UserTiles));
+        if(_disposed)return false;
+        if(result.Status==TileImportStatus.Added)return true;
+        ShowToast(L.Text(result.Status==TileImportStatus.Duplicate?"Already added.":result.Status==TileImportStatus.SaveFailed?"Could not add application.":"This file type is not supported."));return false;
     }
 
     public void Show()
@@ -568,15 +569,16 @@ internal sealed class LaunchpadWindow : IDisposable
         {
             var items = await e.DataView.GetStorageItemsAsync();
             var paths = items.Select(i => i.Path).Where(p => !string.IsNullOrEmpty(p)).ToList();
-            int added = 0, duplicate = 0, unsupported = 0;
+            int added = 0, duplicate = 0, unsupported = 0, failed = 0;
             foreach (var path in paths)
             {
                 var result = await _app.Worker.Run(() =>
-                    UserTileImporter.Import(path, _app.Paths.AppLibraryShortcutsDir, key => _app.UserTiles.Contains(key)));
+                    UserTileImporter.ImportAndSave(path, _app.Paths.AppLibraryShortcutsDir, _app.UserTiles));
                 switch (result.Status)
                 {
-                    case TileImportStatus.Added when result.App is not null: _app.UserTiles.Add(result.App); added++; break;
+                    case TileImportStatus.Added: added++; break;
                     case TileImportStatus.Duplicate: duplicate++; break;
+                    case TileImportStatus.SaveFailed: failed++; break;
                     default: unsupported++; break;
                 }
             }
@@ -584,6 +586,7 @@ internal sealed class LaunchpadWindow : IDisposable
             if (added > 0) parts.Add($"Added {added}");
             if (duplicate > 0) parts.Add($"{duplicate} already in Launchpad");
             if (unsupported > 0) parts.Add($"{unsupported} not supported (use .lnk or .exe)");
+            if (failed > 0) parts.Add(L.Format("{0} could not be saved", failed));
             ShowToast(parts.Count == 0 ? "Nothing to add" : string.Join(" · ", parts));
         }
         catch (Exception ex)
@@ -596,6 +599,7 @@ internal sealed class LaunchpadWindow : IDisposable
 
     private void ShowToast(string text)
     {
+        if(_disposed)return;
         _toastText.Text = text;
         _toast.Opacity = 1;
         _toastTimer.Stop();

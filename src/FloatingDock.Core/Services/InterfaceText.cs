@@ -7,6 +7,7 @@ public static class InterfaceText
 {
     private static readonly Dictionary<string,string> Russian = new(StringComparer.Ordinal)
     {
+        ["{0} could not be saved"]="Не удалось сохранить: {0}",
         ["Tiling manager"]="Тайлинговый менеджер",
         ["Hide dock while tiled windows are visible"]="Скрывать док, пока видны окна тайлинга",
         ["Bring activated apps into the current workspace"]="Открывать активируемые приложения в текущем пространстве",

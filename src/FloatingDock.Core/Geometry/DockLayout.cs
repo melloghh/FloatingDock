@@ -24,8 +24,9 @@ public static class DockLayout
         res.PlateTop = m.PlateTop; res.PlateBottom = m.PlateBottom;
         float pitchIcon = p.IconSize + p.Gap;
         float span = 0f, maxPe = 0f;
-        foreach (var it in items)
+        for (int i = 0; i < items.Count; i++)
         {
+            var it = items[i];
             float pe = it.Presence;
             float w = it.IsSeparator ? p.SeparatorWidth : p.IconSize;
             span += (w + p.Gap) * pe;
@@ -50,8 +51,9 @@ public static class DockLayout
         float itemsL = float.MaxValue, itemsR = float.MinValue, itemsT = float.MaxValue;
         float x = L0;
         float precedingPresence = 0;
-        foreach (var it in items)
+        for (int i = 0; i < items.Count; i++)
         {
+            var it = items[i];
             float pe = it.Presence;
             // Add a gap before the slot, weighted by the visible prefix. A
             // zero-sized trailing/leading ghost cannot introduce a full gap.

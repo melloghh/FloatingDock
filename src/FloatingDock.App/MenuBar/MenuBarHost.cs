@@ -185,6 +185,7 @@ internal sealed class MenuBarWindow : IDisposable
     private long _lastSlideTicks;
     private DateTime _lastHover=DateTime.UtcNow;
     private string _clockText="";
+    private int? _languageId;
     private IntPtr _languageSource;
     internal string LanguageCode=>_language.Text;
     internal MonitorDescriptor Monitor { get; private set; }
@@ -238,7 +239,7 @@ internal sealed class MenuBarWindow : IDisposable
         _languageTimer=_app.UiQueue.CreateTimer();_languageTimer.Interval=TimeSpan.FromMilliseconds(75);_languageTimer.Tick+=(_,_)=>RefreshLanguage();
         _clockTimer=_app.UiQueue.CreateTimer();_clockTimer.Interval=TimeSpan.FromSeconds(1);_clockTimer.Tick+=(_,_)=>RefreshClock();
         _edgeTimer=_app.UiQueue.CreateTimer();_edgeTimer.Interval=TimeSpan.FromMilliseconds(100);_edgeTimer.Tick+=(_,_)=>CheckEdge();
-        _slideTimer=new(action=>_app.UiQueue.TryEnqueue(()=>action()),Slide);
+        _slideTimer=FloatingDock.UI.Services.AnimationClock.Create(_app.UiQueue,Slide);
         NetworkChange.NetworkAvailabilityChanged+=OnNetwork;
         RefreshNetwork();RefreshClock();
     }
@@ -411,7 +412,10 @@ internal sealed class MenuBarWindow : IDisposable
         var input=InputLanguages.InputSite(source);
         uint inputThread=NativeMethods.GetWindowThreadProcessId(input,out var inputPid);
         if(inputThread!=0&&inputPid!=(uint)Environment.ProcessId)thread=inputThread;
-        try { string language=CultureInfo.GetCultureInfo((int)(GetKeyboardLayout(thread).ToInt64()&0xffff)).TwoLetterISOLanguageName.ToUpperInvariant();if(_language.Text!=language)_language.Text=language; } catch(CultureNotFoundException) { }
+        int languageId=(int)(GetKeyboardLayout(thread).ToInt64()&0xffff);
+        if(_languageId==languageId)return;
+        _languageId=languageId;
+        try { string language=CultureInfo.GetCultureInfo(languageId).TwoLetterISOLanguageName.ToUpperInvariant();if(_language.Text!=language)_language.Text=language; } catch(CultureNotFoundException) { }
     }
     private void UpdateLanguageTimer()
     {

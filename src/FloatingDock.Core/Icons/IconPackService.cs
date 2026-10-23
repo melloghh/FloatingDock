@@ -16,7 +16,7 @@ public sealed class IconPackService
 {
     public const string DefaultPackId = "Default";
     public const string CustomPackId = "Custom";
-    public static bool IsBuiltInId(string id) => id is DefaultPackId or CustomPackId;
+    public static bool IsBuiltInId(string id) => id.Equals(DefaultPackId,StringComparison.OrdinalIgnoreCase) || id.Equals(CustomPackId,StringComparison.OrdinalIgnoreCase);
     public const long MaxEntryBytes = 32L * 1024 * 1024;
     public const long MaxTotalBytes = 256L * 1024 * 1024;
     public const int MaxEntries = 10_000;
@@ -136,12 +136,14 @@ public sealed class IconPackService
     {
         Directory.CreateDirectory(_tempRoot);
         var staging = Path.Combine(_tempRoot, "import-" + Guid.NewGuid().ToString("N"));
+        var fallbackName = Path.GetFileNameWithoutExtension(zipPath);
         try
         {
             using (var zip = ZipFile.OpenRead(zipPath))
             {
                 var problems = new List<string>();
-                var entries = ValidateEntries(zip, problems, out _);
+                var entries = ValidateEntries(zip, problems, out var prefix);
+                if(prefix.Length>0)fallbackName=prefix.TrimEnd('/');
                 if (problems.Any(IsFatal)) throw new IconPackImportException(problems.First(IsFatal));
                 if (!entries.Any(e => IconPack.ImageExtensions.Contains(Path.GetExtension(e.Rel).ToLowerInvariant())))
                     throw new IconPackImportException("The archive contains no PNG or ICO files.");
@@ -172,12 +174,12 @@ public sealed class IconPackService
             var skipped = RemoveInvalidImages(staging);
             if (!Directory.EnumerateFiles(staging, "*", SearchOption.AllDirectories).Any(f => IconPack.ImageExtensions.Contains(Path.GetExtension(f).ToLowerInvariant())))
                 throw new IconPackImportException("No usable icons: " + (skipped.Count > 0 ? skipped[0] : "the archive contains no PNG or ICO files."));
-            var pack = IconPack.Load(staging);
+            var pack = IconPack.Load(staging,fallbackName:fallbackName);
             var manifestId = IconPack.SanitizeId(pack.Id);
             if (manifestId.Length == 0) manifestId = IconPack.SanitizeId(Path.GetFileNameWithoutExtension(zipPath));
             if (manifestId.Length == 0) manifestId = "Imported";
             if (manifestId.Equals(DefaultPackId, StringComparison.OrdinalIgnoreCase) || manifestId.Equals(CustomPackId, StringComparison.OrdinalIgnoreCase)) manifestId += "-imported";
-            if (!string.Equals(manifestId, pack.Id, StringComparison.Ordinal)) RewriteManifestId(staging, manifestId);
+            if (!File.Exists(Path.Combine(staging,"manifest.json")) || !string.Equals(manifestId, pack.Id, StringComparison.Ordinal)) RewriteManifestId(staging, manifestId, pack.Name);
             var target = Path.GetFullPath(Path.Combine(_root, manifestId));
             if (!IsInside(_root, target)) throw new IconPackImportException("Invalid pack id.");
             if (!Directory.Exists(target) && Directory.EnumerateDirectories(_root).Count() >= IconLimits.MaxPacks)
@@ -219,13 +221,14 @@ public sealed class IconPackService
         return skipped;
     }
 
-    private static void RewriteManifestId(string dir, string newId)
+    private static void RewriteManifestId(string dir, string newId, string name)
     {
         var mf = Path.Combine(dir, "manifest.json");
         System.Text.Json.Nodes.JsonObject obj;
         try { obj = File.Exists(mf) ? (System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(mf)) as System.Text.Json.Nodes.JsonObject ?? new()) : new(); }
         catch (JsonException) { obj = new(); }
         obj["id"] = newId;
+        obj["name"] ??= name;
         File.WriteAllText(mf, obj.ToJsonString(JsonFile.Options));
     }
 

@@ -50,8 +50,18 @@ internal static partial class RuntimeSmoke
             session.ToggleDirection();app.Tiling.AnimateLayout();await Task.Delay(70);
             var secondHwnd=WindowSetup.Hwnd(second);NativeMethods.GetWindowRect(secondHwnd,out var startupRect);
             NativeMethods.SetWindowPos(secondHwnd,IntPtr.Zero,startupRect.Left,startupRect.Top,500,260,NativeMethods.SWP_NOZORDER|NativeMethods.SWP_NOACTIVATE);
-            await Task.Delay(430);
-            Check(!app.Tiling.Animating,"Startup size correction left an animation running.");
+            bool Corrected()
+            {
+                var targets=session.Targets();
+                return !app.Tiling.Animating&&targets.Count==originals.Count&&targets.All(p=>
+                    NativeMethods.GetWindowRect(new(p.Key),out var r)&&Math.Abs(r.Left-p.Value.X)<=2&&Math.Abs(r.Top-p.Value.Y)<=2&&
+                    Math.Abs(r.Width-p.Value.Width)<=2&&Math.Abs(r.Height-p.Value.Height)<=2);
+            }
+            // Geometry events are coalesced before the configured 400 ms motion.
+            // Verify both final bounds and a stopped clock within a finite budget.
+            ready.Restart();
+            while(!Corrected()&&ready.ElapsedMilliseconds<app.Settings.Current.TilingAnimationMs+1000)await Task.Delay(20);
+            Check(Corrected(),"Startup size correction did not settle at its final bounds.");
             checks["lateStartupResizeCorrected"]=true;
             foreach(var (id,target) in app.Tiling.Session.Targets())
             {

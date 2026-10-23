@@ -148,8 +148,8 @@ internal sealed partial class SettingsWindow
                 var change = new Button { Content = L.Text("Change…") };
                 change.Click += async (_, _) => await WindowSetup.PickIconAsync(_hwnd, app);
                 Grid.SetColumn(change, 2); row.Children.Add(change);
-                var reset = new Button { Content = L.Text("Reset"), IsEnabled = _app.Overrides.Has(app.Key) };
-                reset.Click += (_, _) => _app.TryResetIcon(app.Key);
+                var reset = new Button { Content = L.Text("Reset"), IsEnabled = _app.Overrides.Has(app) };
+                reset.Click += (_, _) => _app.TryResetIcon(app);
                 Grid.SetColumn(reset, 3); row.Children.Add(reset);
                 list.Children.Add(row);
             }

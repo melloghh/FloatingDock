@@ -31,7 +31,7 @@ Get the latest Windows x64 build from [Releases](https://github.com/melloghh/Flo
 
 Release builds include .NET and Windows App SDK runtimes. No separate runtime installation is required. Windows x64 is required; the project targets Windows 10 1809 and later and is tested locally on Windows 11. Builds are currently unsigned, so Windows may show a SmartScreen prompt.
 
-Open Settings from the top-bar gear. Tiling is **off by default**; enable it in Tiling manager when you want automatic window placement. Two visible tiled windows use left/right columns, equally sized when their native minimum sizes allow it. The release includes `SHA256SUMS.txt` for checking downloads and license notices for bundled components.
+Open FloatingDock settings from the main menu or the dock/tray context menu. The top-bar gear opens Windows Settings. Tiling is **off by default**; enable it in Tiling manager when you want automatic window placement. Two visible tiled windows use left/right columns, equally sized when their native minimum sizes allow it. The release includes `SHA256SUMS.txt` for checking downloads and license notices for bundled components.
 
 ## Quick controls
 
@@ -40,7 +40,8 @@ Open Settings from the top-bar gear. Tiling is **off by default**; enable it in 
 | Open Launchpad | Dock launcher icon or `Ctrl+Alt+Space` |
 | Search apps and files | `Ctrl+Alt+K` or the top-bar search icon |
 | Focus the dock | `Ctrl+Alt+D`, then arrows, Enter and Esc |
-| Open settings | Dock/tray context menu or the top-bar gear |
+| Open FloatingDock settings | Main menu or dock/tray context menu |
+| Open Windows Settings | Top-bar gear |
 | Change dock placement | Settings → Dock |
 | Configure the top bar | Settings → Menu Bar |
 | Change an icon | Right-click an app → Change icon |
@@ -88,7 +89,7 @@ GitHub Actions builds and tests the Windows x64 project and uploads the portable
 
 See [Architecture](docs/ARCHITECTURE.md), [Icon-pack format](docs/ICON-PACKS.md) and [Changelog](docs/CHANGELOG.md).
 
-Version **1.5.3** includes the 1.4.x fixes for workspace restoration, browser activation, menu animation, search toggling and tray positioning. Local desktop suites cover previews, language changes, Launchpad, search cancellation, owned-window tiling and actual Zen restoration. File search caches personal filenames; bounded snapshots may return partial results. Tray compatibility depends on Explorer accessibility and Windows icon snapshots, which may lag a state change. Testing across multiple physical monitors and DPI combinations is limited. Launchpad has no folders or pages.
+The version history and individual fixes are recorded in [the changelog](docs/CHANGELOG.md). Local desktop suites cover previews, language changes, Launchpad, search cancellation, owned-window tiling and actual Zen restoration. File search caches personal filenames; bounded snapshots may return partial results. Tray compatibility depends on Explorer accessibility and Windows icon snapshots, which may lag a state change. Testing across multiple physical monitors and DPI combinations is limited. Launchpad has no folders or pages.
 
 For built-in window management, see [tiling controls and limits](docs/TILING.md).
 

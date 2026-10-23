@@ -18,6 +18,7 @@ public sealed class RunningAppsService : IDisposable
 
     private readonly ShellWorker _worker;
     private readonly Action<Action> _post;               // marshals to the UI thread
+    private readonly Func<IntPtr, WindowIdentityResolver.Result> _resolve;
     private readonly uint _ownPid = (uint)Environment.ProcessId;
     private readonly Dictionary<long, WindowInfo> _windows = new();
     private readonly HashSet<IntPtr> _includedOwnWindows = new();
@@ -33,9 +34,14 @@ public sealed class RunningAppsService : IDisposable
     private int _changePending;
 
     public RunningAppsService(ShellWorker worker, Action<Action> postToUiThread)
+        : this(worker, postToUiThread, WindowIdentityResolver.Resolve) { }
+
+    internal RunningAppsService(ShellWorker worker, Action<Action> postToUiThread,
+        Func<IntPtr, WindowIdentityResolver.Result> resolve)
     {
         _worker = worker;
         _post = postToUiThread;
+        _resolve = resolve;
         _safetyNet = new System.Threading.Timer(_ => _post(FullScan), null, Timeout.Infinite, Timeout.Infinite);
         _debounce = new System.Threading.Timer(_ => _post(RaiseChanged), null, Timeout.Infinite, Timeout.Infinite);
     }
@@ -166,7 +172,10 @@ public sealed class RunningAppsService : IDisposable
         }
         if (!refresh && _windows.ContainsKey(id)) return;                        // already known
         if (!_inFlight.Add(id)) return;
-        _ = _worker.Run(() => WindowIdentityResolver.Resolve(hwnd)).ContinueWith(t =>
+        // HWND ownership belongs to the frame process. The resolver may return
+        // a different logical PID for the app hosted inside that same frame.
+        NativeMethods.GetWindowThreadProcessId(hwnd, out var ownerPid);
+        _ = _worker.Run(() => _resolve(hwnd)).ContinueWith(t =>
         {
             if (t.IsFaulted) _ = t.Exception; // observe failures even when the UI queue has already stopped
             _post(() =>
@@ -175,7 +184,7 @@ public sealed class RunningAppsService : IDisposable
                 if (_disposed || t.IsFaulted || t.IsCanceled) return;
                 var res = t.Result;
                 NativeMethods.GetWindowThreadProcessId(hwnd, out var currentPid);
-                if (currentPid != (uint)res.Info.ProcessId) { Evaluate(hwnd, 0, refresh: true); return; }
+                if (currentPid != ownerPid) { Evaluate(hwnd, 0, refresh: true); return; }
                 if (!IsCandidate(hwnd) || WindowFilter.IsIgnoredExe(res.Info.ExePath))
                 {
                     if (_windows.Remove(id)) { Forget(id); ScheduleChanged(); }

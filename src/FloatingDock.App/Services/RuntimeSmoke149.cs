@@ -26,12 +26,21 @@ internal static partial class RuntimeSmoke
             {
                 SetCursorPos(x,y);
                 Check(NativeMethods.GetAncestor(WindowFromPoint(new POINT{X=x,Y=y}),NativeMethods.GA_ROOT)==bar.InputHandle,"The search test button is covered by another window.");
+                var clicked=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                Microsoft.UI.Xaml.RoutedEventHandler acknowledged=(_,_)=>clicked.TrySetResult();
+                button.Click+=acknowledged;
                 bar.IgnoreRealCursorForDiagnostics=false;
-                var down=new INPUT{U=new(){mi=new(){dwFlags=2}}};
-                var up=new INPUT{U=new(){mi=new(){dwFlags=4}}};
-                NativeMethods.SendInput(1,new[]{down},Marshal.SizeOf<INPUT>());await Task.Delay(hold);
-                NativeMethods.SendInput(1,new[]{up},Marshal.SizeOf<INPUT>());await Task.Delay(25);
-                bar.IgnoreRealCursorForDiagnostics=true;
+                try
+                {
+                    var down=new INPUT{U=new(){mi=new(){dwFlags=2}}};
+                    var up=new INPUT{U=new(){mi=new(){dwFlags=4}}};
+                    NativeMethods.SendInput(1,new[]{down},Marshal.SizeOf<INPUT>());await Task.Delay(hold);
+                    NativeMethods.SendInput(1,new[]{up},Marshal.SizeOf<INPUT>());
+                    // AutomationPeer.Invoke queues the routed Click. Do not turn
+                    // on the smoke input guard before that event has actually run.
+                    await clicked.Task.WaitAsync(TimeSpan.FromSeconds(2));
+                }
+                finally {button.Click-=acknowledged;bar.IgnoreRealCursorForDiagnostics=true;}
             }
             await Click();Check(app.Palette is not null,"Actual search button did not create the palette.");var palette=app.Palette!;
             Check(palette.Visible&&palette.SurfaceVisible&&palette.MotionForDiagnostics.IsRunning,"Actual search-button click did not start the palette animation.");

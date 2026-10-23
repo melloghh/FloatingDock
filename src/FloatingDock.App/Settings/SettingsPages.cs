@@ -102,9 +102,8 @@ internal sealed partial class SettingsWindow
             WinRT.Interop.InitializeWithWindow.Initialize(picker, _hwnd);
             var f = await picker.PickSingleFileAsync();
             if (f is null) return;
-            var r = await _app.Worker.Run(() => UserTileImporter.Import(f.Path, _app.Paths.AppLibraryShortcutsDir, k => _app.Pinned.Contains(k)));
-            if (r.Status == TileImportStatus.Added && r.App is not null) _app.Pinned.Add(r.App);
-            else await Message("Pinned apps", r.Message ?? (r.Status == TileImportStatus.Duplicate ? "Already pinned." : "This file type is not supported."));
+            var r = await _app.Worker.Run(() => UserTileImporter.ImportAndSave(f.Path, _app.Paths.AppLibraryShortcutsDir, _app.Pinned));
+            if (r.Status != TileImportStatus.Added) await Message("Pinned apps", r.Message ?? (r.Status == TileImportStatus.Duplicate ? "Already pinned." : "This file type is not supported."));
         });
         var import = Ui.Action("Import pins from the Windows taskbar", async () =>
         {
@@ -197,14 +196,16 @@ internal sealed partial class SettingsWindow
 
     private void HookHotkeyStatus(StackPanel field, TextBlock status, int hotkeyId)
     {
+        bool active=true;
         void Update()
         {
+            if(!active||_closed)return;
             status.Text = _app.HotkeyRegistered.TryGetValue(hotkeyId, out var ok) && !ok && FieldHasText(field) ? L.Text("This shortcut is already used by another program.") : "";
             status.Foreground = new SolidColorBrush(Colors.OrangeRed);
         }
         async void OnChanged(DockSettings _) { await Task.Delay(250); _app.UiQueue.TryEnqueue(Update); }
         _app.Settings.Changed += OnChanged;
-        _pageCleanup.Add(() => _app.Settings.Changed -= OnChanged);
+        _pageCleanup.Add(() => {active=false;_app.Settings.Changed -= OnChanged;});
         Update();
     }
 

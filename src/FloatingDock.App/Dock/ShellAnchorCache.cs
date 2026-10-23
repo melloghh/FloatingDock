@@ -8,7 +8,7 @@ namespace FloatingDock.UI.Dock;
 /// <summary>Immutable UI-published geometry; the shell thread never reads XAML or live dock motion.</summary>
 internal sealed class ShellAnchorCache
 {
-    internal sealed record Anchor(AppRef App,IReadOnlyList<WindowInfo> Windows,RECT Rect);
+    internal readonly record struct Anchor(AppRef App,IReadOnlyList<WindowInfo> Windows,RECT Rect);
     private sealed record Dock(IntPtr Monitor,RECT Fallback,Anchor[] Anchors);
     private readonly Dictionary<IntPtr,Dock> _docks=new(); // UI thread only
     private Dock[] _snapshot=Array.Empty<Dock>();

@@ -16,6 +16,7 @@ internal sealed partial class SettingsWindow : IDisposable
     private readonly List<Action> _pageCleanup = new();
     private readonly Dictionary<string, Func<UIElement>> _pages;
     private IntPtr _hwnd;
+    private bool _closed;
 
     public event Action<Window, object>? Closed;
 
@@ -49,7 +50,7 @@ internal sealed partial class SettingsWindow : IDisposable
         // old page/window pixels back through a whole-window blur surface.
         _window = new Window { Title = L.Text("FloatingDock settings"), Content = _nav };
         _window.AppWindow.Resize(new global::Windows.Graphics.SizeInt32(980, 740));
-        _window.Closed += (s, e) => { _app.Running.ExcludeOwnWindow(_hwnd); Cleanup(); _app.Settings.Changed -= OnSettingsChanged; Closed?.Invoke(_window, e); };
+        _window.Closed += (s, e) => { _closed=true; _app.Running.ExcludeOwnWindow(_hwnd); Cleanup(); _app.Settings.Changed -= OnSettingsChanged; Closed?.Invoke(_window, e); };
         try { _window.AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico")); } catch { }
         _hwnd = WindowSetup.Hwnd(_window);
         _nav.ActualThemeChanged += (_, _) => ApplyCaptionTheme();
@@ -79,6 +80,7 @@ internal sealed partial class SettingsWindow : IDisposable
 
     public void ShowSection(string? section)
     {
+        if(_closed)return;
         _window.Activate();
         _app.Running.IncludeOwnWindow(_hwnd);
         WindowActivatorShim.Foreground(_hwnd);
@@ -87,17 +89,19 @@ internal sealed partial class SettingsWindow : IDisposable
                 if ((string)item.Tag == section) { _nav.SelectedItem = item; break; }
     }
 
-    public void Close() => _window.Close();
+    public void Close() {if(_closed)return;_closed=true;_window.Close();}
     public void Dispose() => Close();
 
     private void ApplyTheme()
     {
+        if(_closed)return;
         WindowSetup.ApplyTheme(_nav, _app.Settings.Current.Theme);
         ApplyCaptionTheme();
     }
 
     private void ApplyCaptionTheme()
     {
+        if(_closed)return;
         bool dark = _nav.RequestedTheme == ElementTheme.Dark || _nav.RequestedTheme == ElementTheme.Default && _nav.ActualTheme == ElementTheme.Dark;
         var bg = dark ? Microsoft.UI.ColorHelper.FromArgb(255, 18, 21, 27) : Microsoft.UI.ColorHelper.FromArgb(255, 249, 249, 249);
         _nav.Background=new SolidColorBrush(bg);
@@ -114,6 +118,7 @@ internal sealed partial class SettingsWindow : IDisposable
     private InterfaceLanguage _language=InterfaceLanguage.English;
     private void OnSettingsChanged(DockSettings s) => _app.UiQueue.TryEnqueue(()=>
     {
+        if(_closed)return;
         ApplyTheme();
         if(_language==s.Language)return;
         _language=s.Language;_window.Title=L.Text("FloatingDock settings");
@@ -123,12 +128,13 @@ internal sealed partial class SettingsWindow : IDisposable
 
     private void Navigate(string name)
     {
+        if(_closed)return;
         Cleanup();
         var content = _pages[name]();
         var host = new StackPanel { Spacing = 8, Padding = new Thickness(36, 28, 36, 40), MaxWidth = 820, HorizontalAlignment = HorizontalAlignment.Left };
         host.Children.Add(content);
         _scroll.Content = host;
-        host.Loaded += (_,_)=>SurfaceMotion.Enter(host,initialScale:1);
+        host.Loaded += (_,_)=>{if(!_closed)SurfaceMotion.Enter(host,initialScale:1);};
         _scroll.ChangeView(0, 0, null, true);
     }
 
@@ -141,6 +147,7 @@ internal sealed partial class SettingsWindow : IDisposable
     /// <summary>Re-renders the current page after something changed behind its back.</summary>
     private void Refresh()
     {
+        if(_closed)return;
         if (_nav.SelectedItem is NavigationViewItem { Tag: string t }) Navigate(t);
     }
     internal void RefreshTilingBindingsAfterRejection()
@@ -148,12 +155,16 @@ internal sealed partial class SettingsWindow : IDisposable
 
     private async Task<ContentDialogResult> Dialog(string title, UIElement content, string primary, string close = "Cancel")
     {
+        if(_closed||_nav.XamlRoot is null)return ContentDialogResult.None;
         var d = new ContentDialog { Title = L.Text(title), Content = content, PrimaryButtonText = L.Text(primary), CloseButtonText = L.Text(close), XamlRoot = _nav.XamlRoot, DefaultButton = ContentDialogButton.Primary };
         return await d.ShowAsync();
     }
 
-    private async Task Message(string title, string text) =>
+    private async Task Message(string title, string text)
+    {
+        if(_closed||_nav.XamlRoot is null)return;
         await new ContentDialog { Title = L.Text(title), Content = new TextBlock { Text = L.Text(text), TextWrapping = TextWrapping.Wrap }, CloseButtonText = L.Text("OK"), XamlRoot = _nav.XamlRoot }.ShowAsync();
+    }
 }
 
 internal static class WindowActivatorShim

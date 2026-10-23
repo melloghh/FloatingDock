@@ -41,7 +41,7 @@ internal sealed class MenuSurfaceMotion : IDisposable
         ElementCompositionPreview.SetIsTranslationEnabled(root,true);
         _visual=ElementCompositionPreview.GetElementVisual(root);
         _properties=_visual.Properties;
-        _clock=new(action=>DockApp.Current.UiQueue.TryEnqueue(()=>action()),Tick);
+        _clock=FloatingDock.UI.Services.AnimationClock.Create(DockApp.Current.UiQueue,Tick);
     }
 
     internal void SetGeometry(int width,int height,double dpi,double pivot)

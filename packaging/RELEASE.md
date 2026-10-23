@@ -1,8 +1,19 @@
-FloatingDock 1.5.8 fixes native minimization falling back to the hidden Windows taskbar after launching an application from search.
+FloatingDock 1.5.9 reduces animation overhead and fixes Settings, hosted application tracking, search history and application/icon imports.
 
-Windows animation destination requests are now answered by a dedicated message thread using immutable current dock geometry, without waiting for WinUI layout or search work. New windows can match their app icon before the running-window scan finishes; while an unpinned icon is entering, the first minimize still targets the dock. Geometry updates follow dock movement and monitor placement.
+### Improvements
 
-Native titlebar minimization remains a single Windows animation. Existing browser opening/restoration composition and custom dock animations are retained. The new thread sleeps between messages; unchanged geometry is not republished.
+- Reuse frame callbacks, tiling buffers and application identities instead of creating temporary objects on every animation frame. Keep the existing frame rates, animation curves, durations and glass effects.
+- Avoid temporary enumerators in dock layout and rendering. Update the input-language label only when its language changes, retaining the existing polling responsiveness.
+- In a local three-run comparison at 144 FPS on a 12-thread PC, moving across the dock used about 23% less CPU on average (1.12% to 0.87% of total machine CPU). This is a workload-specific measurement; idle and menu CPU improvements were not consistently demonstrated.
+
+### Fixes
+
+- Prevent queued theme, language and shortcut-status updates from accessing a closed Settings window.
+- Validate hosted windows against their native frame owner, preventing repeated identity resolution and missing dock entries.
+- Handle malformed search history, normalize identity comparisons, bound loaded entries and prevent usage-count overflow.
+- Preserve names when importing icon packs without a manifest and protect built-in pack names regardless of casing.
+- Reset equivalent application icon identities from Settings.
+- Report application imports as successful only after saving; clean up copied shortcuts if saving fails and report drag-and-drop failures accurately.
 
 ### Downloads
 
@@ -12,10 +23,10 @@ Native titlebar minimization remains a single Windows animation. Existing browse
 
 .NET and Windows App SDK are included. Windows 10 1809+ / Windows 11 x64; builds are unsigned.
 
-Validation: 326 Core/Windows tests, including shell replies while the owner thread is blocked. Desktop checks cover a new Zen window launched through search, first-minimize tracking delays, busy UI, left/right dock changes, native shrink trajectories on a solid-color fixture, duplicate-image protection, browser restoration and quick-menu reuse.
+Validation: 340 Core/Windows tests and 20 local desktop suites at 144 FPS, covering native input, tooltips, menus/glass, input languages, search, previews, tiling, workspaces and native minimize destinations. Animation frame loops still stop after transitions settle. Multi-monitor mixed-DPI setups and every third-party application were not exhaustively tested.
 
 [Report a problem](https://github.com/melloghh/FloatingDock/issues/new/choose) · [Full changelog](https://github.com/melloghh/FloatingDock/blob/main/docs/CHANGELOG.md)
 
 ---
 
-**По-русски:** исправлен уход анимации сворачивания к скрытой панели задач после запуска из поиска. Ответ Windows с координатами дока больше не ждёт поток интерфейса; первое сворачивание нового окна тоже получает привязку к доку. Сохранены системная анимация без второй копии окна и исправления открытия/восстановления браузера.
+**По-русски:** уменьшены лишние выделения памяти и повторная работа во время анимаций; FPS, длительности, кривые и стеклянные эффекты сохранены. В локальном сравнении трёх прогонов при 144 FPS нагрузка при движении по доку снизилась примерно на 23%; устойчивое снижение для покоя и неподвижного меню не подтверждено. Исправлены падение при закрытии настроек, определение hosted-приложений, повреждённая история поиска, импорт приложений и пакетов иконок, сброс эквивалентных иконок. Прошли 340 автоматических тестов и 20 локальных GUI-наборов. Для Portable распакуйте весь архив; установщик — FloatingDock-Setup-x64.exe.

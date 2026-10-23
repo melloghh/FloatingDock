@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.5.9
+
+- Reuse frame-dispatch callbacks and tiling frame buffers; avoid temporary enumerators in dock layout and rendering without changing animation pacing.
+- Reuse immutable application identities when publishing moving dock anchors, while continuing to publish the current icon coordinates to Windows.
+- Format the menu bar's input-language label only when its language changes, retaining the existing polling responsiveness.
+- Validate resolved windows against their native frame owner instead of a hosted app's logical PID, preventing repeated identity resolution and missing dock entries.
+- Ignore invalid search-history entries, normalize key comparisons, bound loaded history and prevent usage-count overflow.
+- Preserve archive/folder names when importing icon packs without a manifest, and protect built-in pack identities regardless of Windows path casing.
+- Reset equivalent application icon identities from Settings, matching the dock and Launchpad behavior.
+- Persist imported applications before reporting success; remove copied shortcuts if saving fails and report failed drag-and-drop additions accurately.
+- Stop queued theme, language and hotkey-status updates from accessing a closed Settings window.
+- Correct the English/Russian getting-started instructions for the Windows Settings gear.
+
 ## 1.5.8
 
 - Answer native minimize/restore destination requests on a dedicated sleeping message thread, so search or a busy WinUI frame cannot delay the shell's response and send a window toward the hidden taskbar.

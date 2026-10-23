@@ -43,9 +43,9 @@ public sealed class IconPack
 
     public static readonly string[] ImageExtensions = { ".png", ".ico" };
 
-    public static IconPack Load(string directory, bool builtIn = false)
+    public static IconPack Load(string directory, bool builtIn = false, string? fallbackName = null)
     {
-        var dirName = System.IO.Path.GetFileName(directory.TrimEnd('\\', '/'));
+        var dirName = fallbackName ?? System.IO.Path.GetFileName(directory.TrimEnd('\\', '/'));
         IconPackManifest? manifest = null;
         var mf = System.IO.Path.Combine(directory, "manifest.json");
         string warn = "";

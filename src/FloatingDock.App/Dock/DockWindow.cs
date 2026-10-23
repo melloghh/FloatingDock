@@ -122,7 +122,7 @@ internal sealed class DockWindow : IDisposable
     public DockWindow(MonitorDescriptor monitor, DockViewModel vm)
     {
         _app = DockApp.Current;
-        _frameClock = new FrameScheduler(action => _app.UiQueue.TryEnqueue(() => action()), OnRendering);
+        _frameClock = FloatingDock.UI.Services.AnimationClock.Create(_app.UiQueue, OnRendering);
         _hoverWatch=_app.UiQueue.CreateTimer();_hoverWatch.Interval=TimeSpan.FromMilliseconds(50);
         _vm = vm;
         _monitor = monitor;
@@ -353,27 +353,42 @@ internal sealed class DockWindow : IDisposable
         _app.TopBar?.ReassertMenus();
         PublishShellAnchors();
     }
-    private readonly List<(DockEntry Entry,RECT Rect)> _publishedShellGeometry=new();
+    private readonly List<(DockEntry Entry,ShellAnchorCache.Anchor Anchor)> _publishedShellGeometry=new();
+    private readonly List<(DockEntry Entry,RECT Rect)> _nextShellGeometry=new();
     private (int X,int Y,int Size,IntPtr Monitor)? _publishedShellFallback;
     private void PublishShellAnchors()
     {
         var plate=PlateScreenForDiagnostics;int size=Math.Max(1,(int)Math.Round(_s.IconSize*_scale));
         int x=(plate.Left+plate.Right-size)/2,y=(plate.Top+plate.Bottom-size)/2;
         var fallback=(x,y,size,Monitor.Handle);bool changed=_publishedShellFallback!=fallback;int index=0;
-        foreach(var item in _motion.Items)
+        _nextShellGeometry.Clear();
+        var items=_motion.Items;
+        for(int i=0;i<items.Count;i++)
+        {
+            var item=items[i];
             if(!item.Leaving&&item.Entry.Kind==DockEntryKind.App&&item.Entry.App is not null&&AnimationRectFor(item) is { } rect)
             {
                 if(index>=_publishedShellGeometry.Count)changed=true;
-                else {var last=_publishedShellGeometry[index];if(!ReferenceEquals(last.Entry,item.Entry)||last.Rect.Left!=rect.Left||last.Rect.Top!=rect.Top||last.Rect.Right!=rect.Right||last.Rect.Bottom!=rect.Bottom)changed=true;}
+                else {var last=_publishedShellGeometry[index];if(!ReferenceEquals(last.Entry,item.Entry)||last.Anchor.Rect.Left!=rect.Left||last.Anchor.Rect.Top!=rect.Top||last.Anchor.Rect.Right!=rect.Right||last.Anchor.Rect.Bottom!=rect.Bottom)changed=true;}
+                _nextShellGeometry.Add((item.Entry,rect));
                 index++;
             }
+        }
         if(!changed&&index==_publishedShellGeometry.Count)return;
-        _publishedShellFallback=fallback;_publishedShellGeometry.Clear();
-        var anchors=new List<ShellAnchorCache.Anchor>();
-        foreach(var item in _motion.Items)
-            if(!item.Leaving&&item.Entry.Kind==DockEntryKind.App&&item.Entry.App is { } app&&AnimationRectFor(item) is { } rect)
-            {anchors.Add(new(app.Clone(),item.Entry.Windows,rect));_publishedShellGeometry.Add((item.Entry,rect));}
-        _app.Dock.ShellAnchors.Update(_hwnd,Monitor.Handle,new RECT{Left=x,Top=y,Right=x+size,Bottom=y+size},anchors.ToArray());
+        _publishedShellFallback=fallback;
+        var anchors=new ShellAnchorCache.Anchor[index];
+        for(int i=0;i<index;i++)
+        {
+            var next=_nextShellGeometry[i];
+            // Entry identity changes with the model. Geometry-only frames reuse
+            // its private app copy; published arrays are never mutated.
+            var app=i<_publishedShellGeometry.Count&&ReferenceEquals(_publishedShellGeometry[i].Entry,next.Entry)
+                ?_publishedShellGeometry[i].Anchor.App:next.Entry.App!.Clone();
+            anchors[i]=new(app,next.Entry.Windows,next.Rect);
+        }
+        _publishedShellGeometry.Clear();
+        for(int i=0;i<index;i++)_publishedShellGeometry.Add((_nextShellGeometry[i].Entry,anchors[i]));
+        _app.Dock.ShellAnchors.Update(_hwnd,Monitor.Handle,new RECT{Left=x,Top=y,Right=x+size,Bottom=y+size},anchors);
     }
     private void ApplyBlur()
     {
@@ -844,8 +859,9 @@ internal sealed class DockWindow : IDisposable
         float iconSize = _gp.IconSize;
         float centerY = _m.PlateTop + _s.DockHeight * 0.5f;
         float indY = _m.PlateBottom - 5.5f;
-        foreach (var it in items)
+        for (int i = 0; i < items.Count; i++)
         {
+            var it = items[i];
             if (!_visuals.TryGetValue(it.Key, out var v)) continue;
             float pe = it.Presence;
             if (it.IsSeparator)

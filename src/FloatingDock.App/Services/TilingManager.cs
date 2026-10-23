@@ -36,6 +36,8 @@ internal sealed class TilingManager : IDisposable
     }
     private readonly Dictionary<long,HeldWindow> _held=new();
     private readonly Dictionary<long,Presentation> _presentations=new();
+    private readonly List<KeyValuePair<long,Presentation>> _presentationFrame=new();
+    private readonly List<KeyValuePair<long,TileMotion>> _moveFrame=new();
     private readonly Dictionary<long,TileRect> _normalBounds=new();
     private readonly HashSet<long> _minimized=new();
     private NativeTilingSession? _session;
@@ -56,7 +58,7 @@ internal sealed class TilingManager : IDisposable
     internal TilingManager(DockApp app)
     {
         _app=app;_settle=app.UiQueue.CreateTimer();_settle.IsRepeating=false;_settle.Interval=TimeSpan.FromMilliseconds(45);_settle.Tick+=(_,_)=>Reconcile();
-        _animation=new(action=>app.UiQueue.TryEnqueue(()=>action()),Frame);
+        _animation=AnimationClock.Create(app.UiQueue,Frame);
         app.Running.Changed+=OnWindows;app.Running.NativeWindowChanged+=OnNative;
         app.Msg.DisplayChanged+=OnDisplay;app.Msg.WorkAreaOrSettingsChanged+=OnDisplay;
     }
@@ -365,7 +367,10 @@ internal sealed class TilingManager : IDisposable
     }
     private void Frame()
     {
-        foreach(var (id,p) in _presentations.ToArray())
+        // Keep a stable snapshot while native callbacks can remove entries,
+        // reusing its storage across frames instead of allocating two arrays.
+        _presentationFrame.Clear();_presentationFrame.AddRange(_presentations);
+        foreach(var (id,p) in _presentationFrame)
         {
             if(!NativeMethods.IsWindow(new(id))){ReleasePresentation(id);continue;}
             if(!p.Hiding&&_session is null){ReleasePresentation(id);continue;}
@@ -384,7 +389,9 @@ internal sealed class TilingManager : IDisposable
             byte alpha=(byte)Math.Clamp(p.Hiding?Math.Round(p.FromOpacity*(1-fade)):Math.Round(p.FromOpacity+(255-p.FromOpacity)*reveal),0,255);
             if(!p.Surface.Update(bounds,alpha)||t>=1&&(p.Hiding||atTarget))ReleasePresentation(id);
         }
-        foreach(var (id,move) in _moves.ToArray())
+        _presentationFrame.Clear();
+        _moveFrame.Clear();_moveFrame.AddRange(_moves);
+        foreach(var (id,move) in _moveFrame)
         {
             double now=Now;bool complete=move.Complete(now);
             // A startup routine may apply its saved size after our first placement.
@@ -392,6 +399,7 @@ internal sealed class TilingManager : IDisposable
             bool moved=_session?.Move(id,move.Sample(now).Bounds,resize:complete)==true;
             if(!moved||complete)_moves.Remove(id);
         }
+        _moveFrame.Clear();
         if(_moves.Count==0&&_presentations.Count==0){_animation.Stop();WindowTransitionSurface.TrimIdleViewports();}
     }
     private void StopSession(){_settle.Stop();_animation.Stop();_moves.Clear();foreach(var id in _presentations.Keys.ToArray())ReleasePresentation(id);WindowTransitionSurface.TrimIdleViewports(0);foreach(var held in _held.Values)held.Lease.Dispose();_held.Clear();_dragging.Clear();_arrivals.Clear();_session?.Dispose();_session=null;_primed=false;}

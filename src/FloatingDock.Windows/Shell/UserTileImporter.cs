@@ -1,8 +1,9 @@
 using FloatingDock.Core.Models;
+using FloatingDock.Core.Services;
 
 namespace FloatingDock.Windows.Shell;
 
-public enum TileImportStatus { Added, Duplicate, Unsupported }
+public enum TileImportStatus { Added, Duplicate, Unsupported, SaveFailed }
 public sealed record TileImportResult(TileImportStatus Status, AppRef? App, string? Message);
 
 /// <summary>
@@ -12,6 +13,18 @@ public sealed record TileImportResult(TileImportStatus Status, AppRef? App, stri
 /// </summary>
 public static class UserTileImporter
 {
+    /// <summary>A copied shortcut is kept only after the corresponding app list was saved.</summary>
+    public static TileImportResult ImportAndSave(string path, string shortcutsDir, AppListStore store)
+    {
+        var result = Import(path, shortcutsDir, store.Contains);
+        if (result.Status != TileImportStatus.Added || result.App is null) return result;
+        if (store.Add(result.App)) return result;
+        if (result.App.ShortcutPath is { } copy) TryDelete(copy);
+        return store.Contains(result.App.Key)
+            ? new(TileImportStatus.Duplicate, null, "Already added.")
+            : new(TileImportStatus.SaveFailed, null, store.LastError ?? "Could not add application.");
+    }
+
     public static TileImportResult Import(string path, string shortcutsDir, Func<string, bool> alreadyExists)
     {
         try
@@ -43,5 +56,5 @@ public static class UserTileImporter
         }
     }
 
-    private static void TryDelete(string p) { try { File.Delete(p); } catch (IOException) { } }
+    private static void TryDelete(string p) { try { File.Delete(p); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { } }
 }

@@ -9,5 +9,6 @@
   <ItemGroup>
     <ProjectReference Include="..\FloatingDock.Core\FloatingDock.Core.csproj" />
     <InternalsVisibleTo Include="FloatingDock" />
+    <InternalsVisibleTo Include="FloatingDock.Windows.Tests" />
   </ItemGroup>
 </Project>
