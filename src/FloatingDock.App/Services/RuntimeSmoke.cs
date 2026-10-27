@@ -28,6 +28,8 @@ internal static partial class RuntimeSmoke
         string? error = null;
         try
         {
+            if(Environment.GetCommandLineArgs().Contains("--test-only-native163"))
+            {await CheckNative163Async(app,checks);Check(Program.UiFailureCount==0,"XAML failure in native animation checks.");success=true;return;}
             if(Environment.GetCommandLineArgs().Contains("--test-only-launch162"))
             {await CheckLaunch162Async(app,checks);Check(Program.UiFailureCount==0,"XAML failure in launch checks.");success=true;return;}
             if(Environment.GetCommandLineArgs().Contains("--test-only-realwindows162"))
@@ -65,7 +67,7 @@ internal static partial class RuntimeSmoke
             if(Environment.GetCommandLineArgs().Contains("--test-only-ui144"))
             {await CheckUi144Async(app,checks);Check(Program.UiFailureCount==0,"XAML failure in language/tray/first-open checks.");success=true;return;}
             if(Environment.GetCommandLineArgs().Contains("--test-only-ui143"))
-            {await CheckUi143Async(app,checks);Check(Program.UiFailureCount==0,"XAML failure in untiled minimize checks.");success=true;return;}
+            {await CheckNative163Async(app,checks);Check(Program.UiFailureCount==0,"XAML failure in untiled minimize checks.");success=true;return;}
             if(Environment.GetCommandLineArgs().Contains("--test-only-ui142"))
             {await CheckUi140Async(app,checks);await CheckUi141Async(app,checks);if(Environment.GetCommandLineArgs().Contains("--test-real-apps142"))await CheckRealApps142Async(app,checks);Check(Program.UiFailureCount==0,"XAML failure in capture/minimum/aspect checks.");success=true;return;}
             if(Environment.GetCommandLineArgs().Contains("--test-only-ui141"))

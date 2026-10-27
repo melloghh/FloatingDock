@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.6.3
+
+- Remove the fixed blue tint from menus, search, Launchpad and Settings. Use neutral translucent grayscale surfaces, highlights and borders while preserving blur and the restored top-bar appearance.
+- Let Windows DWM handle startup, minimize and restore for ordinary, untiled application windows. FloatingDock no longer hides these windows with zero opacity or animates a replacement thumbnail while Explorer/browser content is starting or repainting.
+- Preserve the shell animation destination at the dock icon for both native caption commands and dock actions. Keep icon pulses, panel/menu transitions and opt-in tiling animations.
+- Create the caption mouse hook only while the tiling manager needs it; remove it when tiling is disabled or paused.
+- Record real first-launch and restore frames for a dedicated Explorer folder and an isolated Chrome profile. Verify no zero-opacity source, added layered window or replacement presentation on the normal path, and retain tiling/workspace regressions.
+
 ## 1.6.2
 
 - Move native thumbnail rendering to a finite sleeping frame clock independent of the XAML dispatcher. Opening, minimizing, restoring and tiling representations keep updating during UI/Shell work; UI placement and cleanup use a lower maintenance cadence when no native layout moves are active.

@@ -1,12 +1,11 @@
-FloatingDock 1.6.2 fixes stalling and skipped window animations while keeping the original neutral translucent top bar.
+FloatingDock 1.6.3 fixes the normal window-animation path and removes the blue tint from glass menus.
 
-- Native thumbnail motion now runs on a separate sleeping frame clock, so UI startup work does not freeze the opening, minimize or restore transition.
-- Opening follows an application's live window size, removing the wait at stale startup geometry.
-- Retry matching after asynchronous application identification; preserve bounded launch tracking across splash/main-window hand-offs.
-- Animate restoration of windows that were already minimized when FloatingDock started. Search and Launchpad prepare matching minimized windows too.
-- Synchronize reversals and thumbnail disposal; native layout changes and cleanup stay on the UI thread.
+- Menus, search, Launchpad and Settings now use neutral translucent gray surfaces, highlights and borders. Blur remains enabled locally, and the top bar keeps its original appearance.
+- Ordinary application windows use Windows DWM startup/minimize/restore transitions. They are no longer made transparent and replaced by a live thumbnail while their content is still initializing or repainting.
+- Native caption minimize commands and dock actions retain the dock icon as their shell animation destination. Icon pulses, menu/panel animation and opt-in tiling transitions remain available.
+- The caption mouse hook is installed only when needed by active tiling, reducing background work in the normal desktop mode.
 
-Validated with regression fixtures for startup resizing, packaged identity and busy dispatchers, pixel-based minimize/restore checks, and repeated restores of available real applications. These checks do not guarantee compatibility with every custom/elevated window. Native fallback and reduced motion remain available. Global Windows animation/transparency settings are unchanged.
+Validation includes real fresh Explorer windows and an isolated Chrome profile, captured startup/restore frames, source-composition checks, native caption system commands, dock actions, tiling/workspaces and UI interaction checks. Browser fixture content is local; captures/profiles are private and are not distributed. Windows' existing animation preferences are respected; system animation/transparency settings are unchanged.
 
 ### Downloads
 
@@ -18,6 +17,8 @@ Validated with regression fixtures for startup resizing, packaged identity and b
 
 ### По-русски
 
-Исправлены зависания и пропуски анимаций окон. Отрисовка перехода выполняется отдельно от потока интерфейса; изменение размеров приложения при запуске больше не удерживает изображение на старом месте. Добавлена повторная попытка сопоставления после определения приложения и восстановление окон, свёрнутых ещё до запуска FloatingDock. Поиск и Launchpad также подготавливают свёрнутое окно к анимации восстановления.
+Убран принудительный синий оттенок меню, поиска, Launchpad и настроек: стекло теперь нейтрально-серое, с прежним размытием. Верхняя панель сохраняет исходный вид.
 
-Верхняя панель сохраняет прежние нейтральную прозрачность и размытие. Настройки, закрепления и личные иконки сохраняются. Для неподдерживаемых окон остаётся системный вариант; абсолютная совместимость со всеми приложениями не заявляется.
+Для обычных окон открытие, сворачивание и восстановление выполняет Windows DWM. FloatingDock больше не скрывает запускающееся окно и не подменяет его миниатюрой, которая могла содержать ещё неготовый кадр. Сворачивание к значку дока, анимации иконок и меню сохранены. Собственные переходы тайлинга остаются в режиме тайлинга.
+
+Проверены реальные новые окна Проводника и отдельного профиля Chrome, запуск и восстановление с записью кадров, команды кнопок окна и дока, тайлинг и рабочие области. Системные настройки анимаций/прозрачности и пользовательские данные не меняются.

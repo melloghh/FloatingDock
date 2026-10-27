@@ -38,7 +38,7 @@ internal sealed class GlassBackdrop : SystemBackdrop
         }
         catch(Exception ex)
         {
-            _brush=_compositor.CreateColorBrush(global::Windows.UI.Color.FromArgb(255,20,22,27));
+            _brush=_compositor.CreateColorBrush(global::Windows.UI.Color.FromArgb(255,22,22,22));
             DockApp.Current.Log.Warn("Glass fallback: "+ex.Message);
         }
         _target=target;_appliedOpacity=null;ResetOpacity(_visible?_opacity:0);target.SystemBackdrop=_visible?_brush:null;

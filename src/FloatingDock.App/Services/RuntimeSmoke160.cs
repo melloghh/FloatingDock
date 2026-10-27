@@ -64,9 +64,8 @@ internal static partial class RuntimeSmoke
             WindowStyler.SetBounds(hwnd,bar.Monitor.WorkArea.Left+240,bar.Monitor.WorkArea.Top+160,900,620,topmost:true);
             app.Tiling.DiagnosticWindows=new HashSet<long>{id};app.Running.IncludeOwnWindow(hwnd);
             app.Tiling.NoteLaunch(new AppRef{Name="Owned opening",ExePath=Environment.ProcessPath});front.Activate();
-            await Wait(()=>app.Tiling.PresentationsForDiagnostics.ContainsKey(id),"A newly launched window has no opening presentation.");
-            int openingFrames=0;while(app.Tiling.PresentationsForDiagnostics.ContainsKey(id)){openingFrames++;await Task.Delay(12);Check(openingFrames<150,"Opening did not finish.");}
-            Check(openingFrames>7&&(NativeMethods.GetExStyle(hwnd)&0x80000)==0,"Opening snapped or leaked opacity.");checks["launchedWindowOpeningFrames"]=openingFrames;
+            await Task.Delay(400);
+            Check(!app.Tiling.PresentationsForDiagnostics.ContainsKey(id)&&(NativeMethods.GetExStyle(hwnd)&0x80000)==0,"Native opening was hidden behind a thumbnail.");checks["nativeOpeningWithoutSourceMutation"]=true;
             if(external>=0)
             {
                 app.Running.ExcludeOwnWindow(hwnd);front.Close();
@@ -77,14 +76,14 @@ internal static partial class RuntimeSmoke
                 app.Running.IncludeOwnWindow(hwnd);
             }
             await Wait(()=>app.Dock.AnimationRectFor(hwnd) is not null,"Caption fixture has no dock icon.");
-            Check(app.Tiling.CaptionRoutingInstalled,"Caption click router was not installed.");
+            Check(!app.Tiling.CaptionRoutingInstalled,"Caption hook is installed outside tiling.");
             var cycles=new List<object>();
             foreach(var edge in new[]{DockEdge.Bottom,DockEdge.Left,DockEdge.Right})
             {
                 app.Settings.Update(s=>s.Edge=edge);await Task.Delay(200);
                 foreach(bool caption in new[]{false,true})
                 {
-                    NativeMethods.ShowWindowAsync(hwnd,NativeMethods.SW_RESTORE);WindowActivator.Activate(hwnd);await Wait(()=>!NativeMethods.IsIconic(hwnd),"Fixture did not restore.");await Task.Delay(150);
+                    NativeMethods.ShowWindowAsync(hwnd,NativeMethods.SW_RESTORE);WindowActivator.Activate(hwnd);await Wait(()=>!NativeMethods.IsIconic(hwnd),"Fixture did not restore.");await Task.Delay(400);
                     if(caption)
                     {
                         NativeMethods.GetWindowRect(hwnd,out var rect);POINT? button=null;
@@ -95,28 +94,22 @@ internal static partial class RuntimeSmoke
                                 if(CaptionHit160(hwnd,0x84,IntPtr.Zero,new(packed),2,20,out var hit)!=IntPtr.Zero&&hit.ToUInt64()==8){button=new POINT{X=x,Y=y};break;}
                             }
                         Check(button is not null,"Fixture has no native minimize hit target.");
-                        // A complete click is required; dragging off must cancel the command.
-                        SetCursorPos(button!.Value.X,button.Value.Y);
-                        NativeMethods.SendInput(1,new[]{new INPUT{U=new(){mi=new(){dwFlags=2}}}},Marshal.SizeOf<INPUT>());await Task.Delay(25);
-                        SetCursorPos(rect.Left+rect.Width/2,rect.Top+rect.Height/2);
-                        NativeMethods.SendInput(1,new[]{new INPUT{U=new(){mi=new(){dwFlags=4}}}},Marshal.SizeOf<INPUT>());await Task.Delay(60);
-                        Check(!NativeMethods.IsIconic(hwnd)&&!app.Tiling.PresentationsForDiagnostics.ContainsKey(id),"Dragging off the caption minimize button did not cancel.");
-                        SetCursorPos(button!.Value.X,button.Value.Y);
-                        NativeMethods.SendInput(1,new[]{new INPUT{U=new(){mi=new(){dwFlags=2}}}},Marshal.SizeOf<INPUT>());await Task.Delay(30);
-                        NativeMethods.SendInput(1,new[]{new INPUT{U=new(){mi=new(){dwFlags=4}}}},Marshal.SizeOf<INPUT>());
+                        // Default caption controls emit SC_MINIMIZE. Exercise
+                        // that native command without racing the user's cursor.
+                        NativeMethods.PostMessage(hwnd,0x112,new(0xF020),IntPtr.Zero);
                     }
                     else app.Tiling.MinimizeToDock(hwnd);
-                    await Wait(()=>app.Tiling.PresentationsForDiagnostics.ContainsKey(id),"Minimize path did not use the shared presentation: caption="+caption);
-                    var frames=new List<FloatingDock.Core.Tiling.TileRect>();var timer=Stopwatch.StartNew();
-                    while(app.Tiling.PresentationsForDiagnostics.TryGetValue(id,out var p)&&timer.ElapsedMilliseconds<2000)
-                    {frames.Add(p.Bounds);await Task.Delay(10);}
-                    Check(frames.Distinct().Count()>7&&NativeMethods.IsIconic(hwnd),"Minimize snapped or did not minimize.");
+                    var timer=Stopwatch.StartNew();
+                    await Wait(()=>NativeMethods.IsIconic(hwnd),"Native minimize did not complete.");
+                    await Task.Delay(360);
+                    Check(!app.Tiling.PresentationsForDiagnostics.ContainsKey(id),"Native minimize has a duplicate thumbnail.");
                     Check((NativeMethods.GetExStyle(hwnd)&0x80000)==0,"Minimize leaked its opacity style.");
                     app.Tiling.PrepareActivation(new[]{new WindowInfo(id,Environment.ProcessId,Environment.ProcessPath,null,"Caption fixture",null,true)});
-                    await Wait(()=>app.Tiling.PresentationsForDiagnostics.ContainsKey(id),"Untiled restoration has no reverse animation.");
                     await Wait(()=>!app.Tiling.Animating&&!NativeMethods.IsIconic(hwnd),"Untiled restore did not settle.");
+                    Check(!app.Tiling.PresentationsForDiagnostics.ContainsKey(id),"Native restore has a duplicate thumbnail.");
+                    await Task.Delay(400);
                     Check((NativeMethods.GetExStyle(hwnd)&0x80000)==0,"Restore leaked opacity.");
-                    cycles.Add(new{edge=edge.ToString(),caption,frames=frames.Distinct().Count(),milliseconds=timer.ElapsedMilliseconds});
+                    cycles.Add(new{edge=edge.ToString(),caption,native=true,milliseconds=timer.ElapsedMilliseconds});
                 }
             }
             checks["sharedCaptionDockMinimizeAndRestore"]=cycles;

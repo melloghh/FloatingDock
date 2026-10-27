@@ -19,11 +19,16 @@ internal static class OwnWindowCapture
         internal void Save(string path) => File.WriteAllBytes(path, PngWriter.EncodeBgra(Width, Height, Pixels, false));
     }
 
-    internal static Frame Capture(IntPtr hwnd)
+    internal static Frame Capture(IntPtr hwnd,RECT? region=null)
     {
         NativeMethods.GetWindowThreadProcessId(hwnd, out var pid);
         if (pid != Environment.ProcessId || !NativeMethods.GetWindowRect(hwnd, out var rect))
             throw new InvalidOperationException("Render diagnostics may only capture this application's own windows.");
+        if(region is { } crop)
+        {
+            if(crop.Left<rect.Left||crop.Top<rect.Top||crop.Right>rect.Right||crop.Bottom>rect.Bottom)throw new InvalidOperationException("Diagnostic region leaves the owned window.");
+            rect=crop;
+        }
         if (rect.Width <= 0 || rect.Height <= 0 || (long)rect.Width * rect.Height > IconLimits.MaxPixels)
             throw new InvalidOperationException("Invalid diagnostic viewport.");
         DwmFlush();
