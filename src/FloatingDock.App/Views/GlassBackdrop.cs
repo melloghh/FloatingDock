@@ -10,6 +10,8 @@ namespace FloatingDock.UI.Views;
 /// <summary>Own-window blur with a composited tint, independent of Windows' Acrylic policy.</summary>
 internal sealed class GlassBackdrop : SystemBackdrop
 {
+    private readonly float _blurAmount;
+    internal GlassBackdrop(float blurAmount=24) => _blurAmount=blurAmount;
     private global::Windows.UI.Composition.Compositor? _compositor;
     private global::Windows.UI.Composition.CompositionBrush? _brush;
     private AlphaWindow? _alpha;
@@ -29,7 +31,7 @@ internal sealed class GlassBackdrop : SystemBackdrop
         try
         {
             if(!applied)throw new NotSupportedException("Local backdrop unavailable.");
-            var blur=new GaussianBlurEffect { BlurAmount=24,BorderMode=EffectBorderMode.Hard,Optimization=EffectOptimization.Balanced,Source=new global::Windows.UI.Composition.CompositionEffectSourceParameter("Backdrop") };
+            var blur=new GaussianBlurEffect { BlurAmount=_blurAmount,BorderMode=EffectBorderMode.Hard,Optimization=EffectOptimization.Balanced,Source=new global::Windows.UI.Composition.CompositionEffectSourceParameter("Backdrop") };
             var fade=new OpacityEffect { Name="SurfaceFade",Opacity=1,Source=blur };
             using var factory=_compositor.CreateEffectFactory(fade,new[]{"SurfaceFade.Opacity"});
             var effect=factory.CreateBrush();effect.SetSourceParameter("Backdrop",_compositor.CreateBackdropBrush());_brush=effect;

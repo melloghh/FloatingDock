@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.6.1
+
+- Restore the top bar's original neutral translucent tint and blur strength. The glass redesign no longer applies a blue tint or increased opacity to the top bar.
+
 ## 1.6.0
 
 - Redesign search as a rounded input capsule and separate glass results surface, with compact rows and a soft translucent selection.

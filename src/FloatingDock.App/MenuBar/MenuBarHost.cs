@@ -148,7 +148,7 @@ internal sealed class MenuBarWindow : IDisposable
     private bool _hitTargetsDirty=true;
     private bool _inputReady;
     private double _hitScale=1;
-    private readonly Grid _root=new() { RequestedTheme=ElementTheme.Dark, Background=GlassStyle.Surface, CornerRadius=new CornerRadius(14), BorderThickness=new Thickness(0) };
+    private readonly Grid _root=new() { RequestedTheme=ElementTheme.Dark, Background=new SolidColorBrush(ColorHelper.FromArgb(96,18,21,27)), CornerRadius=new CornerRadius(14), BorderThickness=new Thickness(0) };
     private readonly TextBlock _name=new() { Text=L.Text("Desktop"),FontSize=13,FontWeight=Microsoft.UI.Text.FontWeights.SemiBold,VerticalAlignment=VerticalAlignment.Center,TextTrimming=TextTrimming.CharacterEllipsis,MaxWidth=420 };
     private readonly TextBlock _clock=new() { FontSize=13,VerticalAlignment=VerticalAlignment.Center };
     private readonly TextBlock _language=new() { FontSize=11,FontWeight=Microsoft.UI.Text.FontWeights.SemiBold,VerticalAlignment=VerticalAlignment.Center };
@@ -225,7 +225,7 @@ internal sealed class MenuBarWindow : IDisposable
         right.Children.Add(_settingsButton);
         _clockButton=ActionButton(_clock,"Date and time",ShowCalendar);right.Children.Add(_clockButton);
         Grid.SetColumn(right,2);_root.Children.Add(right);
-        _window=new Window { Title="FloatingDock menu bar",Content=_root,SystemBackdrop=new GlassBackdrop() };
+        _window=new Window { Title="FloatingDock menu bar",Content=_root,SystemBackdrop=new GlassBackdrop(18) };
         WindowSetup.MakeBorderless(_window);Handle=WindowSetup.Hwnd(_window);WindowStyler.MakeOverlayWindow(Handle,noActivate:true);
         _pointerSurface=new MenuBarPointerSurface(Handle);_pointerSurface.Pointer+=OnBarPointer;
         _tooltipTimer=_app.UiQueue.CreateTimer();_tooltipTimer.IsRepeating=false;_tooltipTimer.Interval=TimeSpan.FromMilliseconds(650);
