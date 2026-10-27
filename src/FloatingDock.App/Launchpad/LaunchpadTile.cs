@@ -28,6 +28,7 @@ internal sealed class LaunchpadTile : Grid
 
     public LaunchpadTile()
     {
+        Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.SetIsTranslationEnabled(this,true);
         CornerRadius = new CornerRadius(14);
         Background = Idle;
         Padding = new Thickness(6, 10, 6, 6);
@@ -70,6 +71,8 @@ internal sealed class LaunchpadTile : Grid
     {
         Background=Idle;
         SurfaceMotion.Reset(Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(this));
+        Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.SetIsTranslationEnabled(this,true);
+        var visual=Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(this);visual.StopAnimation("Translation");visual.Properties.InsertVector3("Translation",System.Numerics.Vector3.Zero);
         SurfaceMotion.Reset(Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(_icon));
         SurfaceMotion.Reset(Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(_highlight),0);
     }

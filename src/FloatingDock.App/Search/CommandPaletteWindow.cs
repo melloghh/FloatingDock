@@ -22,12 +22,13 @@ internal sealed class CommandPaletteWindow : IDisposable
     private readonly DockApp _app=DockApp.Current;
     private readonly Window _window;
     private readonly Border _root;
-    private readonly TextBox _query=new(){BorderThickness=new Thickness(0),Background=new SolidColorBrush(Colors.Transparent),FontSize=19,Padding=new Thickness(12),Margin=new Thickness(0,0,0,10)};
-    private readonly StackPanel _rows=new(){Spacing=4};
+    private readonly TextBox _query=new(){BorderThickness=new Thickness(0),Background=new SolidColorBrush(Colors.Transparent),FontSize=17,Padding=new Thickness(4,10,8,10),VerticalAlignment=VerticalAlignment.Center};
+    private readonly StackPanel _rows=new(){Spacing=2};
+    private readonly Border _resultsPlate;
     private readonly ScrollViewer _list=new(){BorderThickness=new Thickness(0),Background=new SolidColorBrush(Colors.Transparent),MaxHeight=440,HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled};
     private readonly List<Button> _rowButtons=new();
     private int _selectedIndex=-1;
-    private readonly TextBlock _status=new(){FontSize=12,Opacity=.65,Margin=new Thickness(12,10,12,0),TextWrapping=TextWrapping.Wrap};
+    private readonly TextBlock _status=new(){FontSize=12,Foreground=GlassStyle.Secondary,Margin=new Thickness(12,12,12,6),TextWrapping=TextWrapping.Wrap};
     private readonly DispatcherQueueTimer _debounce,_openingTimer;
     private readonly GlassBackdrop _glass=new();
     private readonly MenuBar.MenuSurfaceMotion _motion;
@@ -37,7 +38,7 @@ internal sealed class CommandPaletteWindow : IDisposable
     private SearchUsage? _usage;
     private IReadOnlyList<AppRef> _searchApps=Array.Empty<AppRef>();
     private DateTime _catalogTime;
-    private readonly StackPanel _panel=new();
+    private readonly StackPanel _panel=new(){Spacing=10};
     private CancellationTokenSource? _cancel;
     private int _generation;
     private bool _visible,_opening,_disposed;
@@ -55,18 +56,22 @@ internal sealed class CommandPaletteWindow : IDisposable
 
     internal CommandPaletteWindow()
     {
-        var input=new Grid { ColumnSpacing=8,Margin=new Thickness(4,0,4,8) };
+        var input=new Grid { ColumnSpacing=10,Height=54 };
         input.ColumnDefinitions.Add(new(){Width=GridLength.Auto});input.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});input.ColumnDefinitions.Add(new(){Width=GridLength.Auto});
-        input.Children.Add(new FontIcon { Glyph="\uE721",FontSize=20,Opacity=.75,Margin=new Thickness(8,0,0,0) });
+        input.Children.Add(new FontIcon { Glyph="\uE721",FontSize=17,Foreground=GlassStyle.Secondary,Margin=new Thickness(18,0,0,0) });
         _query.Margin=new Thickness(0);Grid.SetColumn(_query,1);input.Children.Add(_query);
-        var esc=new TextBlock { Text="ESC",FontSize=10,Opacity=.6,VerticalAlignment=VerticalAlignment.Center,Margin=new Thickness(8) };Grid.SetColumn(esc,2);input.Children.Add(esc);
+        var esc=new TextBlock { Text="Esc",FontSize=11,Foreground=GlassStyle.Secondary,VerticalAlignment=VerticalAlignment.Center,Margin=new Thickness(8,0,18,0) };Grid.SetColumn(esc,2);input.Children.Add(esc);
         _list.Content=_rows;
-        _panel.Children.Add(input);_panel.Children.Add(new Border { Height=1,Margin=new Thickness(0,0,0,10),Background=new SolidColorBrush(ColorHelper.FromArgb(25,255,255,255)) });_panel.Children.Add(_list);_panel.Children.Add(_status);
-        _root=new Border { Child=_panel,Padding=new Thickness(12),CornerRadius=new CornerRadius(20),RequestedTheme=ElementTheme.Dark,Background=new SolidColorBrush(ColorHelper.FromArgb(220,22,25,34)),BorderThickness=new Thickness(1),BorderBrush=new SolidColorBrush(ColorHelper.FromArgb(40,255,255,255)) };
+        var results=new StackPanel();results.Children.Add(_list);results.Children.Add(_status);
+        _resultsPlate=GlassStyle.Plate(results,22,6);
+        _panel.Children.Add(GlassStyle.Plate(input,28,0));_panel.Children.Add(_resultsPlate);
+        _root=new Border { Child=_panel,RequestedTheme=ElementTheme.Dark,Background=new SolidColorBrush(Colors.Transparent) };
         _window=new Window { Title="FloatingDock Search",Content=_root,SystemBackdrop=_glass };
         WindowSetup.MakeBorderless(_window);Handle=WindowSetup.Hwnd(_window);WindowStyler.MakeOverlayWindow(Handle,noActivate:false);
         _glass.SetVisible(false);
-        _motion=new(Handle,_root,_glass,minX:.94f,minY:.86f,lift:-14,radius:20);
+        _motion=new(Handle,_root,_glass,minX:.96f,minY:.9f,lift:-10,radius:22);
+        _motion.SetSplit(56,10);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(_query,L.Text("Search apps, files and folders"));
         foreach(var key in new[]{"TextControlBackground","TextControlBackgroundPointerOver","TextControlBackgroundFocused","TextControlBorderBrush","TextControlBorderBrushPointerOver","TextControlBorderBrushFocused"})_query.Resources[key]=new SolidColorBrush(Colors.Transparent);
         _debounce=_app.UiQueue.CreateTimer();_debounce.IsRepeating=false;_debounce.Interval=TimeSpan.FromMilliseconds(180);_debounce.Tick+=async(_,_)=>await SearchAsync();
         _openingTimer=_app.UiQueue.CreateTimer();_openingTimer.IsRepeating=false;_openingTimer.Interval=TimeSpan.FromMilliseconds(300);_openingTimer.Tick+=(_,_)=>_opening=false;
@@ -90,7 +95,7 @@ internal sealed class CommandPaletteWindow : IDisposable
         _width=width;_scale=mon.Scale;_maxHeight=(int)Math.Min(580,mon.Bounds.Height/mon.Scale-60);
         _left=mon.Bounds.Left+(mon.Bounds.Width-width)/2;_top=Math.Min(mon.Bounds.Top+(int)(mon.Bounds.Height*.18),mon.Bounds.Bottom-(int)(_maxHeight*mon.Scale)-16);
         _glass.SetVisible(true);_motion.Prepare(SurfaceMotion.Enabled?progress:1);
-        _list.MaxHeight=Math.Max(80,_maxHeight-122);ResizeSurface(0);
+        _list.MaxHeight=Math.Max(44,_maxHeight-126);ResizeSurface(0);
         AnimateOpening();_window.Activate();WindowStyler.BringToFront(Handle);
         _openingTimer.Start();_query.Focus(FocusState.Programmatic);_debounce.Stop();_debounce.Start();
     }
@@ -144,14 +149,17 @@ internal sealed class CommandPaletteWindow : IDisposable
             ClearRows();
             foreach(var result in _results)
             {
-                var row=new Grid { ColumnSpacing=12,Padding=new Thickness(12,8,12,8),MinHeight=58 };
-                row.ColumnDefinitions.Add(new ColumnDefinition { Width=new GridLength(32) });row.ColumnDefinitions.Add(new ColumnDefinition { Width=new GridLength(1,GridUnitType.Star) });row.ColumnDefinitions.Add(new ColumnDefinition { Width=GridLength.Auto });
-                if(result.App is not null){var icon=new IconView { Width=28,Height=28,VerticalAlignment=VerticalAlignment.Center };icon.Bind(result.App,GlyphKind.App,48);row.Children.Add(icon);}
-                else row.Children.Add(new FontIcon { Glyph=result.Kind=="Folder"?"\uE8B7":result.Kind=="File"?"\uE8A5":"\uE713",FontSize=22,Foreground=new SolidColorBrush(ColorHelper.FromArgb(255,185,205,255)) });
-                var label=new StackPanel { Spacing=3 };label.Children.Add(new TextBlock { Text=result.Name,FontSize=14,TextTrimming=TextTrimming.CharacterEllipsis });
-                if(result.Detail.Length>0)label.Children.Add(new TextBlock { Text=result.Detail,FontSize=11,Opacity=.6,TextTrimming=TextTrimming.CharacterEllipsis });
-                Grid.SetColumn(label,1);row.Children.Add(label);var kind=new TextBlock { Text=L.Text(result.Kind),FontSize=11,Opacity=.7,VerticalAlignment=VerticalAlignment.Center };Grid.SetColumn(kind,2);row.Children.Add(kind);
-                var button=new Button { Content=row,Tag=result,Padding=new Thickness(0),HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch,CornerRadius=new CornerRadius(11),BorderThickness=new Thickness(0) };
+                var row=new Grid { ColumnSpacing=10,Padding=new Thickness(12,7,12,7),Height=46 };
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width=new GridLength(24) });row.ColumnDefinitions.Add(new ColumnDefinition { Width=new GridLength(1,GridUnitType.Star) });row.ColumnDefinitions.Add(new ColumnDefinition { Width=GridLength.Auto });
+                if(result.App is not null){var icon=new IconView { Width=22,Height=22,VerticalAlignment=VerticalAlignment.Center };icon.Bind(result.App,GlyphKind.App,(int)Math.Ceiling(24*_scale));row.Children.Add(icon);}
+                else row.Children.Add(new FontIcon { Glyph=result.Kind=="Folder"?"\uE8B7":result.Kind=="File"?"\uE8A5":"\uE713",FontSize=19,Foreground=GlassStyle.Secondary });
+                var label=new Grid { VerticalAlignment=VerticalAlignment.Center,ColumnSpacing=10 };
+                label.ColumnDefinitions.Add(new(){Width=GridLength.Auto});label.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});
+                var name=new TextBlock { Text=result.Name,FontSize=14,MaxWidth=330,TextTrimming=TextTrimming.CharacterEllipsis };label.Children.Add(name);
+                if(result.Detail.Length>0){var detail=new TextBlock { Text=result.Detail,FontSize=12,Foreground=GlassStyle.Secondary,TextTrimming=TextTrimming.CharacterEllipsis,VerticalAlignment=VerticalAlignment.Center };Grid.SetColumn(detail,1);label.Children.Add(detail);}
+                Grid.SetColumn(label,1);row.Children.Add(label);var kind=new TextBlock { Text=L.Text(result.Kind),FontSize=12,Foreground=GlassStyle.Secondary,VerticalAlignment=VerticalAlignment.Center };Grid.SetColumn(kind,2);row.Children.Add(kind);
+                var button=new Button { Content=row,Tag=result,Padding=new Thickness(0),HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch,CornerRadius=new CornerRadius(15),BorderThickness=new Thickness(0) };
+                GlassStyle.Button(button);button.Background=new SolidColorBrush(Colors.Transparent);
                 Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button,result.Name+" · "+L.Text(result.Kind));
                 button.Click+=(_,_)=>Open(result);_rowButtons.Add(button);_rows.Children.Add(button);
             }
@@ -164,8 +172,9 @@ internal sealed class CommandPaletteWindow : IDisposable
     }
     private void ResizeSurface(int count)
     {
-        _list.Height=Math.Min(_list.MaxHeight,count*62);_list.Visibility=count==0?Visibility.Collapsed:Visibility.Visible;
-        int height=(int)(Math.Min(_maxHeight,Math.Max(150,122+count*62))*_scale);
+        _list.Height=Math.Min(_list.MaxHeight,count*48);_list.Visibility=count==0?Visibility.Collapsed:Visibility.Visible;
+        _root.Measure(new global::Windows.Foundation.Size(_width/_scale,_maxHeight));
+        int height=(int)Math.Ceiling(Math.Min(_maxHeight,Math.Max(114,_root.DesiredSize.Height))*_scale);
         WindowStyler.SetBounds(Handle,_left,_top,_width,height);
         _motion.SetGeometry(_width,height,_scale,_width/(2*_scale));
     }
@@ -183,6 +192,7 @@ internal sealed class CommandPaletteWindow : IDisposable
     }
     private void Open(Result result)
     {
+        if(result.App is not null)_app.Tiling.NoteLaunch(result.App);
         Hide();
         if(result.Command is not null)result.Command();
         else _=_app.Worker.Run(()=>
@@ -202,7 +212,7 @@ internal sealed class CommandPaletteWindow : IDisposable
     private void Select(int index)
     {
         _selectedIndex=index;
-        for(int i=0;i<_rowButtons.Count;i++)_rowButtons[i].Background=new SolidColorBrush(i==index?ColorHelper.FromArgb(255,70,96,215):Colors.Transparent);
+        for(int i=0;i<_rowButtons.Count;i++)_rowButtons[i].Background=i==index?GlassStyle.Selected:new SolidColorBrush(Colors.Transparent);
         if(index>=0&&index<_rowButtons.Count)_rowButtons[index].StartBringIntoView();
     }
     public void Dispose(){if(_disposed)return;Hide();_motion.Dispose();_disposed=true;_app.Pinned.Changed-=InvalidateApps;_app.UserTiles.Changed-=InvalidateApps;_cancel?.Dispose();_debounce.Stop();_openingTimer.Stop();_window.Close();}

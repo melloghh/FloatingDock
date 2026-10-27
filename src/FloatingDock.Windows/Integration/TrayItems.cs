@@ -89,7 +89,7 @@ public static unsafe partial class SystemTrayOverflow
                 if(name.Length==0)return false;
                 string label=name.Trim();
                 var image=icons.Where(i=>i.Name.Length>0&&(label.Equals(i.Name.Trim(),StringComparison.OrdinalIgnoreCase)||label.StartsWith(i.Name.Trim()+",",StringComparison.OrdinalIgnoreCase)||label.StartsWith(i.Name.Trim()+"\n",StringComparison.OrdinalIgnoreCase)))
-                    .OrderByDescending(i=>i.Name.Length).FirstOrDefault();
+                    .OrderByDescending(i=>i.Name.Length).ThenByDescending(i=>TrayIconImage.PixelSize(i.Bytes)).FirstOrDefault();
                 image??=icons.FirstOrDefault(i=>Path.GetFileNameWithoutExtension(i.Executable) is {Length:>0} exe&&label.StartsWith(exe,StringComparison.OrdinalIgnoreCase));
                 if(image is null&&(label.StartsWith("Windows Security",StringComparison.OrdinalIgnoreCase)||label.StartsWith("Безопасность Windows",StringComparison.OrdinalIgnoreCase)))image=icons.FirstOrDefault(i=>Path.GetFileName(i.Executable).Equals("SecurityHealthSystray.exe",StringComparison.OrdinalIgnoreCase));
                 if(image is null&&(label.Contains("извлечение",StringComparison.OrdinalIgnoreCase)||label.Contains("Safely Remove",StringComparison.OrdinalIgnoreCase)))image=icons.FirstOrDefault(i=>Path.GetFileName(i.Executable).Equals("explorer.exe",StringComparison.OrdinalIgnoreCase)&&i.Bytes is {Length:>500});
@@ -114,6 +114,7 @@ public static unsafe partial class SystemTrayOverflow
     /// <summary>Explorer still owns notification callbacks. Re-resolve on click so stale/disposed icons cannot be invoked.</summary>
     public static bool ActivateItem(TrayItem item,bool contextMenu=false,POINT? anchor=null)
     {
+        LastContextMenuHandle=IntPtr.Zero;
         using var presentation=new TrayPresentationScope();
         using var menuAnchor=contextMenu&&!string.IsNullOrWhiteSpace(item.Executable)?new TrayContextMenuAnchor(anchor??CursorPoint(),item.Executable):null;
         int initialized=CoInitializeEx(IntPtr.Zero,0);bool opened=false;
@@ -145,7 +146,9 @@ public static unsafe partial class SystemTrayOverflow
                     }
                     if(((delegate* unmanaged[Stdcall]<IntPtr,RECT*,int>)Slot(element,43))(element,&buttonRect)>=0&&buttonRect.Width>0&&NativeMethods.GetWindowRect(hwnd,out var sourceRect))
                     {
-                        if((GetAsyncKeyState(1)&0x8000)!=0||(GetAsyncKeyState(2)&0x8000)!=0){LastDiagnostic="Context cancelled: pointer button is held";return true;}
+                        var release=System.Diagnostics.Stopwatch.StartNew();
+                        while(((GetAsyncKeyState(1)|GetAsyncKeyState(2))&0x8000)!=0&&release.ElapsedMilliseconds<400)Thread.Sleep(8);
+                        if(((GetAsyncKeyState(1)|GetAsyncKeyState(2))&0x8000)!=0){LastDiagnostic="Context cancelled: pointer button is held";return true;}
                         var current=CursorPoint();
                         savedPosition=sourceRect;repositioned=hwnd;
                         if(!regionSystem.TryGetRegion(hwnd.ToInt64(),out sourceRegion)){LastDiagnostic="Context source region unavailable";return true;}
@@ -184,7 +187,7 @@ public static unsafe partial class SystemTrayOverflow
                 if(!matched)LastDiagnostic=$"Context target unavailable: tooltip candidates={candidates}, visible={NativeMethods.IsWindowVisible(hwnd)}";
             }
             // Context menus are Explorer-owned and need its source alive until the message is handled.
-            if(contextMenu&&invoked){if(menuAnchor is not null)menuAnchor.WaitForMenu();else Thread.Sleep(120);}
+            if(contextMenu&&invoked){if(menuAnchor is not null){menuAnchor.WaitForMenu();LastContextMenuHandle=menuAnchor.MenuHandle;}else Thread.Sleep(120);}
             return invoked;
         }
         finally
@@ -197,6 +200,7 @@ public static unsafe partial class SystemTrayOverflow
         }
     }
     private static POINT CursorPoint(){NativeMethods.GetCursorPos(out var point);return point;}
+    public static IntPtr LastContextMenuHandle { get; private set; }
     [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(POINT point);
     [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int key);
 }

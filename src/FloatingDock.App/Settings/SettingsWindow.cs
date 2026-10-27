@@ -17,6 +17,7 @@ internal sealed partial class SettingsWindow : IDisposable
     private readonly Dictionary<string, Func<UIElement>> _pages;
     private IntPtr _hwnd;
     private bool _closed;
+    private readonly GlassBackdrop _glass=new();
 
     public event Action<Window, object>? Closed;
 
@@ -44,11 +45,11 @@ internal sealed partial class SettingsWindow : IDisposable
         _nav.SelectionChanged += (_, e) => { if (e.SelectedItemContainer?.Tag is string t) Navigate(t); };
         _scroll.Content = new Grid();
         _nav.Content = _scroll;
-        _nav.Background = new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(255,18,21,27));
+        _nav.Background = GlassStyle.Surface;
+        _nav.Resources["NavigationViewContentBackground"]=new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+        _nav.Resources["NavigationViewExpandedPaneBackground"]=new SolidColorBrush(Microsoft.UI.Colors.Transparent);
 
-        // Settings is a standard framed window. An opaque root avoids feeding
-        // old page/window pixels back through a whole-window blur surface.
-        _window = new Window { Title = L.Text("FloatingDock settings"), Content = _nav };
+        _window = new Window { Title = L.Text("FloatingDock settings"), Content = _nav,SystemBackdrop=_glass };
         _window.AppWindow.Resize(new global::Windows.Graphics.SizeInt32(980, 740));
         _window.Closed += (s, e) => { _closed=true; _app.Running.ExcludeOwnWindow(_hwnd); Cleanup(); _app.Settings.Changed -= OnSettingsChanged; Closed?.Invoke(_window, e); };
         try { _window.AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico")); } catch { }
@@ -104,7 +105,7 @@ internal sealed partial class SettingsWindow : IDisposable
         if(_closed)return;
         bool dark = _nav.RequestedTheme == ElementTheme.Dark || _nav.RequestedTheme == ElementTheme.Default && _nav.ActualTheme == ElementTheme.Dark;
         var bg = dark ? Microsoft.UI.ColorHelper.FromArgb(255, 18, 21, 27) : Microsoft.UI.ColorHelper.FromArgb(255, 249, 249, 249);
-        _nav.Background=new SolidColorBrush(bg);
+        _nav.Background=dark?GlassStyle.Surface:new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(218,239,245,251));
         var fg = dark ? Microsoft.UI.Colors.White : Microsoft.UI.Colors.Black;
         var title = _window.AppWindow.TitleBar;
         title.BackgroundColor = title.InactiveBackgroundColor = title.ButtonBackgroundColor = title.ButtonInactiveBackgroundColor = bg;
@@ -134,7 +135,7 @@ internal sealed partial class SettingsWindow : IDisposable
         var host = new StackPanel { Spacing = 8, Padding = new Thickness(36, 28, 36, 40), MaxWidth = 820, HorizontalAlignment = HorizontalAlignment.Left };
         host.Children.Add(content);
         _scroll.Content = host;
-        host.Loaded += (_,_)=>{if(!_closed)SurfaceMotion.Enter(host,initialScale:1);};
+        host.Loaded += (_,_)=>{if(!_closed){SurfaceMotion.Enter(host,initialScale:1);SurfaceMotion.SlideContent(host,260);}};
         _scroll.ChangeView(0, 0, null, true);
     }
 

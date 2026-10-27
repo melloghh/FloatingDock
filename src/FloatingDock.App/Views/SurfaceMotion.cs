@@ -79,4 +79,18 @@ internal static class SurfaceMotion
         Reset(visual,Enabled?0:1,Enabled?initialScale:1);
         Animate(visual,1,1,milliseconds);
     }
+    internal static void Reveal(FrameworkElement element,int index=0)
+    {
+        ElementCompositionPreview.SetIsTranslationEnabled(element,true);
+        var visual=ElementCompositionPreview.GetElementVisual(element);
+        visual.StopAnimation("Opacity");visual.StopAnimation("Translation");
+        if(!Enabled){visual.Opacity=1;visual.Properties.InsertVector3("Translation",Vector3.Zero);return;}
+        using var ease=visual.Compositor.CreateCubicBezierEasingFunction(new(.16f,1),new(.3f,1));
+        using var fade=visual.Compositor.CreateScalarKeyFrameAnimation();
+        fade.DelayTime=TimeSpan.FromMilliseconds(Math.Min(index*7,84));fade.Duration=TimeSpan.FromMilliseconds(240);
+        fade.InsertKeyFrame(0,0);fade.InsertKeyFrame(1,1,ease);visual.Opacity=0;
+        using var slide=visual.Compositor.CreateVector3KeyFrameAnimation();slide.DelayTime=fade.DelayTime;slide.Duration=TimeSpan.FromMilliseconds(320);
+        slide.InsertKeyFrame(0,new Vector3(0,14,0));slide.InsertKeyFrame(1,Vector3.Zero,ease);
+        visual.StartAnimation("Opacity",fade);visual.StartAnimation("Translation",slide);
+    }
 }

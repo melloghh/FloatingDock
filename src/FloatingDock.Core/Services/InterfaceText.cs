@@ -7,6 +7,11 @@ public static class InterfaceText
 {
     private static readonly Dictionary<string,string> Russian = new(StringComparer.Ordinal)
     {
+        ["Power"]="Питание",["Restart"]="Перезагрузить",["Shut down"]="Выключить",
+        ["Restart this PC?"]="Перезагрузить компьютер?",["Shut down this PC?"]="Выключить компьютер?",
+        ["Save your work before continuing."]="Сохраните работу перед продолжением.",
+        ["Could not start the power action."]="Не удалось выполнить действие питания.",
+        ["Loading tray icons…"]="Загрузка значков трея…",
         ["{0} could not be saved"]="Не удалось сохранить: {0}",
         ["Tiling manager"]="Тайлинговый менеджер",
         ["Hide dock while tiled windows are visible"]="Скрывать док, пока видны окна тайлинга",

@@ -34,7 +34,8 @@ internal static partial class RuntimeSmoke
             Check(SurfaceMotion.Enabled,"Windows animations must be enabled for the motion check.");
             foreach(var kind in new[]{"main","sound","language","calendar","network","media","tray"})
             {
-                if(kind=="tray")await bar.OpenTrayForDiagnostics();else bar.OpenMenuForDiagnostics(kind);
+                // Tray now animates immediately while Explorer discovery continues.
+                Task? trayLoad=null;if(kind=="tray")trayLoad=bar.OpenTrayForDiagnostics();else bar.OpenMenuForDiagnostics(kind);
                 var hwnd=bar.Menus.PopupHandle;await Task.Delay(35);
                 var early=MenuRegion148(hwnd);NativeMethods.GetWindowRect(hwnd,out var bounds);
                 var motion=bar.Menus.MotionForDiagnostics!;
@@ -51,6 +52,7 @@ internal static partial class RuntimeSmoke
                     poses.Add(motion.Progress);await Task.Delay(14);
                 }
                 Check(poses.Count>=5,"The menu did not present enough intermediate opening poses: "+kind);
+                if(trayLoad is not null)await trayLoad;
                 var full=MenuRegion148(hwnd);NativeMethods.GetWindowRect(hwnd,out bounds);
                 Check(!motion.IsRunning&&motion.Progress==1&&full.Width>=bounds.Width&&full.Height>=bounds.Height,"Menu animation did not settle at its usable size: "+kind);
                 if(kind=="main")OwnWindowCapture.Capture(hwnd).Save(Path.Combine(app.Paths.Root,"menu-open.png"));

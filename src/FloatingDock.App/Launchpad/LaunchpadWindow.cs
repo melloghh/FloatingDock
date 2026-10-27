@@ -30,14 +30,15 @@ internal sealed class LaunchpadWindow : IDisposable
     private readonly DockApp _app = DockApp.Current;
     private readonly Window _window;
     private readonly IntPtr _hwnd;
-    private readonly Grid _root = new() { Background = new SolidColorBrush(global::Windows.UI.Color.FromArgb(92, 8, 10, 16)), AllowDrop = true };
+    private readonly Grid _root = new() { Background = new SolidColorBrush(global::Windows.UI.Color.FromArgb(36, 8, 16, 24)), AllowDrop = true };
     private readonly Grid _content = new();
-    private readonly Border _shell=new() { CornerRadius=new CornerRadius(28),Padding=new Thickness(28),Background=new SolidColorBrush(global::Windows.UI.Color.FromArgb(164,18,21,27)),BorderThickness=new Thickness(1),BorderBrush=new SolidColorBrush(global::Windows.UI.Color.FromArgb(26,255,255,255)),HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Center };
+    private readonly Border _shell=new() { CornerRadius=new CornerRadius(28),Padding=new Thickness(28),Background=GlassStyle.Surface,BorderThickness=new Thickness(1),BorderBrush=GlassStyle.Stroke,HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Center };
     private readonly Button _addButton = new() { Content = new SymbolIcon(Symbol.Add), Width=40, Height=40, CornerRadius=new CornerRadius(12), BorderThickness=new Thickness(0) };
     private readonly TextBlock _headingTitle=new(),_headingNote=new();
     private readonly Button _focusSink = new() { Width = 1, Height = 1, Opacity = 0, IsTabStop = false, IsHitTestVisible = false, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top };
     private readonly Button _settingsButton = new() { Content = new SymbolIcon(Symbol.Setting), Width=40,Height=40,CornerRadius=new CornerRadius(12),Background=new SolidColorBrush(global::Windows.UI.Color.FromArgb(12,255,255,255)),BorderThickness=new Thickness(0) };
     private readonly Button _refreshButton = new() { Content = new SymbolIcon(Symbol.Refresh), Width=40,Height=40,CornerRadius=new CornerRadius(12),Background=new SolidColorBrush(global::Windows.UI.Color.FromArgb(12,255,255,255)),BorderThickness=new Thickness(0) };
+    private readonly Button _powerButton=new(){Content=new FontIcon {Glyph="\uE7E8",FontSize=18},Width=40,Height=40,CornerRadius=new(20)};
     private readonly Visual _overlayVisual;
     private readonly ItemsRepeater _repeater = new();
     private readonly UniformGridLayout _layout = new() { ItemsJustification = UniformGridLayoutItemsJustification.Center, ItemsStretch = UniformGridLayoutItemsStretch.None };
@@ -113,7 +114,13 @@ internal sealed class LaunchpadWindow : IDisposable
         heading.Children.Add(_headingTitle);heading.Children.Add(_headingNote);
         header.Children.Add(heading);
         var actions=new StackPanel { Orientation=Orientation.Horizontal,Spacing=8,VerticalAlignment=VerticalAlignment.Center };
-        actions.Children.Add(_addButton);actions.Children.Add(_refreshButton);actions.Children.Add(_settingsButton);Grid.SetColumn(actions,2);header.Children.Add(actions);_content.Children.Add(header);
+        foreach(var button in new[]{_addButton,_refreshButton,_settingsButton,_powerButton}){GlassStyle.Button(button);actions.Children.Add(button);}
+        _powerButton.Flyout=PowerActions.Menu(()=>_root.XamlRoot,active=>_modal=Math.Max(0,_modal+(active?1:-1)));
+        _powerButton.Flyout.Opening+=(_,_)=>_modal++;
+        _powerButton.Flyout.Closed+=(_,_)=>_modal=Math.Max(0,_modal-1);
+        _powerButton.Tapped+=(_,e)=>e.Handled=true;
+        ToolTipService.SetToolTip(_powerButton,L.Text("Power"));Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(_powerButton,L.Text("Power"));
+        Grid.SetColumn(actions,2);header.Children.Add(actions);_content.Children.Add(header);
 
         _repeater.Layout = _layout;
         _repeater.Background = new SolidColorBrush(Colors.Transparent);
@@ -201,6 +208,7 @@ internal sealed class LaunchpadWindow : IDisposable
     internal bool HasAddApplication => _addButton.IsEnabled;
     internal float ContentOpacity => _contentVisual.Opacity;
     internal bool HasSettingsShortcut => _settingsButton.IsEnabled;
+    internal Button PowerButtonForDiagnostics=>_powerButton;
     internal bool IsPrepared => _preparation?.IsCompletedSuccessfully == true;
     internal int ExportedStartPins { get; private set; }
     internal int ViewCount => _view.Count;
@@ -316,6 +324,8 @@ internal sealed class LaunchpadWindow : IDisposable
         if (generation != _visibilityGeneration || !_visible || _closing || _animatedGeneration == generation) return;
         _animatedGeneration = generation;
         AnimateOverlay(0, 1, 1.025, 1, 280);
+        SurfaceMotion.SlideContent(_shell,320);
+        int index=0;foreach(var tile in Tiles().Take(48))SurfaceMotion.Reveal(tile,index++);
         _glass.AnimateOpacity(1,280,entering:true);
         _transitionTimer.Interval=TimeSpan.FromMilliseconds(Math.Max(1,SurfaceMotion.Duration(310)));_transitionTimer.Start();
     }
@@ -433,8 +443,10 @@ internal sealed class LaunchpadWindow : IDisposable
     private void OnTilesChanged() => _app.UiQueue.TryEnqueue(() => { if (!_disposed) RebuildAll(); });
     private void OnSettings(DockSettings s) => _app.UiQueue.TryEnqueue(() =>
     {
+        if(_disposed)return;
         _headingTitle.Text=L.Text("Apps");_headingNote.Text=L.Text("Windows Start pins and your apps");
         ToolTipService.SetToolTip(_addButton,L.Text("Add application"));
+        ToolTipService.SetToolTip(_powerButton,L.Text("Power"));Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(_powerButton,L.Text("Power"));
         bool layoutChanged = _s.LaunchpadIconSize != s.LaunchpadIconSize || _s.LaunchpadSpacing != s.LaunchpadSpacing;
         _s = s;
         if (_visible && layoutChanged)
@@ -455,13 +467,14 @@ internal sealed class LaunchpadWindow : IDisposable
 
     private void OnKeyDown(object sender, KeyRoutedEventArgs e)
     {
+        if(_modal>0)return;
         if (e.Key == global::Windows.System.VirtualKey.Escape) { Hide(); e.Handled = true; }
         else if (e.Key == global::Windows.System.VirtualKey.Enter) { RebuildView(); if (_view.Count > 0) LaunchAndClose(_view[0]); e.Handled = true; }
     }
 
     private void OnBackgroundTapped(object sender, TappedRoutedEventArgs e)
     {
-        if (e.Handled) return;
+        if (e.Handled||_modal>0) return;
         // A release/tap queued by the dock's opening click must not dismiss the newly shown overlay.
         if (_opening || _backgroundPressGeneration != _visibilityGeneration)
         {
@@ -486,6 +499,7 @@ internal sealed class LaunchpadWindow : IDisposable
 
     private void LaunchAndClose(AppRef app)
     {
+        _app.Tiling.NoteLaunch(app);
         _ = _app.Worker.Run(() => { if (!ShellLauncher.Launch(app)) _app.Log.Warn("launch failed: " + app.Name); });
         Hide();
     }

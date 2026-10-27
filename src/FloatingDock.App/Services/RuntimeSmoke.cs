@@ -28,6 +28,8 @@ internal static partial class RuntimeSmoke
         string? error = null;
         try
         {
+            if(Environment.GetCommandLineArgs().Contains("--test-only-glass160"))
+            {await CheckGlass160Async(app,checks);Check(Program.UiFailureCount==0,"XAML failure in glass checks.");success=true;return;}
             if(Environment.GetCommandLineArgs().Contains("--test-only-animation161"))
             {await CheckAnimation161Async(app,checks);Check(Program.UiFailureCount==0,"XAML failure in animation checks.");success=true;return;}
             if(Environment.GetCommandLineArgs().Contains("--test-only-audit159"))

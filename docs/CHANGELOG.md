@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.6.0
+
+- Redesign search as a rounded input capsule and separate glass results surface, with compact rows and a soft translucent selection.
+- Share a cool translucent material across quick menus, Launchpad, the top bar and Settings; retain app-local blur independently of the Windows transparency switch.
+- Route complete clicks on recognized native minimize buttons through the same curved dock animation as dock clicks. Restore untiled windows with the reverse transition, including interrupted minimize/restore sequences. Unsupported/custom controls and direct system commands retain the native fallback.
+- Animate new windows launched from the dock, search or Launchpad after their initial geometry settles, with bounded opacity ownership and cleanup. Add staggered Launchpad tile entrances and Settings page motion; respect reduced motion.
+- Remove Start/Launchpad hover labels from the dock.
+- Add Shut down and Restart to Launchpad and the main menu, with explicit confirmation, Cancel as the default and no forced application termination. Diagnostics never execute power commands.
+- Show the tray immediately while discovery runs, reuse recent live snapshots and cached rows, coalesce concurrent reads and reduce temporary discovery polling.
+- Keep the tray open while its icon context menu is active; wait for button release before forwarding right-clicks to Explorer, retaining stale-icon validation.
+- Prefer the largest matching notification snapshot and display small source images at their real pixel resolution instead of blurring them through enlargement. Notification status imagery is preserved.
+- Reuse a lighter button template for search and quick menus instead of the stock WinUI visual tree.
+- Cover separate search glass regions, launched-window admission, caption/dock minimize on all dock edges, reverse restoration, repeated real tray context menus, power confirmation cancellation and source-resolution limits.
+
 ## 1.5.10
 
 - Decode packed shell animation coordinates without relying on trailing zero padding, including payloads ending at a memory-page boundary.

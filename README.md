@@ -35,6 +35,10 @@ Open FloatingDock settings from the main menu or the dock/tray context menu. The
 
 ## Quick controls
 
+Search, quick menus, Launchpad and Settings share a translucent glass material. Launchpad and the main menu include **Shut down** and **Restart**, each with a confirmation whose default is Cancel. Recognized native title-bar minimize buttons and dock clicks use the same dock-directed animation; restoring from the dock reverses it. Custom caption controls, direct system commands and inaccessible windows retain a native fallback. New windows launched through FloatingDock get a finite opening transition after initial sizing settles. Motion respects the animation settings.
+
+The tray opens its surface immediately while Explorer discovery continues. Recent live snapshots are reused for five seconds; each click still revalidates its target. Small notification images are shown at their real resolution instead of enlarged, preserving their status imagery. Their available detail depends on the image supplied by Windows/the application.
+
 | Action | Control |
 |---|---|
 | Open Launchpad | Dock launcher icon or `Ctrl+Alt+Space` |

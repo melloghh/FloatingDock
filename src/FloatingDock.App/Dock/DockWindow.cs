@@ -909,7 +909,7 @@ internal sealed class DockWindow : IDisposable
         {
             var it = _motion.Items[idx];
             var name = it.Entry.Name;
-            if (!string.IsNullOrEmpty(name))
+            if (it.Entry.Kind is not (DockEntryKind.Start or DockEntryKind.Launchpad) && !string.IsNullOrEmpty(name))
             {
                 target = _compositionLabel.Select(name, _scale) ? 1 : 0;
                 float w = _compositionLabel.Size.X, h = _compositionLabel.Size.Y;
@@ -1079,6 +1079,7 @@ internal sealed class DockWindow : IDisposable
 
     private void LaunchApp(AppRef app, bool newInstance)
     {
+        _app.Tiling.NoteLaunch(app);
         var item=_motion.Items.FirstOrDefault(i=>!i.Leaving&&i.Entry.App?.Key==app.Key);
         if(item is not null&&AnimationRectFor(item) is { } origin)_app.Dock.RememberLaunchOrigin(app,origin);
         _ = _app.Worker.Run(() =>

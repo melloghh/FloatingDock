@@ -11,6 +11,7 @@ namespace FloatingDock.UI.MenuBar;
 /// <summary>Moves the XAML plate and its native glass clip together, without resizing or relaying out the HWND.</summary>
 internal sealed class MenuSurfaceMotion : IDisposable
 {
+    [System.Runtime.InteropServices.DllImport("gdi32.dll")] private static extern int CombineRgn(IntPtr destination,IntPtr first,IntPtr second,int mode);
     private readonly IntPtr _hwnd;
     private readonly Microsoft.UI.Composition.Visual _visual;
     private readonly Microsoft.UI.Composition.CompositionPropertySet _properties;
@@ -27,6 +28,7 @@ internal sealed class MenuSurfaceMotion : IDisposable
     private (int L, int T, int R, int B, int Radius)? _clip;
     private Vector3 _scale = new(float.NaN), _translation = new(float.NaN);
     private float _opacity = float.NaN;
+    private int _splitHeight,_splitGap;
     internal float Progress { get; private set; }
     internal bool IsRunning => _clock.IsRunning;
     internal (int L, int T, int R, int B, int Radius)? Clip => _clip;
@@ -50,6 +52,7 @@ internal sealed class MenuSurfaceMotion : IDisposable
         _visual.CenterPoint=new Vector3((float)_pivot,0,0);
         Apply();
     }
+    internal void SetSplit(int height,int gap){_splitHeight=height;_splitGap=gap;_clip=null;}
 
     internal void Prepare(float progress)
     {
@@ -64,7 +67,7 @@ internal sealed class MenuSurfaceMotion : IDisposable
     internal void Play(bool entering,int milliseconds,Action? completed=null)
     {
         Stop();_completed=completed;_from=Progress;_to=entering?1:0;
-        if(!SurfaceMotion.Enabled)
+        if(!SurfaceMotion.Enabled||Math.Abs(_to-_from)<.0001)
         {
             Progress=_to;Apply();Finish();return;
         }
@@ -104,6 +107,18 @@ internal sealed class MenuSurfaceMotion : IDisposable
         if(_clip==clip)return;
         var region=NativeMethods.CreateRoundRectRgn(left,top,right+1,bottom+1,radius*2,radius*2);
         if(region==IntPtr.Zero)throw new InvalidOperationException("Could not create animated menu region.");
+        if(_splitHeight>0)
+        {
+            int split=(int)Math.Round((y+_splitHeight*sy)*_dpi);
+            int second=(int)Math.Round((y+(_splitHeight+_splitGap)*sy)*_dpi);
+            NativeMethods.DeleteObject(region);
+            int capRadius=(int)Math.Round(_splitHeight*.5*_dpi*Math.Min(sx,sy));
+            region=NativeMethods.CreateRoundRectRgn(left,top,right+1,Math.Max(top+1,split)+1,capRadius*2,capRadius*2);
+            var lower=NativeMethods.CreateRoundRectRgn(left,Math.Max(top,second),right+1,bottom+1,radius*2,radius*2);
+            if(region==IntPtr.Zero||lower==IntPtr.Zero){if(region!=IntPtr.Zero)NativeMethods.DeleteObject(region);if(lower!=IntPtr.Zero)NativeMethods.DeleteObject(lower);throw new InvalidOperationException("Could not create search glass bands.");}
+            int combined=CombineRgn(region,region,lower,2);NativeMethods.DeleteObject(lower);
+            if(combined==0){NativeMethods.DeleteObject(region);throw new InvalidOperationException("Could not combine search glass bands.");}
+        }
         if(NativeMethods.SetWindowRgn(_hwnd,region,true)==0)
         {NativeMethods.DeleteObject(region);throw new InvalidOperationException("Could not apply animated menu region.");}
         _clip=clip;

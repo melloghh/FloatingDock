@@ -16,10 +16,13 @@ internal sealed class TilingManager : IDisposable
     private readonly DockApp _app;
     private readonly DispatcherQueueTimer _settle;
     private readonly FrameScheduler _animation;
+    private readonly CaptionMinimizeRouter _captionMinimize;
     private readonly Dictionary<int,Action> _commands=new();
     private readonly HashSet<long> _dragging=new();
     private readonly Dictionary<long,TileMotion> _moves=new();
     private readonly WindowArrivalGate _arrivals=new();
+    private sealed record LaunchIntent(AppRef App,HashSet<long> Existing,double Until);
+    private readonly List<LaunchIntent> _launchIntents=new();
     private sealed record HeldWindow(WindowInfo Info,WindowOpacityLease Lease,double Started,bool Returning=false);
     private sealed class Presentation(WindowTransitionSurface surface,TileRect from,TileRect target,double now,int duration,bool hiding,byte opacity=255,bool gentleStart=false,TileMotionSample? momentum=null,bool dockMotion=false)
     {
@@ -59,12 +62,14 @@ internal sealed class TilingManager : IDisposable
     {
         _app=app;_settle=app.UiQueue.CreateTimer();_settle.IsRepeating=false;_settle.Interval=TimeSpan.FromMilliseconds(45);_settle.Tick+=(_,_)=>Reconcile();
         _animation=AnimationClock.Create(app.UiQueue,Frame);
+        _captionMinimize=new(hwnd=>app.UiQueue.TryEnqueue(()=>{if(!_disposed&&!MinimizeToDock(hwnd))NativeMethods.ShowWindowAsync(hwnd,NativeMethods.SW_MINIMIZE);}));
         app.Running.Changed+=OnWindows;app.Running.NativeWindowChanged+=OnNative;
         app.Msg.DisplayChanged+=OnDisplay;app.Msg.WorkAreaOrSettingsChanged+=OnDisplay;
     }
     private void OnDisplay()=>_app.UiQueue.TryEnqueue(()=> { if(_session is not null){_session.RefreshMonitors();Schedule();} });
     private void OnWindows(IReadOnlyList<WindowInfo> windows,long foreground)
     {
+        RefreshCaptionTargets(windows);
         foreach(var window in windows)
             if(!window.IsMinimized&&!NativeMethods.IsIconic(new(window.Hwnd))&&!_presentations.ContainsKey(window.Hwnd)&&NativeMethods.GetWindowRect(new(window.Hwnd),out var r))
             {
@@ -73,6 +78,22 @@ internal sealed class TilingManager : IDisposable
             }
         if(_session is not null)Schedule();
     }
+    private void RefreshCaptionTargets(IReadOnlyList<WindowInfo> windows)
+    {
+        bool enabled=_settings.IconAnimation&&SurfaceMotion.Enabled;
+        var targets=new Dictionary<long,uint>();
+        foreach(var w in windows)
+            if(enabled&&(!(Program.IsSmokeTest||Program.IsDiagnosticProfile)||DiagnosticWindows?.Contains(w.Hwnd)==true))
+            {NativeMethods.GetWindowThreadProcessId(new(w.Hwnd),out var pid);if(pid!=0)targets[w.Hwnd]=pid;}
+        _captionMinimize.Update(targets);
+    }
+    internal void NoteLaunch(AppRef app)
+    {
+        if(_disposed||_session is not null||!_settings.IconAnimation||!SurfaceMotion.Enabled)return;
+        _launchIntents.RemoveAll(i=>i.Until<Now||i.App.Key==app.Key);if(_launchIntents.Count>=8)_launchIntents.RemoveAt(0);
+        _launchIntents.Add(new(app.Clone(),_app.Running.Snapshot().Select(w=>w.Hwnd).ToHashSet(),Now+5000));
+    }
+    internal bool CaptionRoutingInstalled=>_captionMinimize.Installed;
     private void Schedule(){if(!_settle.IsRunning&&!_disposed)_settle.Start();}
     private void OnNative(WindowEventKind kind,IntPtr hwnd)
     {
@@ -105,7 +126,7 @@ internal sealed class TilingManager : IDisposable
             if(_session?.IsManaged(window)==true)PrepareDockRestore(window);
             else if(_presentations.TryGetValue(window,out var hiding)&&hiding.Hiding)ReleasePresentation(window);
         }
-        if(_session is null)return;
+        if(_session is null){if(kind is WindowEventKind.Created or WindowEventKind.Shown)HoldLaunchedWindow(hwnd);return;}
         if(kind==WindowEventKind.MinimizeEnd&&_session.IsUserMinimized(window)&&!_held.ContainsKey(window)&&WindowOpacityLease.TryAcquire(hwnd) is { } returning)
             _held[window]=new(WindowIdentityResolver.ResolveBasic(hwnd),returning,Now,true);
         if(kind is WindowEventKind.Created or WindowEventKind.Shown)HoldNewWindow(hwnd);
@@ -128,6 +149,7 @@ internal sealed class TilingManager : IDisposable
         bool bindingsChanged=_settings.TilingEnabled!=settings.TilingEnabled||!TilingShortcuts.Definitions(_settings).Select(d=>TilingShortcuts.Effective(_settings,d)).SequenceEqual(TilingShortcuts.Definitions(settings).Select(d=>TilingShortcuts.Effective(settings,d)));
         bool optionsChanged=bindingsChanged||_settings.TilingGap!=settings.TilingGap||_settings.TilingOuterGap!=settings.TilingOuterGap||_settings.TilingExcludedApps!=settings.TilingExcludedApps;
         _settings=settings.Clone();
+        RefreshCaptionTargets(_app.Running.Snapshot());
         _animation.SetFrameRate(settings.TilingEnabled&&!_paused?settings.TilingAnimationFps:settings.AnimationFps);
         if(!settings.TilingEnabled){StopSession();Unregister();_paused=false;StateChanged?.Invoke();return;}
         if(bindingsChanged||!_bindingsRegistered)
@@ -194,7 +216,8 @@ internal sealed class TilingManager : IDisposable
     private void Command(Action<NativeTilingSession> action){if(_session is null)return;Synchronize();action(_session);AnimateLayout();StateChanged?.Invoke();}
     private void Reconcile()
     {
-        if(_session is null||_disposed)return;
+        if(_disposed)return;
+        if(_session is null){AnimateLaunchedWindows();return;}
         // Let DWM finish the application's native close fade before adjacent
         // tiles expand over it. No source HWND survives destruction.
         if(Now<_closingUntil){Schedule();return;}
@@ -235,6 +258,39 @@ internal sealed class TilingManager : IDisposable
         var lease=WindowOpacityLease.TryAcquire(hwnd);if(lease is null)return;
         _held[id]=new(info,lease,Now);Schedule();
     }
+    private void HoldLaunchedWindow(IntPtr hwnd)
+    {
+        long id=hwnd.ToInt64();
+        _launchIntents.RemoveAll(i=>i.Until<Now);
+        if(_launchIntents.Count==0||_held.ContainsKey(id)||_presentations.ContainsKey(id)||_normalBounds.ContainsKey(id)||NativeMethods.IsIconic(hwnd))return;
+        if((Program.IsSmokeTest||Program.IsDiagnosticProfile)&&DiagnosticWindows?.Contains(id)!=true)return;
+        if(!WindowFilter.IsCandidate(hwnd,DiagnosticWindows?.Contains(id)==true?0:(uint)Environment.ProcessId)||FullscreenDetector.IsWindowFullscreenOn(hwnd,NativeMethods.MonitorFromWindow(hwnd,NativeMethods.MONITOR_DEFAULTTONEAREST),0))return;
+        var info=WindowIdentityResolver.ResolveBasic(hwnd);
+        var intent=_launchIntents.FirstOrDefault(i=>!i.Existing.Contains(id)&&AppMatching.Matches(i.App,info));
+        if(intent is null||WindowFilter.IsIgnoredExe(info.ExePath))return;
+        if(WindowOpacityLease.TryAcquire(hwnd) is not { } lease)return;
+        _launchIntents.Remove(intent);_held[id]=new(info,lease,Now);Schedule();
+    }
+    private void AnimateLaunchedWindows()
+    {
+        foreach(var (id,held) in _held.ToArray())
+        {
+            var hwnd=new IntPtr(id);
+            if(!NativeMethods.IsWindow(hwnd)||NativeMethods.IsIconic(hwnd)||Now-held.Started>1100)
+            {held.Lease.Dispose();_held.Remove(id);_arrivals.Forget(id);continue;}
+            if(!NativeMethods.GetWindowRect(hwnd,out var r))continue;
+            var target=new TileRect(r.Left,r.Top,r.Width,r.Height);
+            if(!_arrivals.Ready(id,target,Now,120))continue;
+            var from=new TileRect(target.X+target.Width/50,target.Y+target.Height/50+10,Math.Max(1,target.Width*96/100),Math.Max(1,target.Height*96/100));
+            var surface=WindowTransitionSurface.TryCreate(hwnd,from,target,held.Lease,initialOpacity:0);
+            _held.Remove(id);_arrivals.Forget(id);
+            if(surface is null){held.Lease.Dispose();continue;}
+            _normalBounds[id]=target;
+            _presentations[id]=new(surface,from,target,Now,320,false,0);
+        }
+        if(_held.Count>0)Schedule();
+        if(_presentations.Count>0&&!_animation.IsRunning)_animation.Start();
+    }
     private TileRect DockOrigin(long id,TileRect fallback)
     {
         if((_app.Dock.CurrentAnimationRectFor(new(id))??_app.Msg.AnimationRectProvider?.Invoke(new(id))) is { } r)return new(r.Left,r.Top,Math.Max(1,r.Width),Math.Max(1,r.Height));
@@ -265,7 +321,7 @@ internal sealed class TilingManager : IDisposable
         else _normalBounds[id]=from;
         int duration=Views.SurfaceMotion.Enabled?animationMs??_settings.TilingAnimationMs:0;
         if(_session is null)_animation.SetFrameRate(_settings.AnimationFps);
-        if(!visible&&duration>0&&_session is not null)duration=DockDuration(false);
+        if(!visible&&duration>0)duration=DockDuration(false);
         if(visible)
         {
             // Keep the source invisible through SW_SHOWNA and final placement.
@@ -289,11 +345,33 @@ internal sealed class TilingManager : IDisposable
         if(duration==0)previous?.Surface.Dispose();
         // Minimize immediately under the representation. This keeps workspace
         // state synchronous and prevents late native animations to the taskbar.
-        if(surface is not null)_presentations[id]=new(surface,from,to,Now,duration,true,surface.Opacity,gentleStart:_session is null,dockMotion:_session is not null);
+        if(surface is not null)_presentations[id]=new(surface,from,to,Now,duration,true,surface.Opacity,dockMotion:true);
         nativeVisibility();if(surface is not null&&!_animation.IsRunning)_animation.Start();
     }
     internal void PrepareActivation(IReadOnlyList<WindowInfo> windows)
-    {if(_session is null)return;bool changed=false;foreach(var window in windows)if(_session.IsManaged(window.Hwnd)){if(NativeMethods.IsIconic(new(window.Hwnd)))PrepareDockRestore(window.Hwnd);changed|=_session.ActivateWindow(window.Hwnd);}if(changed){AnimateLayout();StateChanged?.Invoke();}}
+    {
+        bool changed=false;
+        foreach(var window in windows)
+        {
+            if(_session?.IsManaged(window.Hwnd)==true)
+            {if(NativeMethods.IsIconic(new(window.Hwnd)))PrepareDockRestore(window.Hwnd);changed|=_session.ActivateWindow(window.Hwnd);}
+            else if(NativeMethods.IsIconic(new(window.Hwnd)))PrepareUntiledRestore(window.Hwnd);
+        }
+        if(changed){AnimateLayout();StateChanged?.Invoke();}
+    }
+    private void PrepareUntiledRestore(long id)
+    {
+        if(!_settings.IconAnimation||!SurfaceMotion.Enabled||!_normalBounds.TryGetValue(id,out var target))return;
+        if(_presentations.TryGetValue(id,out var showing)&&!showing.Hiding)return;
+        _presentations.Remove(id,out var previous);
+        var from=previous?.Surface.Bounds??TileMinimizeMotion.FitAtDock(target,DockOrigin(id,target));
+        var surface=previous?.Surface??WindowTransitionSurface.TryCreate(new(id),from,target);
+        if(surface is null)return;
+        _minimized.Remove(id);
+        _presentations[id]=new(surface,from,target,Now,DockDuration(true),false,surface.Opacity,dockMotion:true);
+        NativeMethods.ShowWindowAsync(new(id),NativeMethods.SW_RESTORE);
+        _animation.SetFrameRate(_settings.AnimationFps);if(!_animation.IsRunning)_animation.Start();
+    }
     internal bool MinimizeToDock(IntPtr hwnd)
     {
         long id=hwnd.ToInt64();
@@ -342,7 +420,7 @@ internal sealed class TilingManager : IDisposable
             byte opacity=showing?.Surface.Opacity??(dockReveal?(byte)255:opening?(byte)0:(byte)255);
             if(showing is not null)_presentations.Remove(id);
             if(opening)from=held?.Returning==true?TileMinimizeMotion.FitAtDock(target,DockOrigin(id,target)):new(target.X+target.Width/100,target.Y+target.Height/100,Math.Max(1,target.Width*98/100),Math.Max(1,target.Height*98/100));
-            surface??=WindowTransitionSurface.TryCreate(new(id),from,target,held?.Lease);
+            surface??=WindowTransitionSurface.TryCreate(new(id),from,target,held?.Lease,initialOpacity:opacity);
             if(surface is not null)
             {
                 _held.Remove(id);surface.Update(from,opacity);
@@ -373,13 +451,12 @@ internal sealed class TilingManager : IDisposable
         foreach(var (id,p) in _presentationFrame)
         {
             if(!NativeMethods.IsWindow(new(id))){ReleasePresentation(id);continue;}
-            if(!p.Hiding&&_session is null){ReleasePresentation(id);continue;}
             double now=Now;
             bool atTarget=!p.Hiding&&NativeMethods.GetWindowRect(new(id),out var actual)&&!NativeMethods.IsIconic(new(id))&&Math.Abs(actual.Left-p.Target.X)<=2&&Math.Abs(actual.Top-p.Target.Y)<=2&&Math.Abs(actual.Width-p.Target.Width)<=2&&Math.Abs(actual.Height-p.Target.Height)<=2;
             if(!p.Hiding&&!atTarget)
             {
-                if(now-p.Queued>1000){ReleasePresentation(id);_session!.ReleaseFailedPlacement(id);Schedule();continue;}
-                _session!.Move(id,p.Target);
+                if(now-p.Queued>1000){ReleasePresentation(id);_session?.ReleaseFailedPlacement(id);if(_session is not null)Schedule();continue;}
+                _session?.Move(id,p.Target);
             }
             double t=Math.Clamp((now-p.Started)/Math.Max(1,p.Duration),0,1),ease=t*t*t*(10+t*(-15+6*t));
             var bounds=p.DockMotion?TileDockMotion.Sample(p.From,p.Hiding?TileMinimizeMotion.FitAtDock(p.From,p.Target):p.Target,t,!p.Hiding)
@@ -402,10 +479,10 @@ internal sealed class TilingManager : IDisposable
         _moveFrame.Clear();
         if(_moves.Count==0&&_presentations.Count==0){_animation.Stop();WindowTransitionSurface.TrimIdleViewports();}
     }
-    private void StopSession(){_settle.Stop();_animation.Stop();_moves.Clear();foreach(var id in _presentations.Keys.ToArray())ReleasePresentation(id);WindowTransitionSurface.TrimIdleViewports(0);foreach(var held in _held.Values)held.Lease.Dispose();_held.Clear();_dragging.Clear();_arrivals.Clear();_session?.Dispose();_session=null;_primed=false;}
+    private void StopSession(){_settle.Stop();_animation.Stop();_moves.Clear();foreach(var id in _presentations.Keys.ToArray())ReleasePresentation(id);WindowTransitionSurface.TrimIdleViewports(0);foreach(var held in _held.Values)held.Lease.Dispose();_held.Clear();_launchIntents.Clear();_dragging.Clear();_arrivals.Clear();_session?.Dispose();_session=null;_primed=false;}
     internal void EmergencyRestore()=>StopSession();
     public void Dispose()
     {
-        if(_disposed)return;_disposed=true;StopSession();_animation.Dispose();Unregister();_app.Running.Changed-=OnWindows;_app.Running.NativeWindowChanged-=OnNative;_app.Msg.DisplayChanged-=OnDisplay;_app.Msg.WorkAreaOrSettingsChanged-=OnDisplay;
+        if(_disposed)return;_disposed=true;_captionMinimize.Dispose();StopSession();_animation.Dispose();Unregister();_app.Running.Changed-=OnWindows;_app.Running.NativeWindowChanged-=OnNative;_app.Msg.DisplayChanged-=OnDisplay;_app.Msg.WorkAreaOrSettingsChanged-=OnDisplay;
     }
 }

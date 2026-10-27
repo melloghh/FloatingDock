@@ -110,7 +110,7 @@ public sealed class WindowTransitionSurface : IDisposable
     }
     private WindowTransitionSurface(IntPtr window,IntPtr thumbnail,WindowOpacityLease lease,int x,int y,int width,int height)
     {Handle=window;_thumbnail=thumbnail;_lease=lease;_x=x;_y=y;_width=width;_height=height;}
-    public static WindowTransitionSurface? TryCreate(IntPtr source,TileRect from,TileRect to,WindowOpacityLease? lease=null)
+    public static WindowTransitionSurface? TryCreate(IntPtr source,TileRect from,TileRect to,WindowOpacityLease? lease=null,byte initialOpacity=255)
     {
         bool acquired=lease is null;lease??=WindowOpacityLease.TryAcquire(source);if(lease is null)return null;
         if(!_registered)
@@ -137,7 +137,7 @@ public sealed class WindowTransitionSurface : IDisposable
         {if(window!=IntPtr.Zero)NativeMethods.DestroyWindow(window);if(acquired)lease.Dispose();return null;}
         int disabled=1;NativeMethods.DwmSetWindowAttribute(window,3,ref disabled,4);
         var surface=new WindowTransitionSurface(window,thumbnail,lease,left,top,right-left,bottom-top);
-        if(!surface.Update(from,255)){surface.Dispose();return null;}
+        if(!surface.Update(from,initialOpacity)){surface.Dispose();return null;}
         NativeMethods.ShowWindow(window,4);
         // Registration/update success only queues composition. Commit the first
         // visible thumbnail before the caller minimizes or repositions its source.

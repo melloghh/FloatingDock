@@ -32,10 +32,17 @@ internal sealed class MenuBarMenus : IDisposable
     private Border? _popupRoot;
     private ScrollViewer? _scroll;
     private StackPanel? _mainPanel;
+    private StackPanel? _trayPanel;
+    private IReadOnlyList<TrayItem>? _trayPanelItems;
+    private FloatingDock.Core.Configuration.InterfaceLanguage _trayPanelLanguage;
     private (FloatingDock.Core.Configuration.InterfaceLanguage Language, bool AutoHide)? _mainState;
     internal int MainContentBuildsForDiagnostics { get; private set; }
     internal ScrollViewer? ScrollForDiagnostics=>_scroll;
     private bool _showing;
+    private bool _trayActionPending;
+    private IntPtr _trayContextMenu;
+    internal bool TrayDiscoveryPending { get; set; }
+    private bool TrayContextActive=>TrayDiscoveryPending||_trayActionPending||_trayContextMenu!=IntPtr.Zero&&NativeMethods.IsWindowVisible(_trayContextMenu);
     private Button? _anchor;
     private Action? _resizePopup;
     internal IntPtr PopupHandle => _popupHwnd;
@@ -70,6 +77,8 @@ internal sealed class MenuBarMenus : IDisposable
         _dismissTimer.Tick+=(_,_)=>
         {
             var foreground=NativeMethods.GetForegroundWindow();
+            if(TrayContextActive){_lastForeground=foreground;return;}
+            if(_trayContextMenu!=IntPtr.Zero){_trayContextMenu=IntPtr.Zero;WindowStyler.SetTopmost(PopupHandle,!CaptureActive);_lastForeground=foreground;return;}
             bool pressed=(GetAsyncKeyState(1)&0x8000)!=0||(GetAsyncKeyState(2)&0x8000)!=0;
             bool inPopup=NativeMethods.GetCursorPos(out var p)&&NativeMethods.GetWindowRect(PopupHandle,out var r)&&p.X>=r.Left&&p.X<r.Right&&p.Y>=r.Top&&p.Y<r.Bottom;
             if(Opening&&!pressed)return;
@@ -80,10 +89,10 @@ internal sealed class MenuBarMenus : IDisposable
     }
     private void OnForegroundChanged(FloatingDock.Windows.RunningApps.WindowEventKind kind,IntPtr hwnd)
     {
-        if(!CaptureActive&&!Opening&&kind==FloatingDock.Windows.RunningApps.WindowEventKind.Foreground&&ActiveKind is not null&&!_showing&&NativeMethods.GetForegroundWindow()!=PopupHandle&&!PointerOverAnchor())Close();
+        if(!CaptureActive&&!Opening&&!TrayContextActive&&kind==FloatingDock.Windows.RunningApps.WindowEventKind.Foreground&&ActiveKind is not null&&!_showing&&NativeMethods.GetForegroundWindow()!=PopupHandle&&!PointerOverAnchor())Close();
     }
     private static SolidColorBrush Brush(byte a,byte r,byte g,byte b)=>new(ColorHelper.FromArgb(a,r,g,b));
-    private static TextBlock Text(string text,double size=13,bool secondary=false)=>new() { Text=L.Text(text),FontSize=size,TextWrapping=TextWrapping.Wrap,Foreground=secondary?Brush(255,169,177,192):Brush(255,246,247,251) };
+    private static TextBlock Text(string text,double size=13,bool secondary=false)=>new() { Text=L.Text(text),FontSize=size,TextWrapping=TextWrapping.Wrap,Foreground=secondary?GlassStyle.Secondary:Brush(255,246,247,251) };
     private static StackPanel Panel()=>new() { Width=300,Spacing=12 };
     private static Grid Header(string title,string glyph)
     {
@@ -100,12 +109,13 @@ internal sealed class MenuBarMenus : IDisposable
         row.Children.Add(new FontIcon { Glyph=glyph,FontSize=17,Width=24,VerticalAlignment=VerticalAlignment.Center,Foreground=Brush(255,190,203,226) });
         var text=new StackPanel { Spacing=3 };text.Children.Add(Text(title));if(detail.Length>0)text.Children.Add(Text(detail,12,true));Grid.SetColumn(text,1);row.Children.Add(text);
         if(selected) { var check=new FontIcon { Glyph="\uE73E",FontSize=13,Foreground=Brush(255,149,196,255) };Grid.SetColumn(check,2);row.Children.Add(check); }
-        var b=new Button { Content=row,HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch,Padding=new Thickness(10),CornerRadius=new CornerRadius(9),Background=selected?Brush(35,132,175,255):Brush(8,255,255,255),BorderThickness=new Thickness(0) };
+        var b=new Button { Content=row,HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch,Padding=new Thickness(12),CornerRadius=new CornerRadius(14),BorderThickness=new Thickness(0) };
+        GlassStyle.Button(b);b.Background=selected?GlassStyle.Selected:GlassStyle.Inset;
         AutomationProperties.SetName(b,title+" "+detail);b.Click+=(_,_)=>action();return b;
     }
-    private void Show(Button anchor,StackPanel content,string kind)
+    private void Show(Button anchor,StackPanel content,string kind,bool replace=false)
     {
-        if(ActiveKind==kind) { Close();return; }
+        if(ActiveKind==kind&&!replace) { Close();return; }
         var previous=NativeMethods.GetForegroundWindow();
         if(previous==PopupHandle)previous=_returnFocus;
         float progress=SurfaceVisible&&_anchor==anchor?(_motion?.Progress??0):0;
@@ -115,14 +125,14 @@ internal sealed class MenuBarMenus : IDisposable
         {
             if(_popupWindow is null)
             {
-                _popupRoot=new Border { RequestedTheme=ElementTheme.Dark,Background=Brush(96,20,22,27),BorderBrush=Brush(26,255,255,255),BorderThickness=new Thickness(1),CornerRadius=new CornerRadius(16),Padding=new Thickness(16) };
+                _popupRoot=new Border { RequestedTheme=ElementTheme.Dark,Background=GlassStyle.Surface,BorderBrush=GlassStyle.Stroke,BorderThickness=new Thickness(1),CornerRadius=new CornerRadius(22),Padding=new Thickness(16) };
                 _scroll=new ScrollViewer { HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled,VerticalScrollBarVisibility=ScrollBarVisibility.Auto };
                 _popupRoot.Child=_scroll;
                 _popupWindow=new Window { Title="FloatingDock quick menu",Content=_popupRoot,SystemBackdrop=_glass };
                 _popupHwnd=WindowSetup.Hwnd(_popupWindow);
                 WindowSetup.MakeBorderless(_popupWindow);WindowStyler.MakeOverlayWindow(PopupHandle,noActivate:false);
-                _motion=new MenuSurfaceMotion(PopupHandle,_popupRoot,_glass);
-                _popupWindow.Activated+=(_,e)=> { if(!CaptureActive&&!Opening&&!_showing&&e.WindowActivationState==WindowActivationState.Deactivated&&NativeMethods.GetForegroundWindow()!=PopupHandle&&!PointerOverAnchor())Close(); };
+                _motion=new MenuSurfaceMotion(PopupHandle,_popupRoot,_glass,minX:.88f,minY:.76f,lift:-10,radius:22);
+                _popupWindow.Activated+=(_,e)=> { if(!CaptureActive&&!Opening&&!_showing&&!TrayContextActive&&e.WindowActivationState==WindowActivationState.Deactivated&&NativeMethods.GetForegroundWindow()!=PopupHandle&&!PointerOverAnchor())Close(); };
                 _popupRoot.KeyDown+=(_,e)=> { if(e.Key==global::Windows.System.VirtualKey.Escape) { e.Handled=true;Close(); } };
             }
             var monitor=FloatingDock.Windows.Display.MonitorHelper.Describe(NativeMethods.MonitorFromWindow(Microsoft.UI.Win32Interop.GetWindowFromWindowId(anchor.XamlRoot.ContentIslandEnvironment.AppWindowId),NativeMethods.MONITOR_DEFAULTTONEAREST))!;
@@ -146,7 +156,7 @@ internal sealed class MenuBarMenus : IDisposable
             int duration=Math.Clamp((int)(DockApp.Current.Settings.Current.MenuAnimationMs*1.4),160,600);
             // The measured native geometry is enough to start even on the first open.
             // Waiting for Loaded left a completely transparent window before its first frame.
-            SurfaceMotion.MenuContent(content,duration,entering:true);
+            if(progress<.99f)SurfaceMotion.MenuContent(content,duration,entering:true);
             _motion.Play(entering:true,duration);
             _opened(true);_popupWindow.Activate();WindowStyler.BringToFront(PopupHandle);
             _lastForeground=NativeMethods.GetForegroundWindow();_dismissTimer.Start();
@@ -168,6 +178,7 @@ internal sealed class MenuBarMenus : IDisposable
     {
         if(ActiveKind is null&&!immediately)return;
         ActiveKind=null;_generation++;_audioTimer.Stop();_dismissTimer.Stop();_resizePopup=null;
+        _trayContextMenu=IntPtr.Zero;
         _motion?.Stop();
         MediaButtons=Array.Empty<Button>();MediaReady=false;
         VolumeSlider=null;MuteButton=null;LanguageButtons=Array.Empty<Button>();
@@ -204,7 +215,7 @@ internal sealed class MenuBarMenus : IDisposable
     }
     internal void Reassert()
     {
-        if(!CaptureActive&&SurfaceVisible&&NativeMethods.IsWindowVisible(PopupHandle))
+        if(!CaptureActive&&!TrayContextActive&&SurfaceVisible&&NativeMethods.IsWindowVisible(PopupHandle))
             NativeMethods.SetWindowPos(PopupHandle,NativeMethods.HWND_TOPMOST,0,0,0,0,NativeMethods.SWP_NOMOVE|NativeMethods.SWP_NOSIZE|NativeMethods.SWP_NOACTIVATE);
     }
     internal void Main(Button anchor)
@@ -221,6 +232,13 @@ internal sealed class MenuBarMenus : IDisposable
         panel.Children.Add(Divider());
         Add(L.Text("Auto-hide menu bar"),"\uE890",()=>app.Settings.Update(s=>s.TopBarAutoHide=!s.TopBarAutoHide),app.Settings.Current.TopBarAutoHide);
         Add(L.Text("Hide menu bar"),"\uE8F4",()=>app.Settings.Update(s=>s.TopBarEnabled=false));
+        panel.Children.Add(Divider());
+        foreach(bool restart in new[]{false,true})
+            panel.Children.Add(Row(L.Text(restart?"Restart":"Shut down"),"",restart?"\uE777":"\uE7E8",async()=>
+            {
+                if(_popupRoot?.XamlRoot is not { } root)return;
+                _trayActionPending=true;try{await PowerActions.ConfirmAsync(root,restart);}finally{_trayActionPending=false;}
+            }));
         panel.Children.Add(Divider());Add(L.Text("Quit FloatingDock"),"\uE7E8",app.Shutdown);
         _mainState=state;_mainPanel=panel;MainContentBuildsForDiagnostics++;
         Show(anchor,panel,"main");
@@ -288,15 +306,17 @@ internal sealed class MenuBarMenus : IDisposable
         Show(anchor,panel,"tray");
     }
     internal IReadOnlyList<TrayItem> TrayItems { get; private set; }=Array.Empty<TrayItem>();
-    internal void Tray(Button anchor,IReadOnlyList<TrayItem> items)
+    internal void Tray(Button anchor,IReadOnlyList<TrayItem> items,bool loading=false)
     {
+        if(!loading&&ReferenceEquals(items,_trayPanelItems)&&_trayPanel is not null&&_trayPanelLanguage==DockApp.Current.Settings.Current.Language)
+        {TrayItems=items;Show(anchor,_trayPanel,"tray",replace:ActiveKind=="tray");return;}
         TrayItems=items;var panel=Panel();panel.Children.Add(Header("System tray","\uE70D"));
         var grid=new Grid { ColumnSpacing=8,RowSpacing=8 };
         for(int c=0;c<6;c++)grid.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});
         for(int r=0;r<(items.Count+5)/6;r++)grid.RowDefinitions.Add(new(){Height=GridLength.Auto});
         for(int i=0;i<items.Count;i++)
         {
-            var item=items[i];var button=new Button { Width=42,Height=42,Padding=new Thickness(9),CornerRadius=new CornerRadius(10),BorderThickness=new Thickness(0),Background=Brush(10,255,255,255),Content=new FontIcon { Glyph="\uE71D",FontSize=20 } };
+            var item=items[i];var button=new Button { Width=42,Height=42,Padding=new Thickness(0),CornerRadius=new CornerRadius(14),Content=new FontIcon { Glyph="\uE71D",FontSize=20 },UseLayoutRounding=true };GlassStyle.Button(button);
             ToolTipService.SetToolTip(button,item.Name);AutomationProperties.SetName(button,item.Name);
             if(item.Icon is not null)_=LoadIcon();
             async Task LoadIcon()
@@ -306,7 +326,8 @@ internal sealed class MenuBarMenus : IDisposable
                     using var stream=new global::Windows.Storage.Streams.InMemoryRandomAccessStream();
                     using(var writer=new global::Windows.Storage.Streams.DataWriter(stream)){writer.WriteBytes(item.Icon!);await writer.StoreAsync();writer.DetachStream();}
                     stream.Seek(0);var bitmap=new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();await bitmap.SetSourceAsync(stream);
-                    button.Content=new Image { Source=bitmap,Width=24,Height=24,Stretch=Stretch.Uniform };
+                    double size=TrayIconImage.DisplaySize(item.Icon,anchor.XamlRoot.RasterizationScale);
+                    if(size>0)button.Content=new Image { Source=bitmap,Width=size,Height=size,Stretch=Stretch.Uniform,UseLayoutRounding=true };
                 }
                 catch(Exception){}
             }
@@ -316,16 +337,28 @@ internal sealed class MenuBarMenus : IDisposable
                 NativeMethods.GetWindowRect(PopupHandle,out var bounds);
                 double scale=button.XamlRoot.RasterizationScale;
                 var point=new POINT {X=bounds.Left+(int)Math.Round(p.X*scale),Y=bounds.Top+(int)Math.Round(p.Y*scale)};
-                Close(immediately:true);
-                if(!await DockApp.Current.ActivateTrayItemAsync(item,context,point))DockApp.Current.Notify(L.Text("System tray"),L.Text("Tray icon is no longer available."),true);
+                if(_trayActionPending)return;
+                int generation=_generation;
+                if(context){_trayActionPending=true;WindowStyler.SetTopmost(PopupHandle,false);}
+                else Close(immediately:true);
+                try
+                {
+                    if(!await DockApp.Current.ActivateTrayItemAsync(item,context,point))DockApp.Current.Notify(L.Text("System tray"),L.Text("Tray icon is no longer available."),true);
+                    if(context&&generation==_generation&&ActiveKind=="tray")_trayContextMenu=SystemTrayOverflow.LastContextMenuHandle;
+                }
+                finally
+                {
+                    if(context){_trayActionPending=false;_lastForeground=NativeMethods.GetForegroundWindow();if(!TrayContextActive&&SurfaceVisible)WindowStyler.SetTopmost(PopupHandle,!CaptureActive);}
+                }
             }
             button.Click+=async(_,_)=>await Activate(false);
             button.RightTapped+=async(_,e)=>{e.Handled=true;await Activate(true);};
             Grid.SetRow(button,i/6);Grid.SetColumn(button,i%6);grid.Children.Add(button);
         }
         panel.Children.Add(grid);
-        panel.Children.Add(Text(items.Count==0?"No tray icons available. Keep Explorer running.":"Click to open · Right-click for options",12,true));
-        Show(anchor,panel,"tray");
+        panel.Children.Add(Text(loading?"Loading tray icons…":items.Count==0?"No tray icons available. Keep Explorer running.":"Click to open · Right-click for options",12,true));
+        if(!loading){_trayPanel=panel;_trayPanelItems=items;_trayPanelLanguage=DockApp.Current.Settings.Current.Language;}
+        Show(anchor,panel,"tray",replace:ActiveKind=="tray");
     }
     internal void Sound(Button anchor)
     {

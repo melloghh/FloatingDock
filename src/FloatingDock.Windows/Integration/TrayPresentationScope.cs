@@ -24,7 +24,7 @@ public static unsafe partial class SystemTrayOverflow
                 // Explorer can create the overflow lazily. Observe its HWND during
                 // this operation only, including the interval before UIA Invoke returns.
                 var clock=System.Diagnostics.Stopwatch.StartNew();
-                try {while(!_stop.IsCancellationRequested&&clock.ElapsedMilliseconds<3000){Suppress(Handle);_stop.Token.WaitHandle.WaitOne(2);}}
+                try {while(!_stop.IsCancellationRequested&&clock.ElapsedMilliseconds<3000){Suppress(Handle);_stop.Token.WaitHandle.WaitOne(12);}}
                 finally {Restore();}
             }) {IsBackground=true,Name="FloatingDock.TrayPresentation"};
             _watcher.Start();

@@ -22,8 +22,16 @@ internal static partial class RuntimeSmoke
             int x=bounds.Left+(int)Math.Round(point.X*scale),y=bounds.Top+(int)Math.Round(point.Y*scale);
             SetCursorPos(x,y);
             Check(NativeMethods.GetAncestor(WindowFromPoint(new POINT{X=x,Y=y}),NativeMethods.GA_ROOT)==bar.InputHandle,"The native button is covered.");
-            NativeMethods.SendInput(1,new[]{new INPUT{U=new(){mi=new(){dwFlags=2}}}},Marshal.SizeOf<INPUT>());await Task.Delay(25);
-            NativeMethods.SendInput(1,new[]{new INPUT{U=new(){mi=new(){dwFlags=4}}}},Marshal.SizeOf<INPUT>());await Task.Delay(30);
+            var clicked=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            Microsoft.UI.Xaml.RoutedEventHandler acknowledged=(_,_)=>clicked.TrySetResult();button.Click+=acknowledged;
+            try
+            {
+                NativeMethods.SendInput(1,new[]{new INPUT{U=new(){mi=new(){dwFlags=2}}}},Marshal.SizeOf<INPUT>());await Task.Delay(25);
+                SetCursorPos(x,y);
+                NativeMethods.SendInput(1,new[]{new INPUT{U=new(){mi=new(){dwFlags=4}}}},Marshal.SizeOf<INPUT>());
+                await clicked.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            }
+            finally {button.Click-=acknowledged;}
         }
         try
         {

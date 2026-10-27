@@ -148,7 +148,7 @@ internal sealed class MenuBarWindow : IDisposable
     private bool _hitTargetsDirty=true;
     private bool _inputReady;
     private double _hitScale=1;
-    private readonly Grid _root=new() { RequestedTheme=ElementTheme.Dark, Background=new SolidColorBrush(ColorHelper.FromArgb(96,18,21,27)), CornerRadius=new CornerRadius(14), BorderThickness=new Thickness(0) };
+    private readonly Grid _root=new() { RequestedTheme=ElementTheme.Dark, Background=GlassStyle.Surface, CornerRadius=new CornerRadius(14), BorderThickness=new Thickness(0) };
     private readonly TextBlock _name=new() { Text=L.Text("Desktop"),FontSize=13,FontWeight=Microsoft.UI.Text.FontWeights.SemiBold,VerticalAlignment=VerticalAlignment.Center,TextTrimming=TextTrimming.CharacterEllipsis,MaxWidth=420 };
     private readonly TextBlock _clock=new() { FontSize=13,VerticalAlignment=VerticalAlignment.Center };
     private readonly TextBlock _language=new() { FontSize=11,FontWeight=Microsoft.UI.Text.FontWeights.SemiBold,VerticalAlignment=VerticalAlignment.Center };
@@ -326,7 +326,10 @@ internal sealed class MenuBarWindow : IDisposable
     {
         if(_trayOpen||_menus.ActiveKind=="tray"){CloseTray();return;}
         _menus.Close(immediately:true);_app.Palette?.Hide();_trayOpen=true;Reveal();int generation=++_trayGeneration;
-        var items=await _app.ReadTrayItemsAsync();
+        _menus.TrayDiscoveryPending=true;
+        _menus.Tray(_trayButton,_app.CachedTrayItems,loading:_app.CachedTrayItems.Count==0);
+        IReadOnlyList<FloatingDock.Windows.Integration.TrayItem> items;
+        try {items=await _app.ReadTrayItemsAsync();}finally {_menus.TrayDiscoveryPending=false;}
         if(_disposed||generation!=_trayGeneration)return;
         _trayOpen=false;
         if(_capture||_suspended||_fullscreen||!_settings.TopBarEnabled)return;

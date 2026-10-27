@@ -50,6 +50,9 @@ public sealed partial class DockApp : Application
     internal ShellWorker Worker { get; private set; } = null!;
     private ShellWorker? _trayWorker;
     private int _trayOperations;
+    private Task<IReadOnlyList<TrayItem>>? _trayRead;
+    private DateTime _trayReadAt;
+    internal IReadOnlyList<TrayItem> CachedTrayItems { get; private set; }=Array.Empty<TrayItem>();
     internal StartPinsService StartPins { get; private set; } = null!;
     internal IconService Icons { get; private set; } = null!;
     internal RunningAppsService Running { get; private set; } = null!;
@@ -311,10 +314,16 @@ public sealed partial class DockApp : Application
 
     // ------------------------------------------------------------------ commands
 
-    internal async Task<IReadOnlyList<TrayItem>> ReadTrayItemsAsync()
+    internal Task<IReadOnlyList<TrayItem>> ReadTrayItemsAsync()
+    {
+        if(_trayRead is {IsCompleted:false})return _trayRead;
+        if(_trayRead?.IsCompletedSuccessfully==true&&DateTime.UtcNow-_trayReadAt<TimeSpan.FromSeconds(5))return _trayRead;
+        return _trayRead=ReadTrayCoreAsync();
+    }
+    private async Task<IReadOnlyList<TrayItem>> ReadTrayCoreAsync()
     {
         _trayOperations++;_taskbarTimer?.Stop();
-        try{return await (_trayWorker??=new ShellWorker()).Run(SystemTrayOverflow.ReadItems);}
+        try{CachedTrayItems=await (_trayWorker??=new ShellWorker()).Run(SystemTrayOverflow.ReadItems);_trayReadAt=DateTime.UtcNow;return CachedTrayItems;}
         catch(Exception ex){Log.Warn("Tray icons unavailable: "+ex.Message);return Array.Empty<TrayItem>();}
         finally{if(--_trayOperations==0&&!_shuttingDown&&Settings.Current.TaskbarMode!=TaskbarMode.Leave)_taskbarTimer?.Start();}
     }

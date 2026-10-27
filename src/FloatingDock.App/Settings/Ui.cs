@@ -25,7 +25,7 @@ internal static class Ui
         var p = new StackPanel { Spacing = 14 };
         p.Children.Add(new TextBlock { Text = L.Text(title), FontSize = 15, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Opacity = 0.9 });
         foreach (var c in children) p.Children.Add(c);
-        return new Border { Child=p,Padding=new Thickness(20),Margin=new Thickness(0,8,0,0),CornerRadius=new CornerRadius(14),Background=new SolidColorBrush(ColorHelper.FromArgb(14,180,194,218)),BorderBrush=new SolidColorBrush(ColorHelper.FromArgb(22,180,194,218)),BorderThickness=new Thickness(1) };
+        return new Border { Child=p,Padding=new Thickness(20),Margin=new Thickness(0,8,0,0),CornerRadius=new CornerRadius(20),Background=GlassStyle.Inset,BorderBrush=GlassStyle.Stroke,BorderThickness=new Thickness(1) };
     }
 
     public static ToggleSwitch Toggle(string header, bool value, Action<DockSettings, bool> set) 

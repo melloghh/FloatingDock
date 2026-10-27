@@ -41,6 +41,10 @@ Views are built in C#. Minimal App.xaml generates the metadata provider and init
 * `DockApp` – composition root, hotkeys, tray, autostart, taskbar mode, crash safety.
 
 ## Performance notes
+
+Search uses one transparent HWND with a union of two rounded native regions: an input capsule and a separate results plate. Its glass clip and visual transform share the same finite motion sample. Quick-menu/search buttons share the small bar-button template; tray snapshots and their realized controls are reused, with actions re-resolved against Explorer's live tree.
+
+`CaptionMinimizeRouter` runs a low-level mouse hook on a sleeping message thread. It queries only button down/up, accepts a complete native `HTMINBUTTON` click on a known HWND/PID, cancels drag-off, and queues the existing dock minimize path. It does not inject into other processes or change global Windows animations. Other system commands and unsupported caption controls use native motion. The hook's target snapshot follows tracked windows; diagnostic targets are explicitly whitelisted. Untiled dock restores reuse a moving thumbnail when reversing. User-initiated launches register short-lived, bounded intents; only a matching new window is held for stable initial geometry, with timeout/cancel/exit releasing opacity ownership.
 Periodic wake-ups: the 30 s window rescan, a 1 s fullscreen check **only while** "Hide while an app is fullscreen" is on, and a 750 ms taskbar-region check only in managed taskbar modes. The taskbar check does not save JSON or reapply settings while its state is unchanged. Icons are decoded once per size and cached; system icons are cached on disk.
 
 
