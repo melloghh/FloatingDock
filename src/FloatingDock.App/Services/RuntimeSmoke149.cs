@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using FloatingDock.Core.Configuration;
 using FloatingDock.Core.Models;
@@ -77,8 +78,14 @@ internal static partial class RuntimeSmoke
         {var time=Stopwatch.StartNew();while(!ready()&&time.ElapsedMilliseconds<4000)await Task.Delay(10);Check(ready(),error);}
         async Task Record(string name,bool restoring)
         {
+            var nativeFrames=new ConcurrentQueue<TileRect>();
+            void Rendered(long window,double time,TileRect bounds,byte alpha){if(window==id)nativeFrames.Enqueue(bounds);}
+            app.Tiling.PresentationRenderedForDiagnostics+=Rendered;
+            try
+            {
             await Wait(()=>app.Tiling.PresentationsForDiagnostics.ContainsKey(id),"No visible window animation: "+name);
             var frames=new List<TileRect>();var time=Stopwatch.StartNew();bool pixels=false;
+            OwnWindowCapture.Frame? captured=null;
             while(app.Tiling.PresentationsForDiagnostics.TryGetValue(id,out var surface)&&time.ElapsedMilliseconds<2000)
             {
                 frames.Add(surface.Bounds);
@@ -89,14 +96,19 @@ internal static partial class RuntimeSmoke
                     var image=OwnWindowCapture.Capture(surface.Handle);NativeMethods.GetWindowRect(surface.Handle,out var viewport);
                     int offset=((surface.Bounds.Y+surface.Bounds.Height/2-viewport.Top)*image.Width+surface.Bounds.X+surface.Bounds.Width/2-viewport.Left)*4;
                     Check(offset>=0&&offset+3<image.Pixels.Length&&image.Pixels[offset]>90&&image.Pixels[offset+1]>45,"The animated window contains no actual application pixels: "+name);
-                    image.Save(Path.Combine(app.Paths.Root,name+".png"));pixels=true;
+                    captured=image;pixels=true;
                 }
                 await Task.Delay(12);
             }
-            Check(pixels&&frames.Distinct().Count()>=8,"A window snapped rather than drawing a continuous transition: "+name);
+            // Native composition now continues while this dispatcher captures
+            // pixels. Count submitted native frames, not UI sampling callbacks.
+            Check(pixels&&nativeFrames.Distinct().Count()>=16,"A window snapped rather than drawing a continuous transition: "+name);
             Check(time.ElapsedMilliseconds>=220,"The dock transition finished before its unfolding was visible: "+name);
-            records.Add(new{name,frames=frames.Distinct().Count(),milliseconds=time.ElapsedMilliseconds,pixels=true,first=frames[0],last=frames[^1]});
+            captured?.Save(Path.Combine(app.Paths.Root,name+".png"));
+            records.Add(new{name,frames=frames.Distinct().Count(),nativeFrames=nativeFrames.Distinct().Count(),milliseconds=time.ElapsedMilliseconds,pixels=true,first=frames[0],last=frames[^1]});
             await Wait(()=>!app.Tiling.Animating,"A window animation did not finish.");
+            }
+            finally {app.Tiling.PresentationRenderedForDiagnostics-=Rendered;}
         }
         WindowInfo Info()=>new(id,Environment.ProcessId,Environment.ProcessPath,null,"Dock motion fixture",null,NativeMethods.IsIconic(hwnd));
         for(int cycle=0;cycle<2;cycle++)
@@ -112,7 +124,9 @@ internal static partial class RuntimeSmoke
         app.Tiling.MinimizeToDock(hwnd);await Task.Delay(70);
         var before=app.Tiling.PresentationsForDiagnostics[id];app.Tiling.PrepareActivation(new[]{Info()});
         var after=app.Tiling.PresentationsForDiagnostics[id];
-        Check(before.Handle==after.Handle&&before.Bounds==after.Bounds,"Rapid restore discarded the moving window representation.");
+        var resumed=app.Tiling.TransitionStartForDiagnostics(id);
+        // The native frame clock can advance between the two UI observations.
+        Check(before.Handle==after.Handle&&Math.Abs(resumed.Width-before.Bounds.Width)<Math.Max(32,before.Bounds.Width/5)&&Math.Abs(resumed.X-before.Bounds.X)<Math.Max(32,before.Bounds.Width/5),"Rapid restore discarded or reset the moving window representation.");
         NativeMethods.ShowWindowAsync(hwnd,NativeMethods.SW_RESTORE);await Wait(()=>!app.Tiling.Animating&&!NativeMethods.IsIconic(hwnd),"Rapid restore did not complete.");
         checks["dockWindowUnfolding"]=records;checks["rapidDockReversalReusesSurface"]=true;
     }

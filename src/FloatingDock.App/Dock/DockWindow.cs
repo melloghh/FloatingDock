@@ -1079,7 +1079,7 @@ internal sealed class DockWindow : IDisposable
 
     private void LaunchApp(AppRef app, bool newInstance)
     {
-        _app.Tiling.NoteLaunch(app);
+        _app.Tiling.NoteLaunch(app,restoreExisting:!newInstance);
         var item=_motion.Items.FirstOrDefault(i=>!i.Leaving&&i.Entry.App?.Key==app.Key);
         if(item is not null&&AnimationRectFor(item) is { } origin)_app.Dock.RememberLaunchOrigin(app,origin);
         _ = _app.Worker.Run(() =>

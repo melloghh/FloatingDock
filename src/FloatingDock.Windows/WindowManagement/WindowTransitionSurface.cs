@@ -85,11 +85,16 @@ public sealed class WindowTransitionSurface : IDisposable
     public static int ReusedViewportCount { get; private set; }
     public static int CachedViewportCount=>IdleViewports.Count;
     private IntPtr _thumbnail;
+    private readonly object _compositionGate=new();
     private WindowOpacityLease? _lease;
     private bool _updated;
+    private bool _disposing;
     public IntPtr Handle { get; private set; }
-    public TileRect Bounds { get; private set; }
-    public byte Opacity { get; private set; }=255;
+    private TileRect _bounds;
+    private byte _opacity=255;
+    public TileRect Bounds { get {lock(_compositionGate)return _bounds;} }
+    public byte Opacity { get {lock(_compositionGate)return _opacity;} }
+    public (TileRect Bounds,byte Opacity) State { get {lock(_compositionGate)return (_bounds,_opacity);} }
     private readonly int _x,_y;
     private readonly int _width,_height;
     private static unsafe bool InitializeTransparentViewport(IntPtr window,int x,int y,int width,int height)
@@ -147,26 +152,40 @@ public sealed class WindowTransitionSurface : IDisposable
     }
     public bool Update(TileRect rect,byte opacity)
     {
-        if(_updated&&Bounds==rect&&Opacity==opacity)return true;
-        Bounds=rect;Opacity=opacity;
-        var properties=new Properties {Flags=1|4|8|16,Destination=new(){Left=rect.X-_x,Top=rect.Y-_y,Right=rect.X+rect.Width-_x,Bottom=rect.Y+rect.Height-_y},Opacity=opacity,Visible=1};
-        _updated=_thumbnail!=IntPtr.Zero&&DwmUpdateThumbnailProperties(_thumbnail,ref properties)>=0;
-        return _updated;
+        lock(_compositionGate)
+        {
+            if(_disposing||_thumbnail==IntPtr.Zero)return false;
+            if(_updated&&_bounds==rect&&_opacity==opacity)return true;
+            _bounds=rect;_opacity=opacity;
+            var properties=new Properties {Flags=1|4|8|16,Destination=new(){Left=rect.X-_x,Top=rect.Y-_y,Right=rect.X+rect.Width-_x,Bottom=rect.Y+rect.Height-_y},Opacity=opacity,Visible=1};
+            _updated=DwmUpdateThumbnailProperties(_thumbnail,ref properties)>=0;
+            return _updated;
+        }
     }
     public void Dispose()
     {
-        // Reveal the real window before removing the last compositor representation.
-        _lease?.Dispose();_lease=null;
-        if(_thumbnail!=IntPtr.Zero){DwmUnregisterThumbnail(_thumbnail);_thumbnail=IntPtr.Zero;}
-        if(Handle!=IntPtr.Zero)
+        WindowOpacityLease? lease;
+        lock(_compositionGate)
         {
-            NativeMethods.ShowWindow(Handle,0);
-            // Keep a bounded, invisible destination buffer for the next reflow.
-            // Rebind the thumbnail, never retain an application source or opacity lease.
-            if((long)_width*_height*4<=16*1024*1024&&IdleViewports.Count<4)
-                IdleViewports.Add((Handle,_x,_y,_width,_height));
-            else NativeMethods.DestroyWindow(Handle);
-            Handle=IntPtr.Zero;
+            if(_disposing)return;
+            _disposing=true;lease=_lease;_lease=null;
+        }
+        // Reveal the real window before removing the last compositor representation.
+        // Never hold the composition lock while calling the source's window procedure.
+        lease?.Dispose();
+        lock(_compositionGate)
+        {
+            if(_thumbnail!=IntPtr.Zero){DwmUnregisterThumbnail(_thumbnail);_thumbnail=IntPtr.Zero;}
+            if(Handle!=IntPtr.Zero)
+            {
+                NativeMethods.ShowWindow(Handle,0);
+                // Keep a bounded, invisible destination buffer for the next reflow.
+                // Rebind the thumbnail, never retain an application source or opacity lease.
+                if((long)_width*_height*4<=16*1024*1024&&IdleViewports.Count<4)
+                    IdleViewports.Add((Handle,_x,_y,_width,_height));
+                else NativeMethods.DestroyWindow(Handle);
+                Handle=IntPtr.Zero;
+            }
         }
     }
     public static void TrimIdleViewports(int keep=1)

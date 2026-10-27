@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.6.2
+
+- Move native thumbnail rendering to a finite sleeping frame clock independent of the XAML dispatcher. Opening, minimizing, restoring and tiling representations keep updating during UI/Shell work; UI placement and cleanup use a lower maintenance cadence when no native layout moves are active.
+- Follow an untiled opening window's live geometry instead of waiting up to a second at its obsolete startup size.
+- Retry launch admission with the asynchronously resolved identity, including AUMID-only apps. Keep bounded launch intents across splash/main-window hand-offs and allow slower startups.
+- Recover native restore bounds for windows already minimized when FloatingDock starts. Search and Launchpad can prepare a matching minimized window for the same dock restore animation.
+- Synchronize thumbnail updates, disposal and reversal sampling without holding the composition lock while restoring the source window.
+- Add startup-resize, dispatcher-stall, delayed-identity and cold-restore diagnostics, plus repeated restores of available real browser/Explorer/Telegram windows with native frame-gap measurements. Keep pixel checks and verify real window placements are restored.
+- Retain the neutral translucent top bar restored in 1.6.1.
+
 ## 1.6.1
 
 - Restore the top bar's original neutral translucent tint and blur strength. The glass redesign no longer applies a blue tint or increased opacity to the top bar.
