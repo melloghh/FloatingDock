@@ -71,7 +71,7 @@ internal sealed class CommandPaletteWindow : IDisposable
         _glass.SetVisible(false);
         _motion=new(Handle,_root,_glass,minX:.96f,minY:.9f,lift:-10,radius:22);
         _motion.SetSplit(56,10);
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(_query,L.Text("Search apps, files and folders"));
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(_query,L.Text("Search apps"));
         foreach(var key in new[]{"TextControlBackground","TextControlBackgroundPointerOver","TextControlBackgroundFocused","TextControlBorderBrush","TextControlBorderBrushPointerOver","TextControlBorderBrushFocused"})_query.Resources[key]=new SolidColorBrush(Colors.Transparent);
         _debounce=_app.UiQueue.CreateTimer();_debounce.IsRepeating=false;_debounce.Interval=TimeSpan.FromMilliseconds(180);_debounce.Tick+=async(_,_)=>await SearchAsync();
         _openingTimer=_app.UiQueue.CreateTimer();_openingTimer.IsRepeating=false;_openingTimer.Interval=TimeSpan.FromMilliseconds(300);_openingTimer.Tick+=(_,_)=>_opening=false;
@@ -89,7 +89,7 @@ internal sealed class CommandPaletteWindow : IDisposable
         float progress=_surfaceVisible?_motion.Progress:0;
         if(!_surfaceVisible)_returnFocus=NativeMethods.GetForegroundWindow();
         _visibilityGeneration++;_visible=_opening=_surfaceVisible=true;_root.IsHitTestVisible=true;
-        _query.PlaceholderText=L.Text("Search apps, files and folders");_query.Text="";
+        _query.PlaceholderText=L.Text("Search apps");_query.Text="";
         _results=Array.Empty<Result>();ClearRows();_status.Text=L.Text("Enter to open · Esc to close");
         int width=(int)(Math.Min(650,(mon.Bounds.Width/mon.Scale)-40)*mon.Scale);
         _width=width;_scale=mon.Scale;_maxHeight=(int)Math.Min(580,mon.Bounds.Height/mon.Scale-60);
@@ -120,7 +120,7 @@ internal sealed class CommandPaletteWindow : IDisposable
             _usage??=await _app.Worker.Run(()=>SearchUsage.Load(_app.Paths.SearchUsageFile));
             if(_disposed||!_visible||generation!=_generation||ct.IsCancellationRequested)return;
             if(query.Length==0&&!_usage.HasEntries)
-            {_results=Array.Empty<Result>();ClearRows();_status.Text=L.Text("Search apps, files and folders");ResizeSurface(0);return;}
+            {_results=Array.Empty<Result>();ClearRows();_status.Text=L.Text("Search apps");ResizeSurface(0);return;}
             if(_catalog is not null&&DateTime.UtcNow-_catalogTime>TimeSpan.FromMinutes(5)){_catalog=null;_appIndex=null;}
             if(_catalog is null){_catalogTime=DateTime.UtcNow;_catalog=_app.Worker.Run<IReadOnlyList<AppRef>>(()=>AppCatalog.Load());}
             var catalog=await _catalog;if(ct.IsCancellationRequested)return;
@@ -134,18 +134,9 @@ internal sealed class CommandPaletteWindow : IDisposable
             if(query.Length>0)results.AddRange(commands.Where(c=>AppSearchIndex.Normalize(c.Name).Contains(AppSearchIndex.Normalize(query))));
             var apps=query.Length==0?_usage.Suggestions(_searchApps,Math.Min(8,settings.SearchResultLimit)):_appIndex.Search(query);
             results.AddRange(apps.Take(settings.SearchResultLimit).Select(a=>new Result(a.Name,"","App",App:a)));
-            bool limited=false;
-            if(settings.SearchFiles&&query.Length>=2)
-            {
-                var files=await Task.Run(()=>FileSearch.Search(query,settings.SearchFolders,settings.SearchResultLimit,ct,settings.SearchDepth),ct);
-                limited=files.UsedFallback||files.Limited;
-                results.AddRange(files.Hits.Select(h=>new Result(h.Name,h.Path,h.IsFolder?"Folder":"File",Path:h.Path)));
-            }
             if(_disposed||!_visible||generation!=_generation||ct.IsCancellationRequested)return;
-            // Leave room for files when many applications also match.
-            var appResults=results.Where(r=>r.Path is null).ToArray();var fileResults=results.Where(r=>r.Path is not null).ToArray();
-            int appLimit=fileResults.Length>0?Math.Max(3,settings.SearchResultLimit/2):settings.SearchResultLimit;
-            _results=appResults.Take(appLimit).Concat(fileResults.Take(settings.SearchResultLimit-Math.Min(appLimit,appResults.Length))).ToArray();
+            _results=results.Take(settings.SearchResultLimit).ToArray();
+            bool freshList=_rows.Children.Count==0||_opening;
             ClearRows();
             foreach(var result in _results)
             {
@@ -162,9 +153,10 @@ internal sealed class CommandPaletteWindow : IDisposable
                 GlassStyle.Button(button);button.Background=new SolidColorBrush(Colors.Transparent);
                 Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button,result.Name+" · "+L.Text(result.Kind));
                 button.Click+=(_,_)=>Open(result);_rowButtons.Add(button);_rows.Children.Add(button);
+                if(freshList)SurfaceMotion.Reveal(button,_rowButtons.Count-1);
             }
             Select(_results.Count>0?0:-1);
-            _status.Text=L.Text(_results.Count==0&&query.Length==0?"Search apps, files and folders":_results.Count==0?"No matches. Try an app name or a file on Desktop or Downloads.":limited?"Folder limit reached. Narrow the search folders in Settings.":"↑ ↓ to select · Enter to open · Esc to close");
+            _status.Text=L.Text(_results.Count==0&&query.Length==0?"Search apps":_results.Count==0?"No matches. Try an app name.":"↑ ↓ to select · Enter to open · Esc to close");
             ResizeSurface(_results.Count);
         }
         catch(OperationCanceledException){}

@@ -1,11 +1,10 @@
-FloatingDock 1.6.3 fixes the normal window-animation path and removes the blue tint from glass menus.
+FloatingDock 1.6.4 fixes windows returning from the dock in a normal size instead of maximized, and simplifies search.
 
-- Menus, search, Launchpad and Settings now use neutral translucent gray surfaces, highlights and borders. Blur remains enabled locally, and the top bar keeps its original appearance.
-- Ordinary application windows use Windows DWM startup/minimize/restore transitions. They are no longer made transparent and replaced by a live thumbnail while their content is still initializing or repainting.
-- Native caption minimize commands and dock actions retain the dock icon as their shell animation destination. Icon pulses, menu/panel animation and opt-in tiling transitions remain available.
-- The caption mouse hook is installed only when needed by active tiling, reducing background work in the normal desktop mode.
+- Windows that were maximized or full-screen (Photoshop and other applications) now stay maximized after being minimized and restored from the dock. Restoring a minimized window no longer sends a second restore request that un-maximized it.
+- Search shows applications and commands only. File and folder search and its settings were removed.
+- Search results and Settings sections appear with short cascading animations. They respect the Windows animation preference and the menu animation setting.
 
-Validation includes real fresh Explorer windows and an isolated Chrome profile, captured startup/restore frames, source-composition checks, native caption system commands, dock actions, tiling/workspaces and UI interaction checks. Browser fixture content is local; captures/profiles are private and are not distributed. Windows' existing animation preferences are respected; system animation/transparency settings are unchanged.
+Validation includes a maximized-window diagnostic reproducing the bug before the fix and passing after it (dock, window button, preview and relaunch paths), the unit tests and the native, tiling, workspace, search, menu and input desktop suites.
 
 ### Downloads
 
@@ -17,8 +16,8 @@ Validation includes real fresh Explorer windows and an isolated Chrome profile, 
 
 ### По-русски
 
-Убран принудительный синий оттенок меню, поиска, Launchpad и настроек: стекло теперь нейтрально-серое, с прежним размытием. Верхняя панель сохраняет исходный вид.
+Окна, которые были развёрнуты или открыты на весь экран (Photoshop и другие программы), после сворачивания и восстановления из дока остаются развёрнутыми. Раньше второй запрос восстановления возвращал их в обычный размер.
 
-Для обычных окон открытие, сворачивание и восстановление выполняет Windows DWM. FloatingDock больше не скрывает запускающееся окно и не подменяет его миниатюрой, которая могла содержать ещё неготовый кадр. Сворачивание к значку дока, анимации иконок и меню сохранены. Собственные переходы тайлинга остаются в режиме тайлинга.
+Поиск показывает только приложения и команды; поиск файлов и папок и его настройки убраны. Результаты поиска и разделы настроек появляются с короткими каскадными анимациями; системные настройки анимаций учитываются.
 
-Проверены реальные новые окна Проводника и отдельного профиля Chrome, запуск и восстановление с записью кадров, команды кнопок окна и дока, тайлинг и рабочие области. Системные настройки анимаций/прозрачности и пользовательские данные не меняются.
+Проверено диагностикой развёрнутого окна (баг воспроизведён до исправления и исчез после), юнит-тестами и наборами проверок тайлинга, рабочих областей, поиска, меню и ввода.

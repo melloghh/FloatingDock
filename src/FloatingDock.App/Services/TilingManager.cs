@@ -366,7 +366,7 @@ internal sealed class TilingManager : IDisposable
                 // compositor transition. Do not add WS_EX_LAYERED or suppress
                 // its painting behind a replacement thumbnail.
                 ReleasePresentation(window.Hwnd);_minimized.Remove(window.Hwnd);
-                NativeMethods.ShowWindowAsync(new(window.Hwnd),NativeMethods.SW_RESTORE);
+                NativeMethods.RestoreMinimized(new(window.Hwnd));
             }
         }
         if(changed){AnimateLayout();StateChanged?.Invoke();}

@@ -135,7 +135,7 @@ internal sealed partial class SettingsWindow : IDisposable
         var host = new StackPanel { Spacing = 8, Padding = new Thickness(36, 28, 36, 40), MaxWidth = 820, HorizontalAlignment = HorizontalAlignment.Left };
         host.Children.Add(content);
         _scroll.Content = host;
-        host.Loaded += (_,_)=>{if(!_closed){SurfaceMotion.Enter(host,initialScale:1);SurfaceMotion.SlideContent(host,260);}};
+        host.Loaded += (_,_)=>{if(!_closed){SurfaceMotion.Enter(host,initialScale:1);int index=0;foreach(var child in ((Panel)content).Children)if(child is FrameworkElement part)SurfaceMotion.Reveal(part,index++);}};
         _scroll.ChangeView(0, 0, null, true);
     }
 

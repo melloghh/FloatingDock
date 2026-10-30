@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.6.4
+
+- Fix windows that were maximized or full-screen coming back from the dock in a normal window size. Restoring a minimized window requested SW_RESTORE twice (once when preparing the activation and once when activating); the second request un-maximized the already restored window. Restoring is now idempotent and keeps the maximized state.
+- Search shows applications and commands only. File and folder search, its settings and the background folder scans were removed.
+- Add cascading entrance animations for search results and for the sections of each Settings page. They are finite compositor transitions and respect the Windows animation preference and the menu animation setting.
+- Add a maximized/full-screen state diagnostic (`--test-only-state164`) that checks minimize/restore through the dock, caption button, preview and relaunch.
+
+
 ## 1.6.3
 
 - Remove the fixed blue tint from menus, search, Launchpad and Settings. Use neutral translucent grayscale surfaces, highlights and borders while preserving blur and the restored top-bar appearance.

@@ -63,6 +63,7 @@ public static class InterfaceText
         ["Use Desktop;Downloads or absolute folder paths."]="Используйте Desktop;Downloads или абсолютные пути папок.",
         ["Use Desktop;Downloads or absolute folder paths. Documents is excluded. Only personal file types and top-level folders are shown."]="Используйте Desktop;Downloads или абсолютные пути. Documents исключена. Показываются личные типы файлов и папки верхнего уровня.",
         ["Folder lists are cached for 30 seconds. File contents are not searched."]="Списки папок кешируются на 30 секунд. Содержимое файлов не просматривается.",
+        ["Search apps"]="Поиск приложений",["No matches. Try an app name."]="Совпадений нет. Попробуйте название приложения.",
         ["No matches. Try an app name or a file on Desktop or Downloads."]="Совпадений нет. Попробуйте имя приложения или файла на рабочем столе либо в загрузках.",
         ["Folder limit reached. Narrow the search folders in Settings."]="Достигнут лимит папок. Сузьте область поиска в настройках.",
         ["↑ ↓ to select · Enter to open · Esc to close"]="↑ ↓ выбрать · Enter открыть · Esc закрыть",

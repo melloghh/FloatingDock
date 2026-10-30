@@ -191,6 +191,18 @@ internal static class NativeMethods
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hwnd, int cmd);
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)] public static extern int MessageBox(IntPtr hwnd, string text, string caption, uint type);
     [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hwnd, int cmd);
+    [StructLayout(LayoutKind.Sequential)] private struct WindowPlacement { public int Length, Flags, ShowCmd; public POINT MinPosition, MaxPosition; public RECT NormalPosition; }
+    [DllImport("user32.dll")] private static extern bool GetWindowPlacement(IntPtr hwnd, ref WindowPlacement placement);
+    private const int WPF_RESTORETOMAXIMIZED = 2;
+    /// <summary>Restores a minimized window to its previous state. Safe to call repeatedly: SW_RESTORE on an already
+    /// maximized window would un-maximize it, so a window that was maximized is restored with SW_SHOWMAXIMIZED instead.</summary>
+    public static void RestoreMinimized(IntPtr hwnd)
+    {
+        var placement = new WindowPlacement { Length = Marshal.SizeOf<WindowPlacement>() };
+        bool wasMaximized = GetWindowPlacement(hwnd, ref placement) && (placement.Flags & WPF_RESTORETOMAXIMIZED) != 0;
+        if (wasMaximized) { if (IsIconic(hwnd) || !IsZoomed(hwnd)) ShowWindowAsync(hwnd, SW_MAXIMIZE); }
+        else if (IsIconic(hwnd)) ShowWindowAsync(hwnd, SW_RESTORE);
+    }
     [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
     [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT p);
