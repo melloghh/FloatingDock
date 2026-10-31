@@ -13,6 +13,9 @@ public static class DockSpacePolicy
     public static bool HidesForCoveringWindow(DockSettings s, bool windowsReportsFullscreen) =>
         s.HideOnFullscreen && (!s.KeepDockInFullscreen || windowsReportsFullscreen);
 
+    /// <summary>Full screen in a browser or media player is a video: the dock hides even in "keep" mode.</summary>
+    public static bool HidesForVideo(DockSettings s, bool isVideoHost) => s.HideOnFullscreen && s.KeepDockInFullscreen && isVideoHost;
+
     /// <summary>Full-screen windows are fitted above the dock only in "keep" mode and never for Windows-reported full-screen games.</summary>
     public static bool ShouldFitFullscreen(DockSettings s, bool windowsReportsFullscreen) =>
         s.KeepDockInFullscreen && ShouldReserve(s, false) && !windowsReportsFullscreen;

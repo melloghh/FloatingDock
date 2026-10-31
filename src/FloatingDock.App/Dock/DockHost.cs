@@ -246,8 +246,11 @@ internal sealed class DockHost : IDisposable
         var root = FloatingDock.Windows.Native.NativeMethods.GetAncestor(foreground, FloatingDock.Windows.Native.NativeMethods.GA_ROOTOWNER);
         foreach (var w in _windows)
         {
-            if (fit) FitFullscreenAboveDock(w.Monitor.Handle, foreground, root, pid);
-            bool fullscreen = enabled && (FullscreenDetector.IsWindowFullscreenOn(foreground, w.Monitor.Handle, pid) || FullscreenDetector.IsWindowFullscreenOn(root, w.Monitor.Handle, pid));
+            bool covering = FullscreenDetector.IsWindowFullscreenOn(foreground, w.Monitor.Handle, pid) || FullscreenDetector.IsWindowFullscreenOn(root, w.Monitor.Handle, pid);
+            // A video (browser or player at full screen) keeps covering the screen and hides the dock.
+            bool video = covering && FloatingDock.Core.Services.DockSpacePolicy.HidesForVideo(settings, FullscreenDetector.IsVideoHost(foreground) || FullscreenDetector.IsVideoHost(root));
+            if (fit && !video) FitFullscreenAboveDock(w.Monitor.Handle, foreground, root, pid);
+            bool fullscreen = (enabled && covering) || video;
             bool maximized = enabled && (FullscreenDetector.IsWindowMaximizedOn(foreground, w.Monitor.Handle, pid) || FullscreenDetector.IsWindowMaximizedOn(root, w.Monitor.Handle, pid));
             w.SetFullscreenHidden(fullscreen || maximized, blockEdgeReveal: fullscreen);
         }

@@ -45,4 +45,11 @@ public sealed class DockSpacePolicyTests
 
     [Fact]
     public void HiddenDockReservesNothing() => Assert.False(DockSpacePolicy.ShouldReserve(Settings(keep:true),true));
+
+    [Theory]
+    [InlineData(true,true,true)]
+    [InlineData(true,false,false)]
+    [InlineData(false,true,false)]
+    public void VideoHidesTheDockInKeepMode(bool keep,bool video,bool expected)
+        => Assert.Equal(expected,DockSpacePolicy.HidesForVideo(Settings(keep:keep),video));
 }

@@ -58,6 +58,26 @@ public static class FullscreenDetector
             NativeMethods.SWP_NOZORDER | NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_NOOWNERZORDER);
     }
 
+    private static readonly HashSet<string> VideoHosts = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "chrome", "msedge", "firefox", "zen", "brave", "opera", "opera_gx", "vivaldi", "browser", "arc", "librewolf", "waterfox", "chromium", "yandex",
+        "vlc", "mpv", "mpc-hc", "mpc-hc64", "mpc-be", "mpc-be64", "potplayermini", "potplayermini64", "wmplayer", "video.ui", "microsoft.media.player",
+        "kmplayer", "smplayer", "celluloid", "stremio", "plex", "netflix", "spotify"
+    };
+
+    /// <summary>True when the window belongs to a browser or media player, where full screen means a video.</summary>
+    public static bool IsVideoHost(IntPtr window)
+    {
+        if (window == IntPtr.Zero) return false;
+        NativeMethods.GetWindowThreadProcessId(window, out var pid);
+        try
+        {
+            using var process = System.Diagnostics.Process.GetProcessById((int)pid);
+            return VideoHosts.Contains(process.ProcessName);
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception) { return false; }
+    }
+
     /// <summary>Windows' own opinion (D3D fullscreen game / presentation mode). Any failure of the API means "unknown" = false.</summary>
     public static bool WindowsReportsFullscreen()
     {
