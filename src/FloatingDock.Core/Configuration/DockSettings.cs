@@ -79,6 +79,8 @@ public sealed class DockSettings
     public bool AutoHide { get; set; } = false;
     public bool RevealOnEdgeHover { get; set; } = true;
     public bool HideOnFullscreen { get; set; } = true;
+    /// <summary>Maximized and full-screen windows end above the dock instead of covering it, and the dock stays visible.</summary>
+    public bool KeepDockInFullscreen { get; set; } = false;
     public bool MinimizeOnRepeatClick { get; set; } = true;
     public bool StartWithWindows { get; set; } = false;
 

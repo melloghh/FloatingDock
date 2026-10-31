@@ -212,7 +212,7 @@ internal sealed class DockHost : IDisposable
     private void UpdateAppBar()
     {
         var s = _app.Settings.Current;
-        bool reserve = s.ReserveWorkArea && s.TaskbarMode != TaskbarMode.Leave && !s.AutoHide && !_userHidden;
+        bool reserve = FloatingDock.Core.Services.DockSpacePolicy.ShouldReserve(s, _userHidden);
         if (!reserve) { _appBar.Release(); return; }
         var requests = _windows
             .Select(w => new AppBarRequest(w.Monitor, (int)Math.Ceiling((s.BottomOffset + s.DockHeight + 6) * w.Monitor.Scale), Edge:s.Edge))
@@ -234,7 +234,10 @@ internal sealed class DockHost : IDisposable
         UpdateCaptureVisibility();
         if(_capture.IsActive||System.Diagnostics.Stopwatch.GetTimestamp()<_capturePendingUntil)return;
         if (_windows.Any(w => w.IsContextMenuOpen)) return;
-        bool enabled = _app.Settings.Current.HideOnFullscreen;
+        var settings = _app.Settings.Current;
+        bool gameFullscreen = settings.KeepDockInFullscreen && FullscreenDetector.WindowsReportsFullscreen();
+        bool enabled = FloatingDock.Core.Services.DockSpacePolicy.HidesForCoveringWindow(settings, gameFullscreen);
+        bool fit = FloatingDock.Core.Services.DockSpacePolicy.ShouldFitFullscreen(settings, gameFullscreen);
         uint pid = (uint)Environment.ProcessId;
         var foreground = FloatingDock.Windows.Native.NativeMethods.GetForegroundWindow();
         FloatingDock.Windows.Native.NativeMethods.GetWindowThreadProcessId(foreground, out var foregroundPid);
@@ -243,10 +246,29 @@ internal sealed class DockHost : IDisposable
         var root = FloatingDock.Windows.Native.NativeMethods.GetAncestor(foreground, FloatingDock.Windows.Native.NativeMethods.GA_ROOTOWNER);
         foreach (var w in _windows)
         {
+            if (fit) FitFullscreenAboveDock(w.Monitor.Handle, foreground, root, pid);
             bool fullscreen = enabled && (FullscreenDetector.IsWindowFullscreenOn(foreground, w.Monitor.Handle, pid) || FullscreenDetector.IsWindowFullscreenOn(root, w.Monitor.Handle, pid));
             bool maximized = enabled && (FullscreenDetector.IsWindowMaximizedOn(foreground, w.Monitor.Handle, pid) || FullscreenDetector.IsWindowMaximizedOn(root, w.Monitor.Handle, pid));
             w.SetFullscreenHidden(fullscreen || maximized, blockEdgeReveal: fullscreen);
         }
+    }
+
+    private readonly Dictionary<IntPtr, int> _fitAttempts = new();
+
+    /// <summary>A window that covers the whole monitor (F11, borderless full screen) ignores the work area, so move it above the
+    /// reserved dock strip. Each window is fitted at most twice: an application that insists on its own bounds is left alone.</summary>
+    private void FitFullscreenAboveDock(IntPtr monitor, IntPtr foreground, IntPtr root, uint pid)
+    {
+        foreach (var window in new[] { foreground, root }.Distinct())
+        {
+            if (window == IntPtr.Zero || !FullscreenDetector.IsWindowFullscreenOn(window, monitor, pid)) continue;
+            var info = new FloatingDock.Windows.Native.MONITORINFOEX { cbSize = System.Runtime.InteropServices.Marshal.SizeOf<FloatingDock.Windows.Native.MONITORINFOEX>() };
+            if (!FloatingDock.Windows.Native.NativeMethods.GetMonitorInfo(monitor, ref info)) continue;
+            _fitAttempts.TryGetValue(window, out int attempts);
+            if (attempts >= 2) continue;
+            if (FullscreenDetector.FitToArea(window, info.rcWork)) _fitAttempts[window] = attempts + 1;
+        }
+        if (_fitAttempts.Count > 64) _fitAttempts.Clear();
     }
 
     public void SetUserHidden(bool hidden)

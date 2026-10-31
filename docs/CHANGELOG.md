@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.6.5
+
+- Add the "Keep the dock visible: fullscreen windows open above it" option (Settings → Dock → Hiding, off by default). The dock strip stays free: maximized windows end above the dock and the dock is no longer hidden for them. Windows that cover the whole monitor (F11, borderless full screen) are moved above the strip once, without changing focus or z-order, and are left alone if the application insists on its own bounds. Windows-reported exclusive full-screen games still hide the dock.
+- The mode needs the Windows taskbar auto-hidden or hidden and the dock not set to auto-hide; otherwise nothing changes.
+- Add policy unit tests and a fullscreen-fit diagnostic (`--test-only-keep165`).
+
+
 ## 1.6.4
 
 - Fix windows that were maximized or full-screen coming back from the dock in a normal window size. Restoring a minimized window requested SW_RESTORE twice (once when preparing the activation and once when activating); the second request un-maximized the already restored window. Restoring is now idempotent and keeps the maximized state.

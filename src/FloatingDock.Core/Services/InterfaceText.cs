@@ -63,6 +63,8 @@ public static class InterfaceText
         ["Use Desktop;Downloads or absolute folder paths."]="Используйте Desktop;Downloads или абсолютные пути папок.",
         ["Use Desktop;Downloads or absolute folder paths. Documents is excluded. Only personal file types and top-level folders are shown."]="Используйте Desktop;Downloads или абсолютные пути. Documents исключена. Показываются личные типы файлов и папки верхнего уровня.",
         ["Folder lists are cached for 30 seconds. File contents are not searched."]="Списки папок кешируются на 30 секунд. Содержимое файлов не просматривается.",
+        ["Keep the dock visible: fullscreen windows open above it"]="Не скрывать док: полноэкранные окна открываются над ним",
+        ["The dock's strip stays free and windows end above it. Needs the Windows taskbar auto-hidden or hidden and the dock not set to auto-hide. Games in exclusive full screen still hide the dock."]="Место дока остаётся свободным, окна заканчиваются над ним. Нужно, чтобы панель задач Windows была скрыта или автоскрыта, а у дока не было автоскрытия. Игры в эксклюзивном полноэкранном режиме по-прежнему скрывают док.",
         ["Search apps"]="Поиск приложений",["No matches. Try an app name."]="Совпадений нет. Попробуйте название приложения.",
         ["No matches. Try an app name or a file on Desktop or Downloads."]="Совпадений нет. Попробуйте имя приложения или файла на рабочем столе либо в загрузках.",
         ["Folder limit reached. Narrow the search folders in Settings."]="Достигнут лимит папок. Сузьте область поиска в настройках.",

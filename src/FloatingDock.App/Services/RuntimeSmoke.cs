@@ -28,6 +28,8 @@ internal static partial class RuntimeSmoke
         string? error = null;
         try
         {
+            if(Environment.GetCommandLineArgs().Contains("--test-only-keep165"))
+            {await CheckKeep165Async(app,checks);Check(Program.UiFailureCount==0,"XAML failure in fullscreen fit checks.");success=true;return;}
             if(Environment.GetCommandLineArgs().Contains("--test-only-state164"))
             {await CheckState164Async(app,checks);Check(Program.UiFailureCount==0,"XAML failure in window state checks.");success=true;return;}
             if(Environment.GetCommandLineArgs().Contains("--test-only-native163"))

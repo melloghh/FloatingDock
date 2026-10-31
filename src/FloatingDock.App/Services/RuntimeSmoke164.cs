@@ -65,3 +65,31 @@ internal static partial class RuntimeSmoke
         }
     }
 }
+
+internal static partial class RuntimeSmoke
+{
+    /// <summary>Own window stretched over the whole monitor is moved above a reserved strip and left alone afterwards.</summary>
+    private static async Task CheckKeep165Async(DockApp app,Dictionary<string,object> checks)
+    {
+        Window? owned=null;IntPtr hwnd=IntPtr.Zero;
+        try
+        {
+            owned=new Window{Title="FloatingDock fullscreen fit probe 165",Content=new Grid()};owned.Activate();hwnd=WindowSetup.Hwnd(owned);
+            app.Running.IncludeOwnWindow(hwnd);await Task.Delay(300);
+            var monitor=NativeMethods.MonitorFromWindow(hwnd,NativeMethods.MONITOR_DEFAULTTONEAREST);
+            var info=new MONITORINFOEX{cbSize=System.Runtime.InteropServices.Marshal.SizeOf<MONITORINFOEX>()};
+            Check(NativeMethods.GetMonitorInfo(monitor,ref info),"Cannot read monitor.");
+            var screen=info.rcMonitor;
+            NativeMethods.SetWindowPos(hwnd,IntPtr.Zero,screen.Left,screen.Top,screen.Right-screen.Left,screen.Bottom-screen.Top,NativeMethods.SWP_NOZORDER|NativeMethods.SWP_NOACTIVATE);
+            await Task.Delay(200);
+            var strip=new RECT{Left=screen.Left,Top=screen.Top,Right=screen.Right,Bottom=screen.Bottom-90};
+            Check(FullscreenDetector.FitToArea(hwnd,strip),"Covering window was not moved above the strip.");
+            await Task.Delay(200);
+            Check(NativeMethods.GetWindowRect(hwnd,out var after),"Cannot read fitted bounds.");
+            checks["fitted"]=new{after.Left,after.Top,after.Right,after.Bottom,stripBottom=strip.Bottom};
+            Check(after.Bottom<=strip.Bottom+1&&after.Left>=strip.Left-1&&after.Right<=strip.Right+1,"Window still overlaps the reserved strip.");
+            Check(!FullscreenDetector.FitToArea(hwnd,strip),"Window already above the strip must not be moved again.");
+        }
+        finally{if(owned is not null){app.Running.ExcludeOwnWindow(hwnd);owned.Close();}}
+    }
+}

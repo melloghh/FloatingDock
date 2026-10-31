@@ -48,6 +48,16 @@ public static class FullscreenDetector
         return true;
     }
 
+    /// <summary>Moves a covering window onto <paramref name="area"/> (the monitor work area, which excludes the reserved dock strip).
+    /// Only acts when the window actually extends past the area; no activation or z-order change. Returns true when the window was moved.</summary>
+    public static bool FitToArea(IntPtr window, RECT area)
+    {
+        if (!NativeMethods.GetWindowRect(window, out var r)) return false;
+        if (r.Left >= area.Left && r.Top >= area.Top && r.Right <= area.Right && r.Bottom <= area.Bottom) return false;
+        return NativeMethods.SetWindowPos(window, IntPtr.Zero, area.Left, area.Top, area.Right - area.Left, area.Bottom - area.Top,
+            NativeMethods.SWP_NOZORDER | NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_NOOWNERZORDER);
+    }
+
     /// <summary>Windows' own opinion (D3D fullscreen game / presentation mode). Any failure of the API means "unknown" = false.</summary>
     public static bool WindowsReportsFullscreen()
     {
