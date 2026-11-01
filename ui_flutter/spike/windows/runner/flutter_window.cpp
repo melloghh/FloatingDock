@@ -1,0 +1,114 @@
+#include "flutter_window.h"
+
+#include <dwmapi.h>
+
+#include <optional>
+
+#include "flutter/generated_plugin_registrant.h"
+
+FlutterDesktopEngineRef g_shared_engine = nullptr;
+
+// Per-pixel transparency: the glass frame covers the whole client area, so whatever Flutter paints
+// with alpha shows the desktop through it. No window region and no blur are involved.
+static void MakeTransparent(HWND window) {
+  MARGINS margins = {-1, -1, -1, -1};
+  DwmExtendFrameIntoClientArea(window, &margins);
+}
+
+FlutterWindow::FlutterWindow(const flutter::DartProject& project)
+    : project_(project) {}
+
+FlutterWindow::~FlutterWindow() {}
+
+bool FlutterWindow::OnCreate() {
+  if (!Win32Window::OnCreate()) {
+    return false;
+  }
+
+  MakeTransparent(GetHandle());
+
+  RECT frame = GetClientArea();
+
+  // The size here must match the window dimensions to avoid unnecessary surface
+  // creation / destruction in the startup path.
+  flutter_controller_ = std::make_unique<flutter::FlutterViewController>(
+      frame.right - frame.left, frame.bottom - frame.top, project_);
+  // Ensure that basic setup of the controller was successful.
+  if (!flutter_controller_->engine() || !flutter_controller_->view()) {
+    return false;
+  }
+  g_shared_engine = FlutterDesktopViewControllerGetEngine(flutter_controller_->controller_);
+  RegisterPlugins(flutter_controller_->engine());
+  SetChildContent(flutter_controller_->view()->GetNativeWindow());
+
+  flutter_controller_->engine()->SetNextFrameCallback([&]() {
+    this->Show();
+  });
+
+  // Flutter can complete the first frame before the "show window" callback is
+  // registered. The following call ensures a frame is pending to ensure the
+  // window is shown. It is a no-op if the first frame hasn't completed yet.
+  flutter_controller_->ForceRedraw();
+
+  return true;
+}
+
+void FlutterWindow::OnDestroy() {
+  if (flutter_controller_) {
+    flutter_controller_ = nullptr;
+  }
+
+  Win32Window::OnDestroy();
+}
+
+LRESULT
+FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
+                              WPARAM const wparam,
+                              LPARAM const lparam) noexcept {
+  // Give Flutter, including plugins, an opportunity to handle window messages.
+  if (flutter_controller_) {
+    std::optional<LRESULT> result =
+        flutter_controller_->HandleTopLevelWindowProc(hwnd, message, wparam,
+                                                      lparam);
+    if (result) {
+      return *result;
+    }
+  }
+
+  switch (message) {
+    case WM_FONTCHANGE:
+      flutter_controller_->engine()->ReloadSystemFonts();
+      break;
+  }
+
+  return Win32Window::MessageHandler(hwnd, message, wparam, lparam);
+}
+
+bool ExtraWindow::OnCreate() {
+  if (!Win32Window::OnCreate() || !g_shared_engine) {
+    return false;
+  }
+  MakeTransparent(GetHandle());
+  RECT frame = GetClientArea();
+  controller_ = FlutterDesktopViewControllerCreate(frame.right - frame.left, frame.bottom - frame.top,
+                                                   g_shared_engine);
+  if (!controller_) {
+    return false;
+  }
+  SetChildContent(FlutterDesktopViewGetHWND(FlutterDesktopViewControllerGetView(controller_)));
+  Show();
+  return true;
+}
+
+LRESULT
+ExtraWindow::MessageHandler(HWND hwnd, UINT const message, WPARAM const wparam,
+                            LPARAM const lparam) noexcept {
+  if (controller_) {
+    LRESULT result;
+    if (FlutterDesktopViewControllerHandleTopLevelWindowProc(controller_, hwnd, message, wparam, lparam,
+                                                             &result)) {
+      return result;
+    }
+  }
+  return Win32Window::MessageHandler(hwnd, message, wparam, lparam);
+}
