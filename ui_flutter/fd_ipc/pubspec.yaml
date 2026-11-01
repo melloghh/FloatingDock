@@ -1,0 +1,7 @@
+name: fd_ipc
+description: Client for the FloatingDock engine (Unix-socket IPC, newline-delimited JSON).
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ^3.13.0
