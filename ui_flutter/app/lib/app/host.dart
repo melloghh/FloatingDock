@@ -150,11 +150,15 @@ class ViewShell extends StatelessWidget {
         state: state,
         child: ListenableBuilder(
           listenable: state,
-          builder: (context, _) => MaterialApp(
-            debugShowCheckedModeBanner: false,
-            theme: state.theme,
-            scrollBehavior: const _NoGlowScroll(),
-            home: Builder(builder: builder),
+          // While a screenshot overlay (Win+Shift+S, PrtSc) is up nothing of ours may be drawn on top of it.
+          builder: (context, _) => Opacity(
+            opacity: state.captureHidden ? 0 : 1,
+            child: MaterialApp(
+              debugShowCheckedModeBanner: false,
+              theme: state.theme,
+              scrollBehavior: const _NoGlowScroll(),
+              home: Builder(builder: builder),
+            ),
           ),
         ),
       );

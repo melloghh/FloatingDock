@@ -102,6 +102,9 @@ class AppState extends ChangeNotifier {
       case Events.windowsChanged:
         _setWindows(e.data as Map);
         notifyListeners();
+      case 'capture.changed':
+        captureHidden = (e.data as Map?)?['hidden'] == true;
+        notifyListeners();
       case 'icons.changed':
         iconGeneration++;
         _icons.clear();
@@ -115,6 +118,9 @@ class AppState extends ChangeNotifier {
   // ------------------------------------------------------------------ icons
 
   int iconGeneration = 0;
+
+  /// A screenshot selection overlay is on screen: every window of ours draws nothing.
+  bool captureHidden = false;
   final _icons = <String, Future<Uint8List?>>{};
 
   /// PNG bytes of an app's icon as the engine resolves it (override > icon pack > Windows). Cached until icons change.

@@ -203,13 +203,9 @@ class _BarViewState extends State<BarView> with SingleTickerProviderStateMixin {
             },
             child: Padding(
               padding: const EdgeInsets.fromLTRB(barSideInset, barTopInset, barSideInset, barBottomInset),
-              child: Container(
+              // No backing strip: only the islands hang over the desktop.
+              child: SizedBox(
                 height: barHeight,
-                decoration: BoxDecoration(
-                  color: bar.surfaceContainerLowest.withValues(alpha: .72),
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: bar.outlineVariant.withValues(alpha: .25)),
-                ),
                 child: _content(context, s, bar, autoHide),
               ),
             ),
@@ -350,7 +346,7 @@ class _Island extends StatelessWidget {
   Widget build(BuildContext context) => Container(
         height: 30,
         padding: const EdgeInsets.symmetric(horizontal: 2),
-        decoration: BoxDecoration(color: bar.surfaceContainerHigh.withValues(alpha: .59), borderRadius: BorderRadius.circular(15)),
+        decoration: BoxDecoration(color: bar.surfaceContainerHigh.withValues(alpha: .86), borderRadius: BorderRadius.circular(15)),
         child: Row(mainAxisSize: MainAxisSize.min, children: [for (var i = 0; i < children.length; i++) ...[if (i > 0) const SizedBox(width: 2), children[i]]]),
       );
 }

@@ -130,6 +130,7 @@ internal sealed partial class EngineHost : IDisposable
         _taskbarTimer = new System.Threading.Timer(_ => _ui.Post(MaintainTaskbar), null, Timeout.Infinite, Timeout.Infinite);
         if (s.TaskbarMode != TaskbarMode.Leave) _taskbarTimer.Change(750, 750);
         WatchIconPacks();
+        StartCaptureWatch();
 
         if (firstRun) _ = SeedPinnedFromWindowsTaskbarAsync();
         if (!_diagnostic) _ = Task.Delay(600).ContinueWith(_ => _startPins.GetAsync()).Unwrap().ContinueWith(t => { if (t.IsFaulted) EngineLog.Warn("Start pins preload failed: " + t.Exception?.GetBaseException().Message); });
@@ -384,6 +385,7 @@ internal sealed partial class EngineHost : IDisposable
         _languageTimer?.Dispose(); _fullscreenTimer?.Dispose(); _spaceTimer?.Dispose(); _dockTimer?.Dispose();
         _settingsTimer?.Dispose(); _taskbarTimer?.Dispose(); _displayTimer?.Dispose(); _packTimer?.Dispose();
         _packWatcher?.Dispose();
+        _captureShortcut?.Dispose(); _captureTimer?.Dispose();
         _running?.Dispose();
         _tray?.Dispose();
         _msg?.Dispose();
