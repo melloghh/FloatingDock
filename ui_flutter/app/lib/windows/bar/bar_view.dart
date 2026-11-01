@@ -237,10 +237,9 @@ class _BarViewState extends State<BarView> with SingleTickerProviderStateMixin {
       if (showMedia && _media != null) ...[const SizedBox(width: 8), _mediaCapsule(bar, _media!)],
     ]);
     final right = Row(mainAxisSize: MainAxisSize.min, children: [
-      if (showSearch || showMedia || showTray)
+      if (showSearch || showTray)
         _Island(bar: bar, children: [
           if (showSearch) _BarButton(model: m, bar: bar, tooltip: 'Search', icon: Icons.search_rounded, onTap: () => m.onSearch?.call()),
-          if (showMedia) _BarButton(kind: 'media', model: m, bar: bar, tooltip: 'Media', icon: Icons.music_note_rounded),
           if (showTray) _BarButton(kind: 'tray', model: m, bar: bar, tooltip: 'System tray', icon: Icons.expand_more_rounded, iconSize: 18),
         ]),
       const SizedBox(width: 6),

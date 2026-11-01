@@ -23,9 +23,10 @@ internal sealed partial class EngineHost
     private void BeginCapture()
     {
         if (_shuttingDown) return;
+        // Nothing is hidden yet: the selection tool freezes the screen first, and the bar and dock must be in that picture.
+        // They go away only once its overlay is really on screen (so they never cover it).
         _capturePendingUntil = System.Diagnostics.Stopwatch.GetTimestamp() + System.Diagnostics.Stopwatch.Frequency * 2;
-        SetCaptureHidden(true);
-        _captureTimer?.Change(100, 100);
+        _captureTimer?.Change(30, 30);
     }
 
     private void CaptureTick()
@@ -33,11 +34,9 @@ internal sealed partial class EngineHost
         if (_shuttingDown) return;
         _capture.Scan();
         bool pending = System.Diagnostics.Stopwatch.GetTimestamp() < _capturePendingUntil;
-        if (!_capture.IsActive && !pending)
-        {
-            _captureTimer?.Change(Timeout.Infinite, Timeout.Infinite);
-            SetCaptureHidden(false);
-        }
+        SetCaptureHidden(_capture.IsActive);
+        if (!_capture.IsActive && !pending) _captureTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+        else if (_capture.IsActive) _captureTimer?.Change(100, 100);
     }
 
     private void SetCaptureHidden(bool hidden)
