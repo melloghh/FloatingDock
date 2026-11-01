@@ -215,7 +215,10 @@ class AppState extends ChangeNotifier {
     return _scheme!;
   }
 
-  ThemeData get theme => _theme ??= buildTheme(scheme);
+  ThemeData get theme {
+    final current = scheme;   // refreshing the scheme drops a stale _theme, so it must be read first
+    return _theme ??= buildTheme(current);
+  }
 
   /// The top bar is always a dark shell, whatever the theme (as in the WinUI version).
   ColorScheme get darkScheme => schemeFor(seed, Brightness.dark);
