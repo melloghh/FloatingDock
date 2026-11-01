@@ -143,6 +143,7 @@ class _MediaMenuState extends State<MediaMenu> {
   void dispose() {
     _poll?.cancel();
     _tick?.cancel();
+    _followUp?.cancel();
     super.dispose();
   }
 
@@ -169,6 +170,16 @@ class _MediaMenuState extends State<MediaMenu> {
 
   Future<void> _act(String command) async {
     if (_acting) return;
+    // The button answers at once; the player confirms a moment later.
+    final current = _media;
+    if (command == 'toggle' && current != null) {
+      setState(() {
+        final now = (current['position'] as num?)?.toDouble() ?? 0;
+        final moved = current['playing'] == true ? DateTime.now().difference(_readAt).inMilliseconds / 1000 : 0;
+        _media = {...current, 'position': now + moved, 'playing': current['playing'] != true};
+        _readAt = DateTime.now();
+      });
+    }
     _acting = true;
     try {
       await AppScope.read(context).call('media.control', {'command': command});
@@ -177,7 +188,11 @@ class _MediaMenuState extends State<MediaMenu> {
     }
     _acting = false;
     await _read();
+    _followUp?.cancel();
+    _followUp = Timer(const Duration(milliseconds: 350), _read);   // players confirm a moment after the command
   }
+
+  Timer? _followUp;
 
   static String clock(double seconds) {
     final t = Duration(seconds: seconds.floor().clamp(0, 359999));

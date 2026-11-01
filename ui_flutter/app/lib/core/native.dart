@@ -57,6 +57,12 @@ class Native {
     return [for (final m in r ?? const <Map>[]) MonitorInfo(m)];
   }
 
+  /// The pointer position (physical px) and whether any mouse button is down, wherever the pointer is.
+  Future<({Offset pos, bool down})> mouseState() async {
+    final r = await _channel.invokeMapMethod<String, Object?>('mouseState');
+    return (pos: Offset((r!['x'] as int).toDouble(), (r['y'] as int).toDouble()), down: r['down'] == true);
+  }
+
   Future<Offset> cursor() async {
     final r = await _channel.invokeMapMethod<String, Object?>('cursor');
     return Offset((r!['x'] as int).toDouble(), (r['y'] as int).toDouble());

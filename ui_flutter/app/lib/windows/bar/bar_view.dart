@@ -49,8 +49,11 @@ class _MediaInfo {
         playing = m['playing'] == true,
         canToggle = m['canToggle'] == true,
         canNext = m['canNext'] == true;
+  _MediaInfo._(this.title, this.artist, this.playing, this.canToggle, this.canNext);
   final String title, artist;
   final bool playing, canToggle, canNext;
+
+  _MediaInfo withPlaying(bool value) => _MediaInfo._(title, artist, value, canToggle, canNext);
 }
 
 /// The top bar: a glass strip with rounded tonal islands. Left the app and what is playing, centre the workspaces,
@@ -118,6 +121,7 @@ class _BarViewState extends State<BarView> with SingleTickerProviderStateMixin {
     _clockTimer?.cancel();
     _mediaTimer?.cancel();
     _batteryTimer?.cancel();
+    _mediaFollowUp?.cancel();
     _events?.cancel();
     _slide.dispose();
     super.dispose();
@@ -170,11 +174,17 @@ class _BarViewState extends State<BarView> with SingleTickerProviderStateMixin {
   }
 
   Future<void> _mediaAct(String command) async {
+    final current = _media;
+    if (command == 'toggle' && current != null) setState(() => _media = current.withPlaying(!current.playing));   // answers at once
     try {
       await _state!.call('media.control', {'command': command});
     } catch (_) {}
     await _readMedia();
+    _mediaFollowUp?.cancel();
+    _mediaFollowUp = Timer(const Duration(milliseconds: 350), _readMedia);   // players confirm a moment after the command
   }
+
+  Timer? _mediaFollowUp;
 
   @override
   Widget build(BuildContext context) {

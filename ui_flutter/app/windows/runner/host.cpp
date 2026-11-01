@@ -438,6 +438,16 @@ void WindowHost::OnMethod(const flutter::MethodCall<Value>& call, std::unique_pt
   const Map& a = args ? *args : kEmpty;
 
   if (name == "monitors") return result->Success(Monitors());
+  if (name == "mouseState") {
+    POINT pt;
+    GetCursorPos(&pt);
+    const bool down = ((GetAsyncKeyState(VK_LBUTTON) | GetAsyncKeyState(VK_RBUTTON) | GetAsyncKeyState(VK_MBUTTON)) & 0x8000) != 0;
+    Map m;
+    m[Value("x")] = Value(static_cast<int32_t>(pt.x));
+    m[Value("y")] = Value(static_cast<int32_t>(pt.y));
+    m[Value("down")] = Value(down);
+    return result->Success(Value(std::move(m)));
+  }
   if (name == "cursor") {
     POINT pt;
     GetCursorPos(&pt);

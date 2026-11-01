@@ -55,6 +55,8 @@ class _SearchViewState extends State<SearchView> {
   final _scroll = ScrollController();
   Timer? _debounce;
   List<SearchResultItem> _results = const [];
+  List<SearchResultItem> _idleResults = const [];
+  String _idleStatus = 'idle';
   String _status = 'idle';
   int _selected = -1;
   int _generation = 0;
@@ -67,6 +69,10 @@ class _SearchViewState extends State<SearchView> {
   void initState() {
     super.initState();
     widget.model.addListener(_onShown);
+    // Warm the empty-query list before the first open.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _query();
+    });
   }
 
   @override
@@ -83,10 +89,11 @@ class _SearchViewState extends State<SearchView> {
     _openedAt = DateTime.now();
     _pointerSelects = false;
     _text.clear();
+    // The list for an empty query is kept from the last time, so it is there with the very first frame of the pop.
     setState(() {
-      _results = const [];
-      _status = 'idle';
-      _selected = -1;
+      _results = _idleResults;
+      _status = _idleStatus;
+      _selected = _idleResults.isEmpty ? -1 : 0;
     });
     _generation++;
     WidgetsBinding.instance.addPostFrameCallback((_) => _focus.requestFocus());
@@ -106,6 +113,10 @@ class _SearchViewState extends State<SearchView> {
       final r = await state.call('search.query', {'text': _text.text}) as Map;
       if (!mounted || gen != _generation) return;
       final items = [for (final m in (r['results'] as List).cast<Map>()) SearchResultItem(m)];
+      if (_text.text.isEmpty) {
+        _idleResults = items;
+        _idleStatus = '${r['status']}';
+      }
       setState(() {
         _results = items;
         _status = '${r['status']}';

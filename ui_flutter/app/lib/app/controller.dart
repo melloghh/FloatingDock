@@ -270,8 +270,40 @@ class AppController {
     await handle.setBounds(x: winX, y: winY, width: panelW + 56, height: maxH + 56);
     _popup.open(kind: kind, builder: builder, panelWidth: panelW, maxHeight: maxH, pivot: pivot);
     _popupShownAt = DateTime.now();
+    _popupRectPx = Rect.fromLTWH(winX.toDouble(), winY.toDouble(), (panelW + 56) * mon.scale, (maxH + 56) * mon.scale);
     _popup.visible.value = true;
     await handle.show();
+    _watchOutsideClicks();
+  }
+
+  Rect _popupRectPx = Rect.zero;
+  Timer? _outsideTimer;
+
+  /// A menu closes when the mouse is released anywhere outside its window (other windows never take the focus from us,
+  /// so there is no deactivation to wait for). The pointer's state is read while a menu is open only.
+  void _watchOutsideClicks() {
+    _outsideTimer?.cancel();
+    var wasDown = false;
+    var busy = false;
+    _outsideTimer = Timer.periodic(const Duration(milliseconds: 30), (timer) async {
+      if (!_popup.visible.value) return timer.cancel();
+      if (busy) return;
+      busy = true;
+      try {
+        final s = await native.mouseState();
+        final released = wasDown && !s.down;
+        wasDown = s.down;
+        if (!released || _popupRectPx.contains(s.pos)) return;
+        if (DateTime.now().difference(_popupShownAt) < const Duration(milliseconds: 350)) return;
+        // Give a bar/dock button that was clicked time to handle its own toggle first.
+        final shown = _popupShownAt;
+        await Future<void>.delayed(const Duration(milliseconds: 160));
+        if (_popup.visible.value && _popupShownAt == shown) await closePopup();
+      } catch (_) {
+      } finally {
+        busy = false;
+      }
+    });
   }
 
   Future<void> closePopup() async {
