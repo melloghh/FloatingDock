@@ -66,7 +66,7 @@ class AppController {
       case 'toggleLaunchpad':
         unawaited(toggleLaunchpad());
       case 'menu':
-        unawaited(openMenuAt('${(data['data'] as Map?)?['kind'] ?? 'main'}'));
+        unawaited(openMenuAt('${data['kind'] ?? 'main'}'));
     }
   }
 
