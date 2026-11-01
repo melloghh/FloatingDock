@@ -14,9 +14,10 @@ internal sealed partial class SettingsWindow
 {
     private static StackPanel Page(string title, params UIElement[] parts)
     {
-        var p = new StackPanel { Spacing = 10 };
+        var p = new StackPanel { Spacing = 0 };
         p.Children.Add(Ui.Title(title));
-        foreach (var x in parts) p.Children.Add(x);
+        // Rows that sit directly on the page (not in a labelled section) form one group, like a section would.
+        p.Children.Add(Ui.Layout(parts));
         return p;
     }
 
@@ -61,33 +62,23 @@ internal sealed partial class SettingsWindow
 
     private UIElement PinnedSection()
     {
-        var list = new StackPanel { Spacing = 4 };
+        var list = new StackPanel { Spacing = 0 };
         void Fill()
         {
             list.Children.Clear();
             var pinned = _app.Pinned.Snapshot().Where(app=>!app.IsSeparator).ToList();
             if (pinned.Count == 0) list.Children.Add(Ui.Note("Nothing is pinned yet."));
+            var rows = new List<UIElement>();
             for (int i = 0; i < pinned.Count; i++)
             {
                 var app = pinned[i];
                 int index = i;
-                var row = new Grid { ColumnSpacing = 6 };
-                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-                for (int c = 0; c < 3; c++) row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                row.Children.Add(new TextBlock { Text = app.Name, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis });
-                void Add(int col, string glyph, string tip, Action a, bool enabled = true)
-                {
-                    var b = new Button { Content = glyph, Padding = new Thickness(10, 3, 10, 3), IsEnabled = enabled };
-                    ToolTipService.SetToolTip(b, L.Text(tip));
-                    b.Click += (_, _) => a();
-                    Grid.SetColumn(b, col);
-                    row.Children.Add(b);
-                }
-                Add(1, "▲", "Move left", () => _app.Pinned.MoveApplication(app.Key, index - 1), index > 0);
-                Add(2, "▼", "Move right", () => _app.Pinned.MoveApplication(app.Key, index + 1), index < pinned.Count - 1);
-                Add(3, "✕", "Unpin", () => _app.Pinned.Remove(app.Key));
-                list.Children.Add(row);
+                rows.Add(Ui.ListRow(app.Name,
+                    Ui.IconButton("", "Move left", () => _app.Pinned.MoveApplication(app.Key, index - 1), index > 0),
+                    Ui.IconButton("", "Move right", () => _app.Pinned.MoveApplication(app.Key, index + 1), index < pinned.Count - 1),
+                    Ui.IconButton("", "Unpin", () => _app.Pinned.Remove(app.Key))));
             }
+            if (rows.Count > 0) list.Children.Add(Ui.Layout(rows.ToArray()));
         }
         Fill();
         void Changed() => _app.UiQueue.TryEnqueue(Fill);
@@ -122,7 +113,7 @@ internal sealed partial class SettingsWindow
         var s = S;
         var colorBox = Ui.TextField("Background color (hex RGB)", s.BackgroundColor,
             t => ColorUtil.TryParseRgb(t, out _) ? null : "Use 6 hex digits, e.g. 1E1E1E", (d, v) => d.BackgroundColor = v.TrimStart('#').ToUpperInvariant());
-        var pickerBtn = new Button { Content = L.Text("Pick color…") };
+        var pickerBtn = Ui.Tonal(new Button { Content = L.Text("Pick color…") });
         pickerBtn.Click += (_, _) =>
         {
             ColorUtil.TryParseRgb(S.BackgroundColor, out var rgb);
@@ -135,7 +126,7 @@ internal sealed partial class SettingsWindow
         return Page("Appearance",
             Ui.Combo("Interface language",new[]{("English",InterfaceLanguage.English),("Russian",InterfaceLanguage.Russian)},s.Language,(d,v)=>d.Language=v),
             Ui.Section("Background",
-                Ui.Row(colorBox, new Border { VerticalAlignment = VerticalAlignment.Bottom, Child = pickerBtn }),
+                AddPicker(colorBox, pickerBtn),
                 Ui.Slider("Opacity", 0, 100, s.Opacity, (d, v) => d.Opacity = v, " %"),
                 Ui.Slider("Corner radius", 0, 60, s.CornerRadius, (d, v) => d.CornerRadius = v, " px"),
                 Ui.Toggle("Drop shadow", s.Shadow, (d, v) => d.Shadow = v),
@@ -144,8 +135,18 @@ internal sealed partial class SettingsWindow
                 Ui.Slider("Menu animation duration",80,600,s.MenuAnimationMs,(d,v)=>d.MenuAnimationMs=v," ms")),
             Ui.Section("Theme & indicators",
                 Ui.Combo("Theme (settings, Launchpad menus)", new[] { ("Dark", ThemeMode.Dark), ("Light", ThemeMode.Light), ("Follow system", ThemeMode.System) }, s.Theme, (d, v) => d.Theme = v),
+                Ui.SeedPicker("Accent color", s.AccentSeed, (d, v) => d.AccentSeed = v),
+                Ui.TextField("Accent color (hex RGB)", s.AccentSeed,
+                    t => ColorUtil.TryParseRgb(t, out _) ? null : "Use 6 hex digits, e.g. 4E9F75", (d, v) => d.AccentSeed = v.TrimStart('#').ToUpperInvariant()),
                 Ui.Combo("Running indicator", new[] { ("Dot", IndicatorStyle.Dot), ("Bar", IndicatorStyle.Bar) }, s.IndicatorStyle, (d, v) => d.IndicatorStyle = v),
                 Ui.Toggle("Show app names above icons", s.ShowLabels, (d, v) => d.ShowLabels = v)));
+    }
+
+    private static StackPanel AddPicker(StackPanel field, Button picker)
+    {
+        picker.Margin = new Thickness(0, 2, 0, 0);
+        field.Children.Insert(1, picker);
+        return field;
     }
 
     // ------------------------------------------------------------------ Magnification
@@ -203,7 +204,8 @@ internal sealed partial class SettingsWindow
         {
             if(!active||_closed)return;
             status.Text = _app.HotkeyRegistered.TryGetValue(hotkeyId, out var ok) && !ok && FieldHasText(field) ? L.Text("This shortcut is already used by another program.") : "";
-            status.Foreground = new SolidColorBrush(Colors.OrangeRed);
+            status.Foreground = M3.Brush(M3.Current.Error);
+            status.Visibility = status.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         }
         async void OnChanged(DockSettings _) { await Task.Delay(250); _app.UiQueue.TryEnqueue(Update); }
         _app.Settings.Changed += OnChanged;
@@ -223,25 +225,19 @@ internal sealed partial class SettingsWindow
         hotkey.Children.Add(status);
         HookHotkeyStatus(hotkey, status, DockApp.HotkeyLaunchpad);
 
-        var tiles = new StackPanel { Spacing = 4 };
+        var tiles = new StackPanel { Spacing = 0 };
         void Fill()
         {
             tiles.Children.Clear();
             var list = _app.UserTiles.Snapshot();
             if (list.Count == 0) tiles.Children.Add(Ui.Note("No tiles added yet. Drag a .lnk or .exe file onto the open Launchpad."));
+            var rows = new List<UIElement>();
             foreach (var app in list)
             {
-                var row = new Grid { ColumnSpacing = 6 };
-                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                row.Children.Add(new TextBlock { Text = app.Name, VerticalAlignment = VerticalAlignment.Center });
-                var b = new Button { Content = L.Text("Remove") };
                 var key = app.Key;
-                b.Click += (_, _) => _app.UserTiles.Remove(key);
-                Grid.SetColumn(b, 1);
-                row.Children.Add(b);
-                tiles.Children.Add(row);
+                rows.Add(Ui.ListRow(app.Name, Ui.IconButton("", "Remove", () => _app.UserTiles.Remove(key))));
             }
+            if (rows.Count > 0) tiles.Children.Add(Ui.Layout(rows.ToArray()));
         }
         Fill();
         void Changed() => _app.UiQueue.TryEnqueue(Fill);
@@ -286,7 +282,7 @@ internal sealed partial class SettingsWindow
     {
         var version = typeof(DockApp).Assembly.GetName().Version?.ToString(3) ?? "1.0.0";
         return Page("About",
-            new TextBlock { Text = $"FloatingDock {version}", FontSize = 18 },
+            new TextBlock { Text = $"FloatingDock {version}", FontSize = 20, FontWeight = new global::Windows.UI.Text.FontWeight { Weight = 500 }, Margin = new Thickness(16, 4, 16, 2), Foreground = M3.Text() },
             Ui.Note("A floating, macOS-style dock, Launchpad and icon packs for Windows 10 / 11. MIT license."),
             Ui.Section("Data",
                 Ui.Note(_app.Paths.Root),

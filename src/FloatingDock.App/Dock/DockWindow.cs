@@ -1118,7 +1118,7 @@ internal sealed class DockWindow : IDisposable
 
     private const int CmdOpen = 1, CmdPin = 2, CmdFolder = 3, CmdIcon = 4, CmdResetIcon = 5, CmdClose = 6, CmdSettings = 20, CmdLaunchpad = 21, CmdQuit = 22, CmdAddSeparator = 30, CmdRemoveSeparator = 31, CmdMoveSeparatorLeft = 32, CmdMoveSeparatorRight = 33;
 
-    private void ShowContextMenu(MotionItem? it, int? x, int? y)
+    private async void ShowContextMenu(MotionItem? it, int? x, int? y)
     {
         var e = it?.Entry;
         var items = new List<MenuItemSpec>();
@@ -1131,32 +1131,32 @@ internal sealed class DockWindow : IDisposable
         };
         if (e is { Kind: DockEntryKind.App, App: { } a })
         {
-            items.Add(new(CmdOpen, e.IsRunning ? "New window" : "Open"));
-            items.Add(new(CmdPin, e.IsPinned ? "Unpin from Dock" : "Pin to Dock"));
-            if (e.IsRunning) items.Add(new(CmdClose, e.Windows.Count > 1 ? $"Close all windows ({e.Windows.Count})" : "Close window"));
-            items.Add(new(CmdFolder, "Open file location", Disabled: ShellLauncher.LocationOf(a) is null));
+            items.Add(new(CmdOpen, e.IsRunning ? "New window" : "Open", Glyph: "E8A7"));
+            items.Add(new(CmdPin, e.IsPinned ? "Unpin from Dock" : "Pin to Dock", Glyph: e.IsPinned ? "E77A" : "E718"));
+            if (e.IsRunning) items.Add(new(CmdClose, e.Windows.Count > 1 ? $"Close all windows ({e.Windows.Count})" : "Close window", Glyph: "E711"));
+            items.Add(new(CmdFolder, "Open file location", Disabled: ShellLauncher.LocationOf(a) is null, Glyph: "E8B7"));
             items.Add(MenuItemSpec.Separator);
         }
-        else if (e is { Kind: DockEntryKind.Launchpad }) { items.Add(new(CmdOpen, "Open Launchpad")); items.Add(MenuItemSpec.Separator); }
+        else if (e is { Kind: DockEntryKind.Launchpad }) { items.Add(new(CmdOpen, "Open Launchpad", Glyph: "E80A")); items.Add(MenuItemSpec.Separator); }
         else if (e is { Kind: DockEntryKind.Separator, IsPinned: true })
         {
             var pinned = _app.Pinned.Snapshot();
             int index = pinned.ToList().FindIndex(p => p.Key == e.Key);
-            items.Add(new(CmdRemoveSeparator, "Remove separator"));
-            items.Add(new(CmdMoveSeparatorLeft, "Move separator left", Disabled: index <= 0));
-            items.Add(new(CmdMoveSeparatorRight, "Move separator right", Disabled: index < 0 || index >= pinned.Count - 1));
+            items.Add(new(CmdRemoveSeparator, "Remove separator", Glyph: "E74D"));
+            items.Add(new(CmdMoveSeparatorLeft, "Move separator left", Disabled: index <= 0, Glyph: "E76B"));
+            items.Add(new(CmdMoveSeparatorRight, "Move separator right", Disabled: index < 0 || index >= pinned.Count - 1, Glyph: "E76C"));
             items.Add(MenuItemSpec.Separator);
         }
         if (app is not null)
         {
-            items.Add(new(CmdIcon, "Change icon…"));
-            items.Add(new(CmdResetIcon, "Reset icon", Disabled: !_app.Overrides.Has(app)));
+            items.Add(new(CmdIcon, "Change icon…", Glyph: "EB9F"));
+            items.Add(new(CmdResetIcon, "Reset icon", Disabled: !_app.Overrides.Has(app), Glyph: "E777"));
             items.Add(MenuItemSpec.Separator);
         }
-        items.Add(new(CmdAddSeparator, e?.IsPinned == true ? "Add separator after this item" : "Add separator"));
-        items.Add(new(CmdLaunchpad, "Launchpad"));
-        items.Add(new(CmdSettings, "Dock settings…"));
-        items.Add(new(CmdQuit, "Quit FloatingDock"));
+        items.Add(new(CmdAddSeparator, e?.IsPinned == true ? "Add separator after this item" : "Add separator", Glyph: "E710"));
+        items.Add(new(CmdLaunchpad, "Launchpad", Glyph: "E80A"));
+        items.Add(new(CmdSettings, "Dock settings…", Glyph: "E713"));
+        items.Add(new(CmdQuit, "Quit FloatingDock", Glyph: "E7E8"));
 
         var previousForeground = WindowStyler.Foreground();
         FloatingDock.Windows.Native.NativeMethods.GetWindowThreadProcessId(previousForeground, out var previousPid);
@@ -1168,8 +1168,8 @@ internal sealed class DockWindow : IDisposable
             int aboveDock = _winY + (int)((_m.PlateTop - 8) * _scale);
             var cursor = WindowStyler.CursorPos();
             var plate=PlateScreenForDiagnostics;
-            if (!Vertical) cmd=NativeMenu.Show(_hwnd,items,x??cursor?.X??_winX,Math.Min(y??cursor?.Y??aboveDock,aboveDock),bottomAlign:true);
-            else cmd=NativeMenu.Show(_hwnd,items,_s.Edge==DockEdge.Left?plate.Right+8:plate.Left-8,y??cursor?.Y??(_winY+_winH/2),bottomAlign:false,rightAlign:_s.Edge==DockEdge.Right);
+            if (!Vertical) cmd=await PopMenu.ShowAsync(items,x??cursor?.X??_winX,Math.Min(y??cursor?.Y??aboveDock,aboveDock),bottomAlign:true);
+            else cmd=await PopMenu.ShowAsync(items,_s.Edge==DockEdge.Left?plate.Right+8:plate.Left-8,y??cursor?.Y??(_winY+_winH/2),bottomAlign:false,rightAlign:_s.Edge==DockEdge.Right);
         }
         finally
         {

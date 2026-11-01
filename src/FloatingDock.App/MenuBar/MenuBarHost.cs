@@ -136,7 +136,7 @@ internal sealed class MenuBarWindow : IDisposable
                 ((GetAsyncKeyState(1)&0x8000)!=0||NativeMethods.GetForegroundWindow()==Handle);
         }
     }
-    internal const int HeightDip=28;
+    internal const int HeightDip=36;
     internal const int TopInsetDip=4,SideInsetDip=12,BottomInsetDip=4;
     private readonly DockApp _app=DockApp.Current;
     private readonly Window _window;
@@ -162,6 +162,15 @@ internal sealed class MenuBarWindow : IDisposable
     private readonly Button _mainButton;
     private readonly StackPanel _workspaces=new(){Orientation=Orientation.Horizontal,Spacing=3,HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Center};
     private readonly List<Button> _workspaceButtons=new();
+    private readonly StackPanel _workspaceStrip=new(){Orientation=Orientation.Horizontal};
+    private readonly TextBlock _workspaceCaption=new(){Text=L.Text("Desktop")},_workspaceTitle=new();
+    private readonly TextBlock _date=new(){FontSize=12,VerticalAlignment=VerticalAlignment.Center};
+    private readonly Border _clockPill=new(){VerticalAlignment=VerticalAlignment.Center};
+    private Ellipse _ring=null!;
+    private readonly List<(Border Box,StackPanel Row)> _groups=new();
+    private Border _mediaCapsule=null!;private Button _capsuleInfo=null!,_capsulePlay=null!,_capsuleNext=null!;
+    private readonly TextBlock _capsuleTitle=new(),_capsuleArtist=new();private readonly Border _capsuleArt=new();private FontIcon _capsulePlayIcon=null!;
+    private DispatcherQueueTimer _mediaTimer=null!;private bool _mediaReading;
     private IntPtr? _diagnosticLanguageTarget;
     internal MenuBarMenus Menus => _menus;
     internal void OpenMenuForDiagnostics(string kind,IntPtr target=default)
@@ -205,26 +214,43 @@ internal sealed class MenuBarWindow : IDisposable
         _root.ColumnDefinitions.Add(new ColumnDefinition { Width=GridLength.Auto });
         _root.ColumnDefinitions.Add(new ColumnDefinition { Width=new GridLength(1,GridUnitType.Star) });
         _root.ColumnDefinitions.Add(new ColumnDefinition { Width=GridLength.Auto });
-        var left=new StackPanel { Orientation=Orientation.Horizontal,Spacing=8,Margin=new Thickness(8,0,0,0),VerticalAlignment=VerticalAlignment.Center };
-        var ring=new Ellipse { Width=12,Height=12,Stroke=new SolidColorBrush(Colors.White),StrokeThickness=2 };
-        _mainButton=ActionButton(ring,"FloatingDock menu",ShowMenu);left.Children.Add(_mainButton);left.Children.Add(_name);
+        // Material 3 bar: tonal pill groups on the glass strip. Left: app and now playing. Centre: workspaces. Right: status groups and the clock.
+        var left=new StackPanel { Orientation=Orientation.Horizontal,Spacing=8,Margin=new Thickness(5,0,0,0),VerticalAlignment=VerticalAlignment.Center };
+        _ring=new Ellipse { Width=12,Height=12,StrokeThickness=2 };
+        _mainButton=ActionButton(_ring,"FloatingDock menu",ShowMenu);
+        _name.Margin=new Thickness(0,0,10,0);
+        var appRow=new StackPanel { Orientation=Orientation.Horizontal,Spacing=2,VerticalAlignment=VerticalAlignment.Center };
+        appRow.Children.Add(_mainButton);appRow.Children.Add(_name);
+        left.Children.Add(Group(appRow));
+        left.Children.Add(BuildMediaCapsule());
         _root.Children.Add(left);
+        _workspaceStrip.Spacing=2;
+        _workspaces.Children.Add(Group(_workspaceStrip));
+        _workspaceCaption.FontSize=10;_workspaceTitle.FontSize=13;_workspaceTitle.FontWeight=new global::Windows.UI.Text.FontWeight { Weight=500 };
+        var workspaceLabel=new StackPanel { Spacing=0,Margin=new Thickness(8,0,0,0),VerticalAlignment=VerticalAlignment.Center };
+        workspaceLabel.Children.Add(_workspaceCaption);workspaceLabel.Children.Add(_workspaceTitle);
+        _workspaces.Children.Add(workspaceLabel);_workspaces.Spacing=2;
         Grid.SetColumnSpan(_workspaces,3);_root.Children.Add(_workspaces);
         _root.SizeChanged+=(_,_)=>_name.MaxWidth=Math.Max(40,Math.Min(420,(_root.ActualWidth-_workspaces.ActualWidth)/2-64));
         _workspaces.SizeChanged+=(_,_)=>_name.MaxWidth=Math.Max(40,Math.Min(420,(_root.ActualWidth-_workspaces.ActualWidth)/2-64));
-        var right=new StackPanel { Orientation=Orientation.Horizontal,Spacing=3,Margin=new Thickness(0,0,8,0),VerticalAlignment=VerticalAlignment.Center };
-        _searchButton=ActionButton(new FontIcon { Glyph="\uE721",FontSize=14 },"Search",_app.ToggleSearch);right.Children.Add(_searchButton);
-        _mediaButton=ActionButton(new FontIcon { Glyph="\uE8D6",FontSize=15 },"Media",()=>_menus.Media(_mediaButton!));right.Children.Add(_mediaButton);
-        _trayButton=ActionButton(new FontIcon { Glyph="\uE70D",FontSize=13 },"System tray",async()=>await OpenTrayAsync());right.Children.Add(_trayButton);
+        var right=new StackPanel { Orientation=Orientation.Horizontal,Spacing=6,Margin=new Thickness(0,0,5,0),VerticalAlignment=VerticalAlignment.Center };
+        _searchButton=ActionButton(new FontIcon { Glyph="",FontSize=14 },"Search",_app.ToggleSearch);
+        _mediaButton=ActionButton(new FontIcon { Glyph="",FontSize=15 },"Media",()=>_menus.Media(_mediaButton!));
+        _trayButton=ActionButton(new FontIcon { Glyph="",FontSize=13 },"System tray",async()=>await OpenTrayAsync());
+        right.Children.Add(Group(_searchButton,_mediaButton,_trayButton));
         _batteryButton=ActionButton(_battery,"Battery settings",()=>Open("ms-settings:batterysaver"));
-        right.Children.Add(_batteryButton);
-        _networkButton=ActionButton(_network,"Network",()=> { _menus.Network(_networkButton!); });right.Children.Add(_networkButton);
-        _soundButton=ActionButton(new FontIcon { Glyph="\uE767",FontSize=15 },"Sound",()=> { _menus.Sound(_soundButton!); });right.Children.Add(_soundButton);
-        _languageButton=ActionButton(_language,"Input language",()=> { RefreshLanguage();_menus.Language(_languageButton!,_diagnosticLanguageTarget??(NativeMethods.IsWindow(_languageSource)?_languageSource:null)); });right.Children.Add(_languageButton);
-        _settingsButton=ActionButton(new FontIcon { Glyph="\uE713",FontSize=15 },"Windows settings",()=>Open("ms-settings:"));
-        right.Children.Add(_settingsButton);
-        _clockButton=ActionButton(_clock,"Date and time",ShowCalendar);right.Children.Add(_clockButton);
+        _networkButton=ActionButton(_network,"Network",()=> { _menus.Network(_networkButton!); });
+        _soundButton=ActionButton(new FontIcon { Glyph="",FontSize=15 },"Sound",()=> { _menus.Sound(_soundButton!); });
+        _languageButton=ActionButton(_language,"Input language",()=> { RefreshLanguage();_menus.Language(_languageButton!,_diagnosticLanguageTarget??(NativeMethods.IsWindow(_languageSource)?_languageSource:null)); });
+        right.Children.Add(Group(_batteryButton,_networkButton,_soundButton,_languageButton));
+        _settingsButton=ActionButton(new FontIcon { Glyph="",FontSize=15 },"Windows settings",()=>Open("ms-settings:"));
+        var clockRow=new StackPanel { Orientation=Orientation.Horizontal,Spacing=6,VerticalAlignment=VerticalAlignment.Center };
+        _clockPill.Child=_clock;_clockPill.Padding=new Thickness(9,0,9,0);_clockPill.CornerRadius=new CornerRadius(12);_clockPill.Height=24;_clock.FontWeight=new global::Windows.UI.Text.FontWeight { Weight=600 };
+        clockRow.Children.Add(_date);clockRow.Children.Add(_clockPill);
+        _clockButton=ActionButton(clockRow,"Date and time",ShowCalendar);_clockButton.Padding=new Thickness(8,0,2,0);
+        right.Children.Add(Group(_settingsButton,_clockButton));
         Grid.SetColumn(right,2);_root.Children.Add(right);
+        ApplyBarColors();
         _window=new Window { Title="FloatingDock menu bar",Content=_root,SystemBackdrop=new GlassBackdrop(18) };
         WindowSetup.MakeBorderless(_window);Handle=WindowSetup.Hwnd(_window);WindowStyler.MakeOverlayWindow(Handle,noActivate:true);
         _pointerSurface=new MenuBarPointerSurface(Handle);_pointerSurface.Pointer+=OnBarPointer;
@@ -238,14 +264,83 @@ internal sealed class MenuBarWindow : IDisposable
         if(Program.IsSmokeTest)_root.PointerMoved+=(_,_)=>XamlPointerMovesForDiagnostics++;
         _languageTimer=_app.UiQueue.CreateTimer();_languageTimer.Interval=TimeSpan.FromMilliseconds(75);_languageTimer.Tick+=(_,_)=>RefreshLanguage();
         _clockTimer=_app.UiQueue.CreateTimer();_clockTimer.Interval=TimeSpan.FromSeconds(1);_clockTimer.Tick+=(_,_)=>RefreshClock();
+        _mediaTimer=_app.UiQueue.CreateTimer();_mediaTimer.Interval=TimeSpan.FromSeconds(2);_mediaTimer.Tick+=async(_,_)=>await RefreshMediaAsync();
         _edgeTimer=_app.UiQueue.CreateTimer();_edgeTimer.Interval=TimeSpan.FromMilliseconds(100);_edgeTimer.Tick+=(_,_)=>CheckEdge();
         _slideTimer=FloatingDock.UI.Services.AnimationClock.Create(_app.UiQueue,Slide);
         NetworkChange.NetworkAvailabilityChanged+=OnNetwork;
         RefreshNetwork();RefreshClock();
     }
+    private static SolidColorBrush Brush(global::Windows.UI.Color c,byte alpha=255)=>new(ColorHelper.FromArgb(alpha,c.R,c.G,c.B));
+    /// <summary>A rounded tonal island that holds a few related buttons.</summary>
+    private Border Group(params UIElement[] items)
+    {
+        var row=new StackPanel { Orientation=Orientation.Horizontal,Spacing=2,VerticalAlignment=VerticalAlignment.Center };
+        foreach(var item in items)row.Children.Add(item);
+        var box=new Border { Child=row,Height=30,CornerRadius=new CornerRadius(15),Padding=new Thickness(2,0,2,0),VerticalAlignment=VerticalAlignment.Center };
+        _groups.Add((box,row));return box;
+    }
+    /// <summary>An island with nothing visible inside it disappears instead of leaving an empty pill.</summary>
+    private void RefreshGroups()
+    {
+        foreach(var (box,row) in _groups)
+            if(!ReferenceEquals(box.Tag,"media"))box.Visibility=row.Children.OfType<FrameworkElement>().Any(c=>c.Visibility==Visibility.Visible)?Visibility.Visible:Visibility.Collapsed;
+        _hitTargetsDirty=true;
+    }
+    private void ApplyBarColors()
+    {
+        // The bar is always a dark shell; it takes its hue from the same seed as the rest of the app.
+        var bar=M3.Bar;
+        _ring.Stroke=Brush(bar.OnSurface);
+        foreach(var (box,_) in _groups)box.Background=Brush(bar.ContainerHigh,150);
+        foreach(var action in _actions)if(!_workspaceButtons.Contains(action.Button))action.Button.Foreground=Brush(bar.OnSurface);
+        _name.Foreground=Brush(bar.OnSurface);_date.Foreground=Brush(bar.OnSurfaceVariant);_language.Foreground=Brush(bar.OnSurface);_battery.Foreground=Brush(bar.OnSurface);
+        _clockPill.Background=Brush(bar.PrimaryContainer);_clock.Foreground=Brush(bar.OnPrimaryContainer);
+        _workspaceCaption.Foreground=Brush(bar.OnSurfaceVariant);_workspaceTitle.Foreground=Brush(bar.OnSurface);
+        _capsuleArt.Background=Brush(bar.PrimaryContainer);if(_capsuleArt.Child is FontIcon art)art.Foreground=Brush(bar.OnPrimaryContainer);
+        _capsuleTitle.Foreground=Brush(bar.OnSurface);_capsuleArtist.Foreground=Brush(bar.OnSurfaceVariant);
+        if(_capsulePlay is not null){_capsulePlay.Background=Brush(bar.Primary);_capsulePlay.Foreground=Brush(bar.OnPrimary);}
+    }
+    private Border BuildMediaCapsule()
+    {
+        _capsuleArt.Width=24;_capsuleArt.Height=24;_capsuleArt.CornerRadius=new CornerRadius(12);_capsuleArt.Margin=new Thickness(3,0,2,0);_capsuleArt.VerticalAlignment=VerticalAlignment.Center;
+        _capsuleArt.Child=new FontIcon { Glyph="",FontSize=12,HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Center };
+        _capsuleTitle.FontSize=12;_capsuleTitle.FontWeight=new global::Windows.UI.Text.FontWeight { Weight=600 };_capsuleTitle.TextTrimming=TextTrimming.CharacterEllipsis;_capsuleTitle.MaxWidth=170;
+        _capsuleArtist.FontSize=10;_capsuleArtist.TextTrimming=TextTrimming.CharacterEllipsis;_capsuleArtist.MaxWidth=170;
+        var text=new StackPanel { Spacing=0,VerticalAlignment=VerticalAlignment.Center };text.Children.Add(_capsuleTitle);text.Children.Add(_capsuleArtist);
+        _capsuleInfo=ActionButton(text,"Media",()=>_menus.Media(_capsuleInfo));_capsuleInfo.Padding=new Thickness(6,0,8,0);
+        _capsulePlayIcon=new FontIcon { Glyph="",FontSize=12 };
+        _capsulePlay=ActionButton(_capsulePlayIcon,"Play / pause",()=>_=MediaActAsync("toggle"));_capsulePlay.Width=26;_capsulePlay.Padding=new Thickness(0);
+        _capsuleNext=ActionButton(new FontIcon { Glyph="",FontSize=11 },"Next",()=>_=MediaActAsync("next"));_capsuleNext.Width=26;_capsuleNext.Padding=new Thickness(0);
+        var box=Group(_capsuleArt,_capsuleInfo,_capsulePlay,_capsuleNext);box.Tag="media";box.Visibility=Visibility.Collapsed;_mediaCapsule=box;
+        return box;
+    }
+    private async Task MediaActAsync(string command)
+    {
+        try { await _menus.MediaSource.ControlAsync(command);await RefreshMediaAsync(true); } catch(Exception) { }
+    }
+    private async Task RefreshMediaAsync(bool force=false)
+    {
+        if(_mediaReading||_disposed||!_settings.TopBarEnabled||!_settings.TopBarMediaEnabled)return;
+        if(!force&&(_capture||_suspended||_hide>=1||_fullscreen))return;
+        _mediaReading=true;
+        try
+        {
+            var state=await _menus.MediaSource.ReadAsync();
+            bool show=state is not null&&!string.IsNullOrWhiteSpace(state.Title);
+            if(show)
+            {
+                _capsuleTitle.Text=state!.Title;_capsuleArtist.Text=state.Artist;_capsuleArtist.Visibility=state.Artist.Length>0?Visibility.Visible:Visibility.Collapsed;
+                _capsulePlayIcon.Glyph=state.Playing?"":"";_capsulePlay.IsEnabled=state.Toggle;_capsuleNext.IsEnabled=state.Next;
+            }
+            var target=show?Visibility.Visible:Visibility.Collapsed;
+            if(_mediaCapsule.Visibility!=target){_mediaCapsule.Visibility=target;_hitTargetsDirty=true;}
+        }
+        catch(Exception) { if(_mediaCapsule.Visibility!=Visibility.Collapsed){_mediaCapsule.Visibility=Visibility.Collapsed;_hitTargetsDirty=true;} }
+        finally { _mediaReading=false; }
+    }
     private Button ActionButton(UIElement content,string tip,Action action)
     {
-        var b=new Button { Content=content,Height=24,MinWidth=28,VerticalAlignment=VerticalAlignment.Center,Padding=new Thickness(7,0,7,0),BorderThickness=new Thickness(0),Background=new SolidColorBrush(Colors.Transparent),Foreground=new SolidColorBrush(Colors.White),CornerRadius=new CornerRadius(8) };
+        var b=new Button { Content=content,Height=26,MinWidth=26,VerticalAlignment=VerticalAlignment.Center,Padding=new Thickness(8,0,8,0),BorderThickness=new Thickness(0),Background=new SolidColorBrush(Colors.Transparent),Foreground=new SolidColorBrush(Colors.White),CornerRadius=new CornerRadius(13) };
         b.Style=(Style)Application.Current.Resources["MenuBarButtonStyle"];
         if(Program.IsSmokeTest)b.PointerEntered+=(_,_)=>ButtonPointerEntriesForDiagnostics++;
         string tooltip=L.Text(tip);ToolTipService.SetToolTip(b,tooltip);
@@ -290,7 +385,7 @@ internal sealed class MenuBarWindow : IDisposable
         }
         if(button is null){_pointerSurface.Highlight(null,_hitScale);return;}
         var bounds=_hitTargets.First(t=>t.Button==button).Bounds;
-        _pointerSurface.Highlight(bounds,_hitScale,pressed);
+        _pointerSurface.Highlight(bounds,_hitScale,pressed,button.CornerRadius.TopLeft);
     }
     private void OnBarPointer(DockPointerEvent pointer)
     {
@@ -343,17 +438,19 @@ internal sealed class MenuBarWindow : IDisposable
         RefreshWorkspaces();
         _slideTimer.SetFrameRate(s.TopBarAnimationFps);
         _mediaButton.Visibility=s.TopBarMediaEnabled?Visibility.Visible:Visibility.Collapsed;
+        if(!s.TopBarMediaEnabled&&_mediaCapsule.Visibility!=Visibility.Collapsed)_mediaCapsule.Visibility=Visibility.Collapsed;
         _trayButton.Visibility=s.TopBarTrayEnabled?Visibility.Visible:Visibility.Collapsed;
         _searchButton.Visibility=s.TopBarSearchEnabled?Visibility.Visible:Visibility.Collapsed;
         if(!s.TopBarTrayEnabled)CloseTray();
+        RefreshGroups();ApplyBarColors();
 
         int height=(int)Math.Ceiling(HeightDip*m.Scale);
         int inset=(int)Math.Round(SideInsetDip*m.Scale);
         WindowStyler.SetBounds(Handle,m.Bounds.Left+inset,ShownTop-(int)Math.Round(HideDistance*_hide),Math.Max(100,m.Bounds.Width-2*inset),height,topmost:!_capture);
-        WindowStyler.SetRoundedRegion(Handle,Math.Max(100,m.Bounds.Width-2*inset),height,(int)Math.Round(14*m.Scale));
+        WindowStyler.SetRoundedRegion(Handle,Math.Max(100,m.Bounds.Width-2*inset),height,(int)Math.Round(18*m.Scale));
         RefreshClock();
-        if(s.TopBarEnabled) { if(!_capture&&!_suspended&&!(_fullscreen&&_hide>=1))ShowBar();_clockTimer.Start(); }
-        else { CloseTray();_menus.Close();HideBar();_clockTimer.Stop();_languageTimer.Stop();_edgeTimer.Stop();_slideTimer.Stop();return; }
+        if(s.TopBarEnabled) { if(!_capture&&!_suspended&&!(_fullscreen&&_hide>=1))ShowBar();_clockTimer.Start();if(s.TopBarMediaEnabled){_mediaTimer.Start();_=RefreshMediaAsync(true);}else _mediaTimer.Stop(); }
+        else { CloseTray();_menus.Close();HideBar();_clockTimer.Stop();_mediaTimer.Stop();_languageTimer.Stop();_edgeTimer.Stop();_slideTimer.Stop();return; }
         if(s.TopBarAutoHide||_fullscreen) _edgeTimer.Start();else _edgeTimer.Stop();
         UpdateLanguageTimer();Target(!_hover&&!_menuOpen&&(s.TopBarAutoHide||_fullscreen)); // settings changes cancel any prior slide target
     }
@@ -367,19 +464,22 @@ internal sealed class MenuBarWindow : IDisposable
         {
             if(_pointed is not null&&_workspaceButtons.Contains(_pointed))PointAt(null);
             _actions.RemoveAll(a=>_workspaceButtons.Contains(a.Button));
-            _workspaces.Children.Clear();_workspaceButtons.Clear();
+            _workspaceStrip.Children.Clear();_workspaceButtons.Clear();
             for(int workspace=1;workspace<=settings.TilingWorkspaces;workspace++)
             {
-                int target=workspace;var button=ActionButton(new TextBlock {Text=workspace.ToString(),FontSize=11},L.Format("Workspace {0}",workspace),()=>_app.Tiling.SwitchWorkspace(target,Monitor.DeviceName));
-                _workspaceButtons.Add(button);_workspaces.Children.Add(button);
+                int target=workspace;var button=ActionButton(new TextBlock {Text=workspace.ToString(),FontSize=12,FontWeight=new global::Windows.UI.Text.FontWeight { Weight=600 }},L.Format("Workspace {0}",workspace),()=>_app.Tiling.SwitchWorkspace(target,Monitor.DeviceName));
+                button.Width=26;button.MinWidth=26;button.Padding=new Thickness(0);button.CornerRadius=new CornerRadius(13);
+                _workspaceButtons.Add(button);_workspaceStrip.Children.Add(button);
             }
         }
         int active=session!.ActiveWorkspace(Monitor.DeviceName);
+        _workspaceTitle.Text=L.Format("Workspace {0}",active);_workspaceCaption.Text=L.Text("Desktop");
+        var bar=M3.Bar;
         for(int i=0;i<_workspaceButtons.Count;i++)
         {
             bool selected=i+1==active;
             if(_workspaceButtons[i].Tag is bool previous&&previous==selected)continue;
-            _workspaceButtons[i].Tag=selected;_workspaceButtons[i].Background=new SolidColorBrush(selected?ColorHelper.FromArgb(45,255,255,255):Colors.Transparent);
+            _workspaceButtons[i].Tag=selected;_workspaceButtons[i].Background=selected?Brush(bar.Primary):new SolidColorBrush(Colors.Transparent);_workspaceButtons[i].Foreground=Brush(selected?bar.OnPrimary:bar.OnSurfaceVariant);
         }
     }
     internal double WorkspaceCenterOffsetForDiagnostics=>_workspaces.TransformToVisual(_root).TransformPoint(new(0,0)).X+_workspaces.ActualWidth/2-_root.ActualWidth/2;
@@ -387,9 +487,16 @@ internal sealed class MenuBarWindow : IDisposable
     {
         if(_disposed)return;
         var now=DateTime.Now;
-        string text=now.ToString(_settings.TopBarShowSeconds?"HH:mm:ss":"HH:mm",CultureInfo.CurrentCulture);
-        if(_settings.TopBarShowDate)text=now.ToString("dd MMM",CultureInfo.CurrentCulture)+"  "+text;
-        if(_clockText!=text) { _clockText=text;_clock.Text=text;ToolTipService.SetToolTip(_clock,now.ToString("D",CultureInfo.CurrentCulture)); }
+        string time=now.ToString(_settings.TopBarShowSeconds?"HH:mm:ss":"HH:mm",CultureInfo.CurrentCulture);
+        string text=_settings.TopBarShowDate?now.ToString("dd/MM",CultureInfo.CurrentCulture)+" "+time:time;
+        if(_clockText!=text)
+        {
+            _clockText=text;_clock.Text=time;
+            _date.Text=now.ToString("dd/MM",CultureInfo.CurrentCulture);
+            var dateVisibility=_settings.TopBarShowDate?Visibility.Visible:Visibility.Collapsed;
+            if(_date.Visibility!=dateVisibility){_date.Visibility=dateVisibility;_hitTargetsDirty=true;}
+            ToolTipService.SetToolTip(_clock,now.ToString("D",CultureInfo.CurrentCulture));
+        }
         RefreshLanguage();
         if(now.Second%30==0||_battery.Text.Length==0)
         {
@@ -496,7 +603,7 @@ internal sealed class MenuBarWindow : IDisposable
     }
     public void Dispose()
     {
-        _disposed=true;HideBarTooltip();_pointerSurface.Dispose();CloseTray();_menus.Dispose();NetworkChange.NetworkAvailabilityChanged-=OnNetwork;_clockTimer.Stop();_edgeTimer.Stop();_slideTimer.Dispose();_languageTimer.Stop();
+        _disposed=true;HideBarTooltip();_pointerSurface.Dispose();CloseTray();_menus.Dispose();NetworkChange.NetworkAvailabilityChanged-=OnNetwork;_clockTimer.Stop();_mediaTimer.Stop();_edgeTimer.Stop();_slideTimer.Dispose();_languageTimer.Stop();
         _window.Close();
     }
 }

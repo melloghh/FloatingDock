@@ -2,7 +2,7 @@ using FloatingDock.Windows.Native;
 
 namespace FloatingDock.Windows.Integration;
 
-public sealed record MenuItemSpec(int Id, string Text, bool Checked = false, bool Disabled = false, bool IsSeparator = false)
+public sealed record MenuItemSpec(int Id, string Text, bool Checked = false, bool Disabled = false, bool IsSeparator = false, string? Glyph = null)
 {
     public static MenuItemSpec Separator { get; } = new(0, "", IsSeparator: true);
 }

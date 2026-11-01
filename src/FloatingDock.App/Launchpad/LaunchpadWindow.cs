@@ -32,13 +32,13 @@ internal sealed class LaunchpadWindow : IDisposable
     private readonly IntPtr _hwnd;
     private readonly Grid _root = new() { Background = new SolidColorBrush(global::Windows.UI.Color.FromArgb(36, 8, 16, 24)), AllowDrop = true };
     private readonly Grid _content = new();
-    private readonly Border _shell=new() { CornerRadius=new CornerRadius(28),Padding=new Thickness(28),Background=GlassStyle.Surface,BorderThickness=new Thickness(1),BorderBrush=GlassStyle.Stroke,HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Center };
-    private readonly Button _addButton = new() { Content = new SymbolIcon(Symbol.Add), Width=40, Height=40, CornerRadius=new CornerRadius(12), BorderThickness=new Thickness(0) };
+    private readonly Border _shell=new() { CornerRadius=new CornerRadius(M3.CornerXl),Padding=new Thickness(28),Background=GlassStyle.Surface,BorderThickness=new Thickness(0),HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Center };
+    private readonly Button _addButton = new() { Content = new SymbolIcon(Symbol.Add), Width=44, Height=44, CornerRadius=new CornerRadius(22), BorderThickness=new Thickness(0) };
     private readonly TextBlock _headingTitle=new(),_headingNote=new();
     private readonly Button _focusSink = new() { Width = 1, Height = 1, Opacity = 0, IsTabStop = false, IsHitTestVisible = false, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top };
-    private readonly Button _settingsButton = new() { Content = new SymbolIcon(Symbol.Setting), Width=40,Height=40,CornerRadius=new CornerRadius(12),Background=new SolidColorBrush(global::Windows.UI.Color.FromArgb(12,255,255,255)),BorderThickness=new Thickness(0) };
-    private readonly Button _refreshButton = new() { Content = new SymbolIcon(Symbol.Refresh), Width=40,Height=40,CornerRadius=new CornerRadius(12),Background=new SolidColorBrush(global::Windows.UI.Color.FromArgb(12,255,255,255)),BorderThickness=new Thickness(0) };
-    private readonly Button _powerButton=new(){Content=new FontIcon {Glyph="\uE7E8",FontSize=18},Width=40,Height=40,CornerRadius=new(20)};
+    private readonly Button _settingsButton = new() { Content = new SymbolIcon(Symbol.Setting), Width=44,Height=44,CornerRadius=new CornerRadius(22),BorderThickness=new Thickness(0) };
+    private readonly Button _refreshButton = new() { Content = new SymbolIcon(Symbol.Refresh), Width=44,Height=44,CornerRadius=new CornerRadius(22),BorderThickness=new Thickness(0) };
+    private readonly Button _powerButton=new(){Content=new FontIcon {Glyph="\uE7E8",FontSize=18},Width=44,Height=44,CornerRadius=new(22)};
     private readonly Visual _overlayVisual;
     private readonly ItemsRepeater _repeater = new();
     private readonly UniformGridLayout _layout = new() { ItemsJustification = UniformGridLayoutItemsJustification.Center, ItemsStretch = UniformGridLayoutItemsStretch.None };
@@ -106,15 +106,16 @@ internal sealed class LaunchpadWindow : IDisposable
         _content.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         _content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
-        var header=new Grid { Height=48,Margin=new Thickness(0,0,0,20) };
+        var header=new Grid { MinHeight=64,Margin=new Thickness(0,0,0,16) };
         header.ColumnDefinitions.Add(new ColumnDefinition { Width=GridLength.Auto });header.ColumnDefinitions.Add(new ColumnDefinition { Width=new GridLength(1,GridUnitType.Star) });header.ColumnDefinitions.Add(new ColumnDefinition { Width=GridLength.Auto });
         var heading=new StackPanel { VerticalAlignment=VerticalAlignment.Center,Spacing=4 };
-        _headingTitle.Text=L.Text("Apps");_headingTitle.FontSize=23;_headingTitle.FontWeight=Microsoft.UI.Text.FontWeights.SemiBold;_headingTitle.Foreground=new SolidColorBrush(Colors.White);
-        _headingNote.Text=L.Text("Windows Start pins and your apps");_headingNote.FontSize=12;_headingNote.Foreground=new SolidColorBrush(global::Windows.UI.Color.FromArgb(255,169,177,192));
+        _headingTitle.Text=L.Text("Apps");_headingTitle.FontSize=28;_headingTitle.FontWeight=new global::Windows.UI.Text.FontWeight { Weight=500 };
+        _headingNote.Text=L.Text("Windows Start pins and your apps");_headingNote.FontSize=13;
         heading.Children.Add(_headingTitle);heading.Children.Add(_headingNote);
         header.Children.Add(heading);
         var actions=new StackPanel { Orientation=Orientation.Horizontal,Spacing=8,VerticalAlignment=VerticalAlignment.Center };
         foreach(var button in new[]{_addButton,_refreshButton,_settingsButton,_powerButton}){GlassStyle.Button(button);actions.Children.Add(button);}
+        ApplyScheme();
         _powerButton.Flyout=PowerActions.Menu(()=>_root.XamlRoot,active=>_modal=Math.Max(0,_modal+(active?1:-1)));
         _powerButton.Flyout.Opening+=(_,_)=>_modal++;
         _powerButton.Flyout.Closed+=(_,_)=>_modal=Math.Max(0,_modal-1);
@@ -140,8 +141,8 @@ internal sealed class LaunchpadWindow : IDisposable
         Grid.SetRow(_empty, 1);
 
         _toast.Background = new SolidColorBrush(global::Windows.UI.Color.FromArgb(235, 36, 38, 46));
-        _toast.CornerRadius = new CornerRadius(10);
-        _toast.Padding = new Thickness(16, 9, 16, 10);
+        _toast.CornerRadius = new CornerRadius(M3.CornerM);
+        _toast.Padding = new Thickness(20, 12, 20, 12);
         _toast.Child = _toastText;
         _toast.HorizontalAlignment = HorizontalAlignment.Center;
         _toast.VerticalAlignment = VerticalAlignment.Bottom;
@@ -238,9 +239,29 @@ internal sealed class LaunchpadWindow : IDisposable
         ShowToast(L.Text(result.Status==TileImportStatus.Duplicate?"Already added.":result.Status==TileImportStatus.SaveFailed?"Could not add application.":"This file type is not supported."));return false;
     }
 
+    /// <summary>Re-reads the Material 3 scheme (seed + theme) into the shell, header, buttons and toast.</summary>
+    private void ApplyScheme()
+    {
+        var c = M3.Current;
+        M3.Theme(_root);
+        _root.Background = M3.Brush(Colors.Black, c.Dark ? (byte)64 : (byte)44);
+        _shell.Background = GlassStyle.Surface;
+        _headingTitle.Foreground = M3.Text();
+        _headingNote.Foreground = M3.Text(secondary: true);
+        _empty.Foreground = M3.Text(secondary: true);
+        foreach (var button in new[] { _addButton, _refreshButton, _settingsButton, _powerButton })
+        {
+            button.Background = M3.Brush(c.SecondaryContainer);
+            button.Foreground = M3.Brush(c.OnSecondaryContainer);
+        }
+        _toast.Background = M3.Brush(c.OnSurface);
+        _toastText.Foreground = M3.Brush(c.Surface);
+    }
+
     public void Show()
     {
         if (_disposed || (_visible && !_closing)) return;
+        ApplyScheme();
         bool reversing = _visible;
         var mon = MonitorHelper.FromCursor() ?? MonitorHelper.Primary();
         if (mon is null) return;
@@ -518,26 +539,26 @@ internal sealed class LaunchpadWindow : IDisposable
 
         var items = new List<MenuItemSpec>
         {
-            new(CmdOpen, L.Text("Open")),
-            new(CmdPin, pinned ? L.Text("Unpin from Dock") : L.Text("Pin to Dock")),
+            new(CmdOpen, L.Text("Open"), Glyph: "E8A7"),
+            new(CmdPin, pinned ? L.Text("Unpin from Dock") : L.Text("Pin to Dock"), Glyph: pinned ? "E77A" : "E718"),
         };
         if (isUser)
         {
-            items.Add(new(CmdRemove, L.Text("Remove from Launchpad")));
+            items.Add(new(CmdRemove, L.Text("Remove from Launchpad"), Glyph: "E74D"));
             if (!searching)
             {
-                items.Add(new(CmdLeft, L.Text("Move earlier"), Disabled: ix <= 0));
-                items.Add(new(CmdRight, L.Text("Move later"), Disabled: ix >= userKeys.Count - 1));
+                items.Add(new(CmdLeft, L.Text("Move earlier"), Disabled: ix <= 0, Glyph: "E76B"));
+                items.Add(new(CmdRight, L.Text("Move later"), Disabled: ix >= userKeys.Count - 1, Glyph: "E76C"));
             }
         }
         items.Add(MenuItemSpec.Separator);
-        items.Add(new(CmdIcon, L.Text("Change icon…")));
-        items.Add(new(CmdResetIcon, L.Text("Reset icon"), Disabled: !_app.Overrides.Has(app)));
-        items.Add(new(CmdFolder, L.Text("Open file location"), Disabled: ShellLauncher.LocationOf(app) is null));
+        items.Add(new(CmdIcon, L.Text("Change icon…"), Glyph: "EB9F"));
+        items.Add(new(CmdResetIcon, L.Text("Reset icon"), Disabled: !_app.Overrides.Has(app), Glyph: "E777"));
+        items.Add(new(CmdFolder, L.Text("Open file location"), Disabled: ShellLauncher.LocationOf(app) is null, Glyph: "E8B7"));
 
         _modal++;
         int cmd;
-        try { cmd = NativeMenu.Show(_app.MessageHandle, items, bottomAlign: false); }
+        try { cmd = await PopMenu.ShowAsync(items, bottomAlign: false); }
         finally { _modal--; }
         if (_visible && !_closing) WindowStyler.BringToFront(_hwnd);
 

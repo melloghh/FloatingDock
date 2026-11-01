@@ -14,11 +14,17 @@ internal sealed class LaunchpadTile : Grid
     private readonly TextBlock _name = new()
     {
         TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap, MaxLines = 2, TextTrimming = TextTrimming.CharacterEllipsis,
-        FontSize = 12.5, Foreground = new SolidColorBrush(Colors.White), HorizontalAlignment = HorizontalAlignment.Center,
+        FontSize = 12.5, HorizontalAlignment = HorizontalAlignment.Center,
     };
     private static readonly Brush Idle = new SolidColorBrush(Colors.Transparent);
-    private static readonly Brush Hover = new SolidColorBrush(global::Windows.UI.Color.FromArgb(40, 255, 255, 255));
-    private readonly Border _highlight=new() { Background=Hover,CornerRadius=new CornerRadius(14),IsHitTestVisible=false,Margin=new Thickness(-6,-10,-6,-6) };
+    // The hover state layer is the text colour at 8 %, as in the Material state spec.
+    private readonly Border _highlight=new() { CornerRadius=new CornerRadius(M3.CornerL),IsHitTestVisible=false,Margin=new Thickness(-6,-10,-6,-6) };
+    private M3.Scheme? _scheme;
+    private void ApplyScheme()
+    {
+        var c=M3.Current;if(ReferenceEquals(c,_scheme))return;_scheme=c;
+        _name.Foreground=M3.Brush(c.OnSurface);_highlight.Background=M3.Brush(c.OnSurface,28);
+    }
 
     public AppRef? App { get; private set; }
     private int _iconSize, _iconEpoch=-1;
@@ -29,8 +35,9 @@ internal sealed class LaunchpadTile : Grid
     public LaunchpadTile()
     {
         Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.SetIsTranslationEnabled(this,true);
-        CornerRadius = new CornerRadius(14);
+        CornerRadius = new CornerRadius(M3.CornerL);
         Background = Idle;
+        ApplyScheme();
         Padding = new Thickness(6, 10, 6, 6);
         Children.Add(_highlight);
         SurfaceMotion.Reset(Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(_highlight),0);
@@ -53,6 +60,7 @@ internal sealed class LaunchpadTile : Grid
 
     public void Bind(AppRef app, int iconSize, double width, double scale)
     {
+        ApplyScheme();
         bool same=App?.Key==app.Key&&_iconSize==iconSize&&_width==width&&_scale==scale;
         bool iconsChanged=_iconEpoch!=IconEpoch;
         App=app;

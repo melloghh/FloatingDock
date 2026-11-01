@@ -18,7 +18,7 @@ internal static class LabelRasterizer
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int DrawText(IntPtr dc, string text, int length, ref RECT rect, uint format);
     [DllImport("gdi32.dll")] private static extern bool GdiFlush();
 
-    internal static unsafe Image Render(string text, double scale)
+    internal static unsafe Image Render(string text, double scale, (byte R, byte G, byte B) fill, (byte R, byte G, byte B) ink)
     {
         scale = Math.Clamp(scale, .5, 6);
         text = text.Length > 256 ? text[..256] : text;
@@ -44,7 +44,8 @@ internal static class LabelRasterizer
             var bounds = new RECT { Left = paddingX, Top = top, Right = width - paddingX, Bottom = height - bottom };
             DrawText(dc, text, text.Length, ref bounds, 0x20 | 0x800 | 0x8000 /* SINGLELINE, NOPREFIX, END_ELLIPSIS */);
             GdiFlush(); Marshal.Copy(bits, output, 0, output.Length);
-            float radius = (float)(8 * scale), halfW = width / 2f, halfH = height / 2f;
+            float halfW = width / 2f, halfH = height / 2f, radius = halfH; // Material chip: fully rounded ends
+            float fr = fill.R / 255f, fg = fill.G / 255f, fb = fill.B / 255f, ir = ink.R / 255f, ig = ink.G / 255f, ib = ink.B / 255f;
             for (int y = 0; y < height; y++) for (int x = 0; x < width; x++)
             {
                 int i = (y * width + x) * 4;
@@ -55,10 +56,10 @@ internal static class LabelRasterizer
                 float border = (coverage - Math.Clamp(.5f - distance - (float)scale, 0, 1)) * (60f / 255);
                 float backgroundAlpha = (225f / 255) * coverage;
                 float alpha = border + backgroundAlpha * (1 - border);
-                float blue = border + 42f / 255 * backgroundAlpha * (1 - border);
-                float redGreen = border + 38f / 255 * backgroundAlpha * (1 - border);
-                output[i] = (byte)Math.Clamp((textAlpha + blue * (1 - textAlpha)) * 255, 0, 255);
-                output[i + 1] = output[i + 2] = (byte)Math.Clamp((textAlpha + redGreen * (1 - textAlpha)) * 255, 0, 255);
+                float under = 1 - border;
+                output[i] = (byte)Math.Clamp((textAlpha * ib + (border * ib + fb * backgroundAlpha * under) * (1 - textAlpha)) * 255, 0, 255);
+                output[i + 1] = (byte)Math.Clamp((textAlpha * ig + (border * ig + fg * backgroundAlpha * under) * (1 - textAlpha)) * 255, 0, 255);
+                output[i + 2] = (byte)Math.Clamp((textAlpha * ir + (border * ir + fr * backgroundAlpha * under) * (1 - textAlpha)) * 255, 0, 255);
                 output[i + 3] = (byte)Math.Clamp((textAlpha + alpha * (1 - textAlpha)) * 255, 0, 255);
             }
             return new Image(output, width, height);

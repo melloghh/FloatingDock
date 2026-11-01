@@ -63,7 +63,7 @@ internal sealed class MenuBarPointerSurface : IDisposable
         // Only called for geometry/visibility changes, never for mouse movement.
         NativeMethods.SetWindowPos(Handle,NativeMethods.HWND_TOPMOST,bounds.Left,bounds.Top,bounds.Width,bounds.Height,NativeMethods.SWP_NOACTIVATE);
         _root.Size=new(bounds.Width,bounds.Height);
-        var region=(bounds.Width,bounds.Height,(int)Math.Round(14*scale));
+        var region=(bounds.Width,bounds.Height,(int)Math.Round(18*scale));
         if(_region!=region){WindowStyler.SetRoundedRegion(Handle,region.Item1,region.Item2,region.Item3);_region=region;}
         WindowStyler.Show(Handle,false);
     }
@@ -92,12 +92,12 @@ internal sealed class MenuBarPointerSurface : IDisposable
         SendTool(_tipWindow,0x411,new IntPtr(1),ref _tool);_tipVisible=true; // TTM_TRACKACTIVATE
     }
     internal void HideTip(){if(!_tipVisible)return;SendTool(_tipWindow,0x411,IntPtr.Zero,ref _tool);_tipVisible=false;}
-    internal void Highlight(global::Windows.Foundation.Rect? bounds,double scale,bool pressed=false)
+    internal void Highlight(global::Windows.Foundation.Rect? bounds,double scale,bool pressed=false,double radius=8)
     {
         if(bounds is not { } rect){_highlight.Opacity=0;return;}
         _highlight.Offset=new((float)(rect.X*scale),(float)(rect.Y*scale),0);
         _highlight.Size=new((float)(rect.Width*scale),(float)(rect.Height*scale));
-        _highlightGeometry.Size=_highlight.Size;_highlightGeometry.CornerRadius=new((float)(8*scale));
+        _highlightGeometry.Size=_highlight.Size;_highlightGeometry.CornerRadius=new((float)(radius*scale));
         _highlight.Opacity=pressed ? .18f : .10f;
     }
     public void Dispose(){HideTip();if(_tipWindow!=IntPtr.Zero)NativeMethods.DestroyWindow(_tipWindow);if(_tipText!=IntPtr.Zero)Marshal.FreeHGlobal(_tipText);_target.Root=null;_highlight.Dispose();_highlightGeometry.Dispose();_root.Dispose();_target.Dispose();_window.Dispose();_compositor.Dispose();}

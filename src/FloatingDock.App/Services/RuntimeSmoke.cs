@@ -38,6 +38,8 @@ internal static partial class RuntimeSmoke
             {await CheckLaunch162Async(app,checks);Check(Program.UiFailureCount==0,"XAML failure in launch checks.");success=true;return;}
             if(Environment.GetCommandLineArgs().Contains("--test-only-realwindows162"))
             {await CheckRealWindows162Async(app,checks);Check(Program.UiFailureCount==0,"XAML failure in real window checks.");success=true;return;}
+            if(Environment.GetCommandLineArgs().Contains("--test-only-m3"))
+            {await CheckM3Async(app,checks);Check(Program.UiFailureCount==0,"XAML failure in Material 3 capture.");success=true;return;}
             if(Environment.GetCommandLineArgs().Contains("--test-only-glass160"))
             {await CheckGlass160Async(app,checks);Check(Program.UiFailureCount==0,"XAML failure in glass checks.");success=true;return;}
             if(Environment.GetCommandLineArgs().Contains("--test-only-animation161"))

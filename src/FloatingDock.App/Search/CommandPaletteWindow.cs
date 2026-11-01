@@ -22,15 +22,19 @@ internal sealed class CommandPaletteWindow : IDisposable
     private readonly DockApp _app=DockApp.Current;
     private readonly Window _window;
     private readonly Border _root;
-    private readonly TextBox _query=new(){BorderThickness=new Thickness(0),Background=new SolidColorBrush(Colors.Transparent),FontSize=17,Padding=new Thickness(4,10,8,10),VerticalAlignment=VerticalAlignment.Center};
+    private readonly TextBox _query=new(){BorderThickness=new Thickness(0),Background=new SolidColorBrush(Colors.Transparent),FontSize=16,Padding=new Thickness(4,14,8,14),VerticalAlignment=VerticalAlignment.Center};
     private readonly StackPanel _rows=new(){Spacing=2};
-    private readonly Border _resultsPlate;
+    private readonly Border _resultsPlate,_inputPlate;
+    private readonly FontIcon _searchIcon=new(){Glyph="",FontSize=22,Margin=new Thickness(20,0,0,0)};
+    private readonly TextBlock _escHint=new(){Text="Esc",FontSize=12,VerticalAlignment=VerticalAlignment.Center};
+    private readonly Border _escChip=new(){CornerRadius=new CornerRadius(8),Padding=new Thickness(8,3,8,3),Margin=new Thickness(8,0,16,0),VerticalAlignment=VerticalAlignment.Center};
     private readonly ScrollViewer _list=new(){BorderThickness=new Thickness(0),Background=new SolidColorBrush(Colors.Transparent),MaxHeight=440,HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled};
     private readonly List<Button> _rowButtons=new();
     private int _selectedIndex=-1;
-    private readonly TextBlock _status=new(){FontSize=12,Foreground=GlassStyle.Secondary,Margin=new Thickness(12,12,12,6),TextWrapping=TextWrapping.Wrap};
+    private readonly TextBlock _status=new(){FontSize=12,Foreground=GlassStyle.Secondary,Margin=new Thickness(16,12,16,6),TextWrapping=TextWrapping.Wrap};
     private readonly DispatcherQueueTimer _debounce,_openingTimer;
-    private readonly GlassBackdrop _glass=new();
+    private readonly GlideHighlight _glide=new();
+    private readonly Grid _rowsHost=new();
     private readonly MenuBar.MenuSurfaceMotion _motion;
     private IReadOnlyList<Result> _results=Array.Empty<Result>();
     private Task<IReadOnlyList<AppRef>>? _catalog;
@@ -45,7 +49,7 @@ internal sealed class CommandPaletteWindow : IDisposable
     private bool _surfaceVisible;
     private int _visibilityGeneration;
     private IntPtr _returnFocus;
-    private int _width,_left,_top,_maxHeight;
+    private int _width,_left,_top,_maxHeight,_pad;
     private double _scale=1;
     internal IntPtr Handle { get; }
     internal bool Visible=>_visible;
@@ -56,20 +60,22 @@ internal sealed class CommandPaletteWindow : IDisposable
 
     internal CommandPaletteWindow()
     {
-        var input=new Grid { ColumnSpacing=10,Height=54 };
+        var input=new Grid { ColumnSpacing=12,Height=56 };
         input.ColumnDefinitions.Add(new(){Width=GridLength.Auto});input.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});input.ColumnDefinitions.Add(new(){Width=GridLength.Auto});
-        input.Children.Add(new FontIcon { Glyph="\uE721",FontSize=17,Foreground=GlassStyle.Secondary,Margin=new Thickness(18,0,0,0) });
+        input.Children.Add(_searchIcon);
         _query.Margin=new Thickness(0);Grid.SetColumn(_query,1);input.Children.Add(_query);
-        var esc=new TextBlock { Text="Esc",FontSize=11,Foreground=GlassStyle.Secondary,VerticalAlignment=VerticalAlignment.Center,Margin=new Thickness(8,0,18,0) };Grid.SetColumn(esc,2);input.Children.Add(esc);
-        _list.Content=_rows;
+        _escChip.Child=_escHint;Grid.SetColumn(_escChip,2);input.Children.Add(_escChip);
+
         var results=new StackPanel();results.Children.Add(_list);results.Children.Add(_status);
-        _resultsPlate=GlassStyle.Plate(results,22,6);
-        _panel.Children.Add(GlassStyle.Plate(input,28,0));_panel.Children.Add(_resultsPlate);
-        _root=new Border { Child=_panel,RequestedTheme=ElementTheme.Dark,Background=new SolidColorBrush(Colors.Transparent) };
-        _window=new Window { Title="FloatingDock Search",Content=_root,SystemBackdrop=_glass };
+        _resultsPlate=GlassStyle.Plate(results,M3.CornerXl,8);
+        _inputPlate=GlassStyle.Plate(input,28,0);
+        _panel.Children.Add(_inputPlate);_panel.Children.Add(_resultsPlate);
+        _root=new Border { Child=_panel,Padding=Pop.Pad,Background=new SolidColorBrush(Colors.Transparent) };
+        _rowsHost.Children.Add(_glide.Layer);_rowsHost.Children.Add(_rows);_list.Content=_rowsHost;
+        ApplyScheme();
+        _window=new Window { Title="FloatingDock Search",Content=_root,SystemBackdrop=new TransparentBackdrop() };
         WindowSetup.MakeBorderless(_window);Handle=WindowSetup.Hwnd(_window);WindowStyler.MakeOverlayWindow(Handle,noActivate:false);
-        _glass.SetVisible(false);
-        _motion=new(Handle,_root,_glass,minX:.96f,minY:.9f,lift:-10,radius:22);
+        _motion=new(Handle,_panel);
         _motion.SetSplit(56,10);
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(_query,L.Text("Search apps"));
         foreach(var key in new[]{"TextControlBackground","TextControlBackgroundPointerOver","TextControlBackgroundFocused","TextControlBorderBrush","TextControlBorderBrushPointerOver","TextControlBorderBrushFocused"})_query.Resources[key]=new SolidColorBrush(Colors.Transparent);
@@ -81,6 +87,17 @@ internal sealed class CommandPaletteWindow : IDisposable
         _query.Loaded+=(_,_)=> { if(_visible)_query.Focus(FocusState.Programmatic); };
         _app.Pinned.Changed+=InvalidateApps;_app.UserTiles.Changed+=InvalidateApps;
     }
+    /// <summary>Re-reads the Material 3 scheme (seed + theme) into every surface; cheap enough to run on each open.</summary>
+    private void ApplyScheme()
+    {
+        var c=M3.Current;M3.Theme(_root);
+        _inputPlate.Background=M3.CardHigh();_resultsPlate.Background=M3.Card();
+        _searchIcon.Foreground=GlassStyle.Secondary;_status.Foreground=GlassStyle.Secondary;_escHint.Foreground=GlassStyle.Secondary;
+        _escChip.Background=M3.Brush(c.ContainerHighest);_query.Foreground=M3.Text();
+        _query.Resources["TextControlPlaceholderForeground"]=M3.Brush(c.OnSurfaceVariant,200);
+        _query.Resources["TextControlPlaceholderForegroundFocused"]=M3.Brush(c.OnSurfaceVariant,200);
+        _query.Resources["TextControlForegroundFocused"]=M3.Text();_query.Resources["TextControlForegroundPointerOver"]=M3.Text();
+    }
     internal void Toggle() { if(_visible)Hide(immediately:false);else Show(); }
     internal void Show()
     {
@@ -88,13 +105,15 @@ internal sealed class CommandPaletteWindow : IDisposable
         var mon=MonitorHelper.FromCursor()??MonitorHelper.Primary();if(mon is null)return;
         float progress=_surfaceVisible?_motion.Progress:0;
         if(!_surfaceVisible)_returnFocus=NativeMethods.GetForegroundWindow();
+        ApplyScheme();
         _visibilityGeneration++;_visible=_opening=_surfaceVisible=true;_root.IsHitTestVisible=true;
         _query.PlaceholderText=L.Text("Search apps");_query.Text="";
         _results=Array.Empty<Result>();ClearRows();_status.Text=L.Text("Enter to open · Esc to close");
         int width=(int)(Math.Min(650,(mon.Bounds.Width/mon.Scale)-40)*mon.Scale);
         _width=width;_scale=mon.Scale;_maxHeight=(int)Math.Min(580,mon.Bounds.Height/mon.Scale-60);
-        _left=mon.Bounds.Left+(mon.Bounds.Width-width)/2;_top=Math.Min(mon.Bounds.Top+(int)(mon.Bounds.Height*.18),mon.Bounds.Bottom-(int)(_maxHeight*mon.Scale)-16);
-        _glass.SetVisible(true);_motion.Prepare(SurfaceMotion.Enabled?progress:1);
+        _pad=(int)Math.Ceiling(Pop.PadDip*mon.Scale);_panel.Width=width/mon.Scale;
+        _left=mon.Bounds.Left+(mon.Bounds.Width-width)/2-_pad;_top=Math.Min(mon.Bounds.Top+(int)(mon.Bounds.Height*.18),mon.Bounds.Bottom-(int)(_maxHeight*mon.Scale)-16)-_pad;
+        _motion.Prepare(SurfaceMotion.Enabled?progress:1);
         _list.MaxHeight=Math.Max(44,_maxHeight-126);ResizeSurface(0);
         AnimateOpening();_window.Activate();WindowStyler.BringToFront(Handle);
         _openingTimer.Start();_query.Focus(FocusState.Programmatic);_debounce.Stop();_debounce.Start();
@@ -109,7 +128,7 @@ internal sealed class CommandPaletteWindow : IDisposable
         if(immediately||!SurfaceMotion.Enabled)FinishHide();
         else _motion.Play(false,Math.Clamp(_app.Settings.Current.MenuAnimationMs*4/5,80,300),()=>{if(generation==_visibilityGeneration&&!_visible)FinishHide();});
     }
-    private void FinishHide(){_motion.Stop();_surfaceVisible=false;_glass.SetVisible(false);_window.AppWindow.Hide();WindowStyler.Hide(Handle);}
+    private void FinishHide(){_motion.Stop();_surfaceVisible=false;_window.AppWindow.Hide();WindowStyler.Hide(Handle);}
     private async Task SearchAsync()
     {
         if(!_visible||_disposed)return;
@@ -140,18 +159,25 @@ internal sealed class CommandPaletteWindow : IDisposable
             ClearRows();
             foreach(var result in _results)
             {
-                var row=new Grid { ColumnSpacing=10,Padding=new Thickness(12,7,12,7),Height=46 };
-                row.ColumnDefinitions.Add(new ColumnDefinition { Width=new GridLength(24) });row.ColumnDefinitions.Add(new ColumnDefinition { Width=new GridLength(1,GridUnitType.Star) });row.ColumnDefinitions.Add(new ColumnDefinition { Width=GridLength.Auto });
-                if(result.App is not null){var icon=new IconView { Width=22,Height=22,VerticalAlignment=VerticalAlignment.Center };icon.Bind(result.App,GlyphKind.App,(int)Math.Ceiling(24*_scale));row.Children.Add(icon);}
-                else row.Children.Add(new FontIcon { Glyph=result.Kind=="Folder"?"\uE8B7":result.Kind=="File"?"\uE8A5":"\uE713",FontSize=19,Foreground=GlassStyle.Secondary });
-                var label=new Grid { VerticalAlignment=VerticalAlignment.Center,ColumnSpacing=10 };
+                var row=new Grid { ColumnSpacing=16,Padding=new Thickness(16,0,16,0),Height=56 };
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width=new GridLength(32) });row.ColumnDefinitions.Add(new ColumnDefinition { Width=new GridLength(1,GridUnitType.Star) });row.ColumnDefinitions.Add(new ColumnDefinition { Width=GridLength.Auto });
+                if(result.App is not null){var icon=new IconView { Width=28,Height=28,VerticalAlignment=VerticalAlignment.Center,HorizontalAlignment=HorizontalAlignment.Center };icon.Bind(result.App,GlyphKind.App,(int)Math.Ceiling(28*_scale));row.Children.Add(icon);}
+                else
+                {
+                    // Commands get a tonal 32 px disc, like the leading element of a Material list item.
+                    var disc=new Border { Width=32,Height=32,CornerRadius=new CornerRadius(16),Background=M3.Brush(M3.Current.ContainerHighest),VerticalAlignment=VerticalAlignment.Center };
+                    disc.Child=new FontIcon { Glyph=result.Kind=="Folder"?"\uE8B7":result.Kind=="File"?"\uE8A5":"\uE713",FontSize=16,Foreground=M3.Brush(M3.Current.OnSurface),HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Center };
+                    row.Children.Add(disc);
+                }
+                var label=new Grid { VerticalAlignment=VerticalAlignment.Center,ColumnSpacing=12 };
                 label.ColumnDefinitions.Add(new(){Width=GridLength.Auto});label.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});
-                var name=new TextBlock { Text=result.Name,FontSize=14,MaxWidth=330,TextTrimming=TextTrimming.CharacterEllipsis };label.Children.Add(name);
-                if(result.Detail.Length>0){var detail=new TextBlock { Text=result.Detail,FontSize=12,Foreground=GlassStyle.Secondary,TextTrimming=TextTrimming.CharacterEllipsis,VerticalAlignment=VerticalAlignment.Center };Grid.SetColumn(detail,1);label.Children.Add(detail);}
+                var name=new TextBlock { Text=result.Name,FontSize=16,MaxWidth=360,TextTrimming=TextTrimming.CharacterEllipsis };label.Children.Add(name);
+                if(result.Detail.Length>0){var detail=new TextBlock { Text=result.Detail,FontSize=13,Foreground=GlassStyle.Secondary,TextTrimming=TextTrimming.CharacterEllipsis,VerticalAlignment=VerticalAlignment.Center };Grid.SetColumn(detail,1);label.Children.Add(detail);}
                 Grid.SetColumn(label,1);row.Children.Add(label);var kind=new TextBlock { Text=L.Text(result.Kind),FontSize=12,Foreground=GlassStyle.Secondary,VerticalAlignment=VerticalAlignment.Center };Grid.SetColumn(kind,2);row.Children.Add(kind);
-                var button=new Button { Content=row,Tag=result,Padding=new Thickness(0),HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch,CornerRadius=new CornerRadius(15),BorderThickness=new Thickness(0) };
-                GlassStyle.Button(button);button.Background=new SolidColorBrush(Colors.Transparent);
+                var button=new Button { Content=row,Tag=result,Padding=new Thickness(0),HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch,CornerRadius=new CornerRadius(M3.CornerL),BorderThickness=new Thickness(0) };
+                GlassStyle.Button(button,flat:true);
                 Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button,result.Name+" · "+L.Text(result.Kind));
+                int rowIndex=_rowButtons.Count;button.PointerEntered+=(_,_)=>{if(!_opening)Select(rowIndex);};
                 button.Click+=(_,_)=>Open(result);_rowButtons.Add(button);_rows.Children.Add(button);
                 if(freshList)SurfaceMotion.Reveal(button,_rowButtons.Count-1);
             }
@@ -164,10 +190,10 @@ internal sealed class CommandPaletteWindow : IDisposable
     }
     private void ResizeSurface(int count)
     {
-        _list.Height=Math.Min(_list.MaxHeight,count*48);_list.Visibility=count==0?Visibility.Collapsed:Visibility.Visible;
-        _root.Measure(new global::Windows.Foundation.Size(_width/_scale,_maxHeight));
-        int height=(int)Math.Ceiling(Math.Min(_maxHeight,Math.Max(114,_root.DesiredSize.Height))*_scale);
-        WindowStyler.SetBounds(Handle,_left,_top,_width,height);
+        _list.Height=Math.Min(_list.MaxHeight,count*58);_list.Visibility=count==0?Visibility.Collapsed:Visibility.Visible;
+        _panel.Measure(new global::Windows.Foundation.Size(_width/_scale,_maxHeight));
+        int height=(int)Math.Ceiling(Math.Min(_maxHeight,Math.Max(114,_panel.DesiredSize.Height))*_scale)+2*_pad;
+        WindowStyler.SetBounds(Handle,_left,_top,_width+2*_pad,height);
         _motion.SetGeometry(_width,height,_scale,_width/(2*_scale));
     }
     private void OnKey(object sender,KeyRoutedEventArgs e)
@@ -199,13 +225,15 @@ internal sealed class CommandPaletteWindow : IDisposable
         });
     }
     private void InvalidateApps()=>_app.UiQueue.TryEnqueue(()=>_appIndex=null);
-    private void AnimateOpening(){_motion.Play(true,Math.Clamp((int)(_app.Settings.Current.MenuAnimationMs*1.4),160,600));}
-    private void ClearRows(){_rows.Children.Clear();_rowButtons.Clear();_selectedIndex=-1;}
+    private void AnimateOpening(){_motion.Play(true,Math.Clamp(_app.Settings.Current.MenuAnimationMs*2,360,700));}
+    private void ClearRows(){_rows.Children.Clear();_rowButtons.Clear();_selectedIndex=-1;_glide.Hide();}
     private void Select(int index)
     {
         _selectedIndex=index;
-        for(int i=0;i<_rowButtons.Count;i++)_rowButtons[i].Background=i==index?GlassStyle.Selected:new SolidColorBrush(Colors.Transparent);
-        if(index>=0&&index<_rowButtons.Count)_rowButtons[index].StartBringIntoView();
+        var c=M3.Current;
+        _glide.SetColor(c.SecondaryContainer);
+        for(int i=0;i<_rowButtons.Count;i++){bool on=i==index;_rowButtons[i].Background=GlassStyle.Clear;_rowButtons[i].Foreground=M3.Brush(on?c.OnSecondaryContainer:c.OnSurface);}
+        if(index>=0&&index<_rowButtons.Count){_rowsHost.UpdateLayout();_glide.MoveTo(_rowButtons[index],M3.CornerL);_rowButtons[index].StartBringIntoView();}
     }
     public void Dispose(){if(_disposed)return;Hide();_motion.Dispose();_disposed=true;_app.Pinned.Changed-=InvalidateApps;_app.UserTiles.Changed-=InvalidateApps;_cancel?.Dispose();_debounce.Stop();_openingTimer.Stop();_window.Close();}
 }

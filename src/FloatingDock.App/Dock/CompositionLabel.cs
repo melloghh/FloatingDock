@@ -1,4 +1,5 @@
 using System.Numerics;
+using FloatingDock.UI.Views;
 
 using Windows.UI.Composition;
 
@@ -49,10 +50,12 @@ internal sealed class CompositionLabel : IDisposable
         Visual = compositor.CreateSpriteVisual(); Visual.Brush = _brush; Visual.Opacity = 0;
     }
 
+    private static string Tint() { var c = M3.Current; return $"{c.ContainerHighest.R:X2}{c.ContainerHighest.G:X2}{c.ContainerHighest.B:X2}{c.OnSurface.R:X2}"; }
+
     internal bool Select(string text, double scale)
     {
         if (_selectedText == text && _selectedScale == scale && _wanted is not null && _cache.ContainsKey(_wanted)) return true;
-        string key = text + "|" + scale.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        string key = text + "|" + scale.ToString(System.Globalization.CultureInfo.InvariantCulture) + "|" + Tint();
         _wanted = key; _selectedText = text; _selectedScale = scale;
         if (_cache.TryGetValue(key, out var texture)) { _brush.Surface = texture.Surface; Visual.Size = Size = texture.Size; return true; }
         Prepare(text, scale); return false;
@@ -61,7 +64,7 @@ internal sealed class CompositionLabel : IDisposable
     internal void Prepare(string text, double scale)
     {
         if (_disposed || string.IsNullOrEmpty(text)) return;
-        string key = text + "|" + scale.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        string key = text + "|" + scale.ToString(System.Globalization.CultureInfo.InvariantCulture) + "|" + Tint();
         if (_cache.ContainsKey(key) || !_pending.Add(key)) return;
         // Bounded queue/cache: a large app library never creates unbounded tooltip resources.
         if (_requests.Count >= 64) { _pending.Remove(key); return; }
@@ -79,7 +82,9 @@ internal sealed class CompositionLabel : IDisposable
                 CompositionDrawingSurface? surface = null;
                 try
                 {
-                    var image = await Task.Run(() => LabelRasterizer.Render(request.Text, request.Scale));
+                    var scheme = M3.Current;
+                    var fill = (scheme.ContainerHighest.R, scheme.ContainerHighest.G, scheme.ContainerHighest.B);var ink = (scheme.OnSurface.R, scheme.OnSurface.G, scheme.OnSurface.B);
+                    var image = await Task.Run(() => LabelRasterizer.Render(request.Text, request.Scale, fill, ink));
                     if (_disposed) break;
                     surface = _graphics.Upload(image.Pixels, image.Width, image.Height);
                     var texture = new Texture(surface, new Vector2((float)(image.Width / request.Scale), (float)(image.Height / request.Scale)));

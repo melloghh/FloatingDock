@@ -1,5 +1,6 @@
 using System.Numerics;
 using FloatingDock.Core.Configuration;
+using FloatingDock.UI.Views;
 using Windows.UI.Composition;
 
 namespace FloatingDock.UI.Dock;
@@ -33,7 +34,10 @@ internal sealed class CompositionDockPlate : IDisposable
 
     internal void SetStyle(DockSettings s)
     {
-        string key = $"{s.BackgroundColor}|{s.Opacity}|{s.CornerRadius}|{s.DockHeight}|{s.Border}|{s.Shadow}";
+        // Material 3: the plate is a surface-container tone of the user's palette unless they picked their own background colour.
+        var scheme = M3.Current;
+        bool custom = !string.Equals(s.BackgroundColor, "1E1E1E", StringComparison.OrdinalIgnoreCase);
+        string key = $"{(custom ? s.BackgroundColor : $"{scheme.ContainerHigh.R:X2}{scheme.ContainerHigh.G:X2}{scheme.ContainerHigh.B:X2}{scheme.Outline.R:X2}{scheme.Outline.G:X2}{scheme.Outline.B:X2}")}|{s.Opacity}|{s.CornerRadius}|{s.DockHeight}|{s.Border}|{s.Shadow}";
         if (_style == key) return;
         _style = key;
         _plate.Brush = null; _shadow.Mask = null;
@@ -43,6 +47,8 @@ internal sealed class CompositionDockPlate : IDisposable
         int width = (int)Math.Ceiling(radius * 2 + 2) * factor, height = s.DockHeight * factor;
         var pixels = new byte[width * height * 4]; var mask = new byte[pixels.Length];
         ColorUtil.TryParseRgb(s.BackgroundColor, out var rgb);
+        if (!custom) rgb = (scheme.ContainerHigh.R, scheme.ContainerHigh.G, scheme.ContainerHigh.B);
+        var edge = scheme.Outline;
         float rpx = radius * factor, halfW = width * .5f, halfH = height * .5f;
         for (int y = 0; y < height; y++) for (int x = 0; x < width; x++)
         {
@@ -53,9 +59,9 @@ internal sealed class CompositionDockPlate : IDisposable
             float border = s.Border ? (coverage - Math.Clamp(.5f - d - factor, 0, 1)) * (70f / 255) : 0;
             float fill = coverage * s.Opacity / 100f;
             int i = (y * width + x) * 4;
-            pixels[i] = (byte)Math.Clamp(rgb.B * fill * (1 - border) + 255 * border, 0, 255);
-            pixels[i + 1] = (byte)Math.Clamp(rgb.G * fill * (1 - border) + 255 * border, 0, 255);
-            pixels[i + 2] = (byte)Math.Clamp(rgb.R * fill * (1 - border) + 255 * border, 0, 255);
+            pixels[i] = (byte)Math.Clamp(rgb.B * fill * (1 - border) + edge.B * border, 0, 255);
+            pixels[i + 1] = (byte)Math.Clamp(rgb.G * fill * (1 - border) + edge.G * border, 0, 255);
+            pixels[i + 2] = (byte)Math.Clamp(rgb.R * fill * (1 - border) + edge.R * border, 0, 255);
             pixels[i + 3] = (byte)Math.Clamp((border + fill * (1 - border)) * 255, 0, 255);
             mask[i] = mask[i + 1] = mask[i + 2] = mask[i + 3] = (byte)(coverage * 255);
         }

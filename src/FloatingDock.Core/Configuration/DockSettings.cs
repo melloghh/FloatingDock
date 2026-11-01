@@ -46,6 +46,8 @@ public sealed class DockSettings
     public bool Border { get; set; } = true;
     public bool Blur { get; set; } = false;
     public ThemeMode Theme { get; set; } = ThemeMode.Dark;
+    /// <summary>Material 3 seed colour (hex RGB); the default is neutral graphite.</summary>
+    public string AccentSeed { get; set; } = "4E9F75";
     public InterfaceLanguage Language { get; set; } = InterfaceLanguage.English;
     public bool MenuAnimations { get; set; } = true;
     public int MenuAnimationMs { get; set; } = 200;
@@ -177,6 +179,7 @@ public sealed class DockSettings
         Opacity = Math.Clamp(Opacity, 0, 100);
         CornerRadius = Math.Clamp(CornerRadius, 0, 60);
         if (!ColorUtil.TryParseRgb(BackgroundColor, out _)) BackgroundColor = "1E1E1E";
+        if (!ColorUtil.TryParseRgb(AccentSeed, out _)) AccentSeed = "4E9F75";
         MaxScalePercent = Math.Clamp(MaxScalePercent, 100, 300);
         MagnificationRadius = Math.Clamp(MagnificationRadius, 40, 500);
         Responsiveness = Math.Clamp(Responsiveness, 1, 10);

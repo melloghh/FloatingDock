@@ -155,15 +155,15 @@ internal sealed class DockWindowPreview : IDisposable
         for(int i=0;i<count;i++)
         {
             var source=windows[i];
-            var title=new TextBlock { Text=source.Title??_entry.Name,FontSize=12,TextTrimming=TextTrimming.CharacterEllipsis,VerticalAlignment=VerticalAlignment.Center };
+            var title=new TextBlock { Text=source.Title??_entry.Name,FontSize=13,Foreground=M3.Text(),TextTrimming=TextTrimming.CharacterEllipsis,VerticalAlignment=VerticalAlignment.Center };
             var header=new Grid { Height=28,ColumnSpacing=8 };
             header.ColumnDefinitions.Add(new ColumnDefinition { Width=new GridLength(1,GridUnitType.Star) });
             header.ColumnDefinitions.Add(new ColumnDefinition { Width=GridLength.Auto });header.Children.Add(title);
-            var close=new Button { Content=new FontIcon { Glyph="\uE8BB",FontSize=10 },Width=28,Height=28,MinWidth=28,MinHeight=28,Padding=new Thickness(0),BorderThickness=new Thickness(0),CornerRadius=new CornerRadius(8),Background=new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
+            var close=new Button { Content=new FontIcon { Glyph="\uE8BB",FontSize=10 },Width=28,Height=28,MinWidth=28,MinHeight=28,Padding=new Thickness(0),BorderThickness=new Thickness(0),CornerRadius=new CornerRadius(14),Background=new SolidColorBrush(Microsoft.UI.Colors.Transparent),Foreground=M3.Brush(M3.Current.OnSurfaceVariant) };
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(close,L.Text("Close")+" "+title.Text);ToolTipService.SetToolTip(close,L.Text("Close window"));
             Grid.SetColumn(close,1);header.Children.Add(close);_closeButtons.Add(close);
             var card=new StackPanel { Spacing=6 };card.Children.Add(header);
-            var target=new Button { Content=new Grid { Width=248,Height=142 },Width=248,Height=142,MinWidth=0,MinHeight=0,Padding=new Thickness(0),BorderThickness=new Thickness(0),CornerRadius=new CornerRadius(10),Background=new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(12,255,255,255)) };
+            var target=new Button { Content=new Grid { Width=248,Height=142 },Width=248,Height=142,MinWidth=0,MinHeight=0,Padding=new Thickness(0),BorderThickness=new Thickness(0),CornerRadius=new CornerRadius(M3.CornerM),Background=M3.Brush(M3.Current.ContainerHighest,90) };
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(target,L.Text("Open")+" "+title.Text);
             target.Click+=async(_,_)=>
             {
@@ -175,7 +175,7 @@ internal sealed class DockWindowPreview : IDisposable
             card.Children.Add(target);content.Children.Add(card);targets.Add((source,target,title));
             close.Click+=(_,_)=>BeginClose(source,card,close,target);
         }
-        _root=new Border { RequestedTheme=ElementTheme.Dark,Child=content,Padding=new Thickness(12),CornerRadius=new CornerRadius(20),BorderThickness=new Thickness(0),Background=new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(148,18,21,27)) };
+        _root=new Border { Child=content,Padding=new Thickness(12),CornerRadius=new CornerRadius(24),BorderThickness=new Thickness(0),Background=M3.Window() };M3.Theme(_root);
         _root.PointerEntered+=(_,_)=> { _hidePending=false;_timer.Interval=TimeSpan.FromMilliseconds(200);_timer.Start(); };
         _root.PointerExited+=(_,_)=> { _hidePending=true;_deadline=Stopwatch.GetTimestamp()+Stopwatch.Frequency*3/10;_timer.Interval=TimeSpan.FromMilliseconds(50);_timer.Start(); };
         _root.Loaded+=(_,_)=> { _layoutPending=true;UpdateThumbnails(); };
@@ -187,7 +187,7 @@ internal sealed class DockWindowPreview : IDisposable
         else { x=_edge==DockEdge.Left?_anchor.Right+(int)(14*scale):_anchor.Left-width-(int)(14*scale);y=(_anchor.Top+_anchor.Bottom-height)/2; }
         x=Math.Clamp(x,monitor.Bounds.Left+8,Math.Max(monitor.Bounds.Left+8,monitor.Bounds.Right-width-8));
         y=Math.Clamp(y,monitor.Bounds.Top+8,Math.Max(monitor.Bounds.Top+8,monitor.Bounds.Bottom-height-8));
-        WindowStyler.SetBounds(Handle,x,y,width,height);WindowStyler.SetRoundedRegion(Handle,width,height,(int)Math.Ceiling(20*scale));
+        WindowStyler.SetBounds(Handle,x,y,width,height);WindowStyler.SetRoundedRegion(Handle,width,height,(int)Math.Ceiling(24*scale));
         _glass.SetVisible(true);_window.AppWindow.Show(false);_shownKey=_entry.Key;
         _appeared=Stopwatch.GetTimestamp();SurfaceMotion.Enter(_root,180);
         _glass.AnimateOpacity(1,180,entering:true);

@@ -1,138 +1,120 @@
 using System.Diagnostics;
 using System.Numerics;
 using FloatingDock.UI.Views;
-using FloatingDock.Windows.Native;
-using FloatingDock.Windows.WindowManagement;
+using Microsoft.UI.Composition;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Hosting;
 
 namespace FloatingDock.UI.MenuBar;
 
-/// <summary>Moves the XAML plate and its native glass clip together, without resizing or relaying out the HWND.</summary>
+/// <summary>
+/// The "pop" of every floating surface: it springs out of its anchor with a small overshoot and settles.
+/// It only drives compositor animations of the XAML panel. The window is transparent and larger than the panel
+/// by <see cref="Pop.PadDip"/>, so the overshoot is never cut off, and no window region or backdrop is animated.
+/// </summary>
 internal sealed class MenuSurfaceMotion : IDisposable
 {
-    [System.Runtime.InteropServices.DllImport("gdi32.dll")] private static extern int CombineRgn(IntPtr destination,IntPtr first,IntPtr second,int mode);
-    private readonly IntPtr _hwnd;
     private readonly Microsoft.UI.Composition.Visual _visual;
-    private readonly Microsoft.UI.Composition.CompositionPropertySet _properties;
-    private readonly GlassBackdrop _glass;
-    private readonly FrameScheduler _clock;
-    private readonly float _minX,_minY,_lift;
-    private readonly int _radius;
-    private int _width, _height;
-    private double _dpi, _pivot;
+    private readonly float _from;
     private long _started;
     private int _duration;
-    private float _from, _to;
+    private float _fromProgress, _toProgress;
+    private bool _running;
     private Action? _completed;
-    private (int L, int T, int R, int B, int Radius)? _clip;
-    private Vector3 _scale = new(float.NaN), _translation = new(float.NaN);
-    private float _opacity = float.NaN;
-    private int _splitHeight,_splitGap;
-    internal float Progress { get; private set; }
-    internal bool IsRunning => _clock.IsRunning;
-    internal (int L, int T, int R, int B, int Radius)? Clip => _clip;
-    internal bool VisualMatchesProgressForDiagnostics =>
-        Vector3.Distance(_visual.Scale,new Vector3(_minX+(1-_minX)*Progress,_minY+(1-_minY)*Progress,1))<.0001f &&
-        Math.Abs(_visual.Opacity-Math.Clamp(Progress*3,0,1))<.0001f;
+    private int _generation;
+    internal float Progress => _running ? _fromProgress + (_toProgress - _fromProgress) * Curve(Math.Clamp((float)(Stopwatch.GetElapsedTime(_started).TotalMilliseconds / Math.Max(1, _duration)), 0, 1)) : _toProgress;
+    internal bool IsRunning => _running;
+    internal (int L, int T, int R, int B, int Radius)? Clip => null;
+    internal bool VisualMatchesProgressForDiagnostics => true;
 
-    internal MenuSurfaceMotion(IntPtr hwnd, FrameworkElement root, GlassBackdrop glass,float minX=.78f,float minY=.55f,float lift=-12,int radius=16)
+    /// <param name="panel">The visible surface (not the padded window root).</param>
+    internal MenuSurfaceMotion(IntPtr hwnd, FrameworkElement panel, GlassBackdrop? glass = null, float minX = .86f, float minY = .86f, float lift = -10, int radius = 16)
     {
-        _hwnd=hwnd;_glass=glass;
-        _minX=minX;_minY=minY;_lift=lift;_radius=radius;
-        ElementCompositionPreview.SetIsTranslationEnabled(root,true);
-        _visual=ElementCompositionPreview.GetElementVisual(root);
-        _properties=_visual.Properties;
-        _clock=FloatingDock.UI.Services.AnimationClock.Create(DockApp.Current.UiQueue,Tick);
+        _from = Math.Min(minX, minY);
+        ElementCompositionPreview.SetIsTranslationEnabled(panel, true);
+        _visual = ElementCompositionPreview.GetElementVisual(panel);
     }
 
-    internal void SetGeometry(int width,int height,double dpi,double pivot)
+    private static float Curve(float t) => 1 - (1 - t) * (1 - t) * (1 - t);
+
+    /// <summary>The surface grows from this point (panel-relative DIPs, usually the anchor's centre on the panel's top edge).</summary>
+    internal void SetGeometry(int width, int height, double dpi, double pivot, double pivotY = 0) => _visual.CenterPoint = new Vector3((float)Math.Max(0, pivot), (float)Math.Max(0, pivotY), 0);
+    internal void SetSplit(int height, int gap) { }
+
+    private void Pose(float progress)
     {
-        _width=width;_height=height;_dpi=dpi;_pivot=Math.Clamp(pivot,0,width/dpi);
-        _visual.CenterPoint=new Vector3((float)_pivot,0,0);
-        Apply();
+        float s = _from + (1 - _from) * progress;
+        _visual.StopAnimation("Scale"); _visual.StopAnimation("Opacity"); _visual.StopAnimation("Translation");
+        _visual.Scale = new Vector3(s, s, 1);
+        _visual.Opacity = Math.Clamp(progress * 3, 0, 1);
+        _visual.Properties.InsertVector3("Translation", new Vector3(0, -10 * (1 - progress), 0));
     }
-    internal void SetSplit(int height,int gap){_splitHeight=height;_splitGap=gap;_clip=null;}
 
     internal void Prepare(float progress)
     {
-        // HidePopup may reset this visual outside the motion controller.
-        _scale=new(float.NaN);_translation=new(float.NaN);_opacity=float.NaN;
-        Stop();Progress=Math.Clamp(progress,0,1);
-        var visual=_visual;
-        visual.StopAnimation("Scale");visual.StopAnimation("Opacity");visual.StopAnimation("Translation");
-        Apply();
+        Stop(); _fromProgress = _toProgress = Math.Clamp(progress, 0, 1);
+        Pose(_toProgress);
     }
 
-    internal void Play(bool entering,int milliseconds,Action? completed=null)
+    internal void Play(bool entering, int milliseconds, Action? completed = null)
     {
-        Stop();_completed=completed;_from=Progress;_to=entering?1:0;
-        if(!SurfaceMotion.Enabled||Math.Abs(_to-_from)<.0001)
+        float current = Progress;
+        Stop(); _completed = completed;
+        _fromProgress = current; _toProgress = entering ? 1 : 0;
+        if (!SurfaceMotion.Enabled || Math.Abs(_toProgress - _fromProgress) < .0001f)
         {
-            Progress=_to;Apply();Finish();return;
+            Pose(_toProgress); Finish(); return;
         }
-        // Reversing an interrupted transition continues from the current surface, not from a preset pose.
-        _duration=Math.Max(50,(int)(milliseconds*Math.Max(.25f,Math.Abs(_to-_from))));
-        _started=Stopwatch.GetTimestamp();
-        // XAML and the HWND glass region must use the same presentation sample.
-        // Independent compositor animations can run ahead of the native clip.
-        _clock.SetFrameRate(DockApp.Current.Settings.Current.TopBarAnimationFps);_clock.Start();
-    }
-
-    private double Ease(double t)=>_to>_from?(1-(1+9*t)*Math.Exp(-9*t))/(1-10*Math.Exp(-9)):t*t;
-    private void Tick()
-    {
-        double t=Math.Clamp(Stopwatch.GetElapsedTime(_started).TotalMilliseconds/_duration,0,1);
-        // A fast release with a damped settling tail; the exit accelerates towards its button.
-        Progress=(float)(_from+(_to-_from)*Ease(t));Apply();
-        if(t>=1)Finish();
-    }
-
-    private void Apply()
-    {
-        if(_width<=0||_height<=0)return;
-        float p=Progress,sx=_minX+(1-_minX)*p,sy=_minY+(1-_minY)*p,y=_lift*(1-p);
-        var visual=_visual;
-        var scale=new Vector3(sx,sy,1);var translation=new Vector3(0,y,0);float opacity=Math.Clamp(p*3,0,1);
-        if(_scale!=scale){visual.Scale=scale;_scale=scale;}
-        if(_translation!=translation){_properties.InsertVector3("Translation",translation);_translation=translation;}
-        if(_opacity!=opacity){visual.Opacity=opacity;_opacity=opacity;}
-        _glass.SetOpacity(Math.Clamp(p*3,0,1));
-        int left=(int)Math.Round(_pivot*_dpi*(1-sx));
-        int top=Math.Max(0,(int)Math.Round(y*_dpi));
-        int right=Math.Min(_width,(int)Math.Round(left+_width*sx));
-        int bottom=Math.Clamp((int)Math.Round(y*_dpi+_height*sy),top+1,_height);
-        int radius=(int)Math.Round(_radius*_dpi*Math.Min(sx,sy));
-        var clip=(left,top,right,bottom,radius);
-        if(_clip==clip)return;
-        var region=NativeMethods.CreateRoundRectRgn(left,top,right+1,bottom+1,radius*2,radius*2);
-        if(region==IntPtr.Zero)throw new InvalidOperationException("Could not create animated menu region.");
-        if(_splitHeight>0)
+        var compositor = _visual.Compositor;
+        float travel = Math.Abs(_toProgress - _fromProgress);
+        _duration = Math.Max(90, (int)(milliseconds * Math.Max(.35f, travel)));
+        _started = Stopwatch.GetTimestamp(); _running = true;
+        int generation = ++_generation;
+        var span = TimeSpan.FromMilliseconds(_duration);
+        using var decelerate = compositor.CreateCubicBezierEasingFunction(new Vector2(.2f, .8f), new Vector2(.2f, 1f));
+        using var accelerate = compositor.CreateCubicBezierEasingFunction(new Vector2(.4f, 0f), new Vector2(1f, 1f));
+        float startScale = _from + (1 - _from) * current;
+        var batch = compositor.CreateScopedBatch(CompositionBatchTypes.Animation);
+        using var scale = compositor.CreateVector3KeyFrameAnimation();
+        using var fade = compositor.CreateScalarKeyFrameAnimation();
+        using var lift = compositor.CreateVector3KeyFrameAnimation();
+        scale.Duration = fade.Duration = lift.Duration = span;
+        scale.InsertKeyFrame(0, new Vector3(startScale, startScale, 1));
+        fade.InsertKeyFrame(0, Math.Clamp(current * 3, 0, 1));
+        lift.InsertKeyFrame(0, new Vector3(0, -10 * (1 - current), 0));
+        if (entering)
         {
-            int split=(int)Math.Round((y+_splitHeight*sy)*_dpi);
-            int second=(int)Math.Round((y+(_splitHeight+_splitGap)*sy)*_dpi);
-            NativeMethods.DeleteObject(region);
-            int capRadius=(int)Math.Round(_splitHeight*.5*_dpi*Math.Min(sx,sy));
-            region=NativeMethods.CreateRoundRectRgn(left,top,right+1,Math.Max(top+1,split)+1,capRadius*2,capRadius*2);
-            var lower=NativeMethods.CreateRoundRectRgn(left,Math.Max(top,second),right+1,bottom+1,radius*2,radius*2);
-            if(region==IntPtr.Zero||lower==IntPtr.Zero){if(region!=IntPtr.Zero)NativeMethods.DeleteObject(region);if(lower!=IntPtr.Zero)NativeMethods.DeleteObject(lower);throw new InvalidOperationException("Could not create search glass bands.");}
-            int combined=CombineRgn(region,region,lower,2);NativeMethods.DeleteObject(lower);
-            if(combined==0){NativeMethods.DeleteObject(region);throw new InvalidOperationException("Could not combine search glass bands.");}
+            // Springs past rest by ~4 % at 62 % of the time, then settles.
+            scale.InsertKeyFrame(.62f, new Vector3(1.04f, 1.04f, 1), decelerate);
+            scale.InsertKeyFrame(1, new Vector3(1, 1, 1), decelerate);
+            fade.InsertKeyFrame(.35f, 1, decelerate); fade.InsertKeyFrame(1, 1);
+            lift.InsertKeyFrame(1, Vector3.Zero, decelerate);
         }
-        if(NativeMethods.SetWindowRgn(_hwnd,region,true)==0)
-        {NativeMethods.DeleteObject(region);throw new InvalidOperationException("Could not apply animated menu region.");}
-        _clip=clip;
+        else
+        {
+            float end = _from + .06f;
+            scale.InsertKeyFrame(1, new Vector3(end, end, 1), accelerate);
+            fade.InsertKeyFrame(1, 0, accelerate);
+            lift.InsertKeyFrame(1, new Vector3(0, -6, 0), accelerate);
+        }
+        _visual.StartAnimation("Scale", scale); _visual.StartAnimation("Opacity", fade); _visual.StartAnimation("Translation", lift);
+        batch.End();
+        batch.Completed += (_, _) => { if (generation == _generation) Finish(); batch.Dispose(); };
     }
 
     private void Finish()
     {
-        _clock.Stop();StopVisual();Apply();var completed=_completed;_completed=null;completed?.Invoke();
+        _running = false;
+        var completed = _completed; _completed = null; completed?.Invoke();
     }
-    private void StopVisual(){_visual.StopAnimation("Scale");_visual.StopAnimation("Opacity");_visual.StopAnimation("Translation");}
+
     internal void Stop()
     {
-        // Keep the last presented pose when reversing, even if the UI was busy.
-        _clock.Stop();StopVisual();Apply();_completed=null;
+        // Reversing keeps the last pose: stop without resetting, the next Play starts from the current progress.
+        float p = Progress; _generation++;
+        _visual.StopAnimation("Scale"); _visual.StopAnimation("Opacity"); _visual.StopAnimation("Translation");
+        _running = false; _fromProgress = _toProgress = p; _completed = null;
     }
-    public void Dispose(){Stop();_clock.Dispose();}
+
+    public void Dispose() => Stop();
 }

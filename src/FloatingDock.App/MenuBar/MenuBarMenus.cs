@@ -24,7 +24,18 @@ internal sealed class MenuBarMenus : IDisposable
     private readonly DispatcherQueueTimer _audioTimer;
     private readonly DispatcherQueueTimer _dismissTimer;
     private MenuSurfaceMotion? _motion;
-    private readonly GlassBackdrop _glass=new();
+    private readonly GlideHighlight _glide=new();
+    private Grid? _popupHost;
+    private Grid? _contentHost;
+    private UIElement? _shown;
+    /// <summary>Hovering a list item glides one shared highlight to it, instead of each row flashing on its own.</summary>
+    private void OnPopupPointer(object sender,Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        DependencyObject? node=e.OriginalSource as DependencyObject;
+        while(node is not null&&!ReferenceEquals(node,_contentHost)&&!(node is Button{Tag:"row"}))node=VisualTreeHelper.GetParent(node);
+        if(node is Button row&&row.IsEnabled){var c=M3.Current;_glide.SetColor(ColorHelper.FromArgb(34,c.OnSurface.R,c.OnSurface.G,c.OnSurface.B));_glide.MoveTo(row,M3.CornerL);}
+        else _glide.Hide();
+    }
     private IntPtr _lastForeground;
     private IntPtr _returnFocus;
     private Window? _popupWindow;
@@ -71,7 +82,6 @@ internal sealed class MenuBarMenus : IDisposable
     internal MenuBarMenus(Action<bool> opened)
     {
         _opened=opened;_audioTimer=DockApp.Current.UiQueue.CreateTimer();
-        _glass.SetVisible(false);
         _audioTimer.Interval=TimeSpan.FromMilliseconds(700);
         _dismissTimer=DockApp.Current.UiQueue.CreateTimer();_dismissTimer.Interval=TimeSpan.FromMilliseconds(100);
         _dismissTimer.Tick+=(_,_)=>
@@ -92,25 +102,32 @@ internal sealed class MenuBarMenus : IDisposable
         if(!CaptureActive&&!Opening&&!TrayContextActive&&kind==FloatingDock.Windows.RunningApps.WindowEventKind.Foreground&&ActiveKind is not null&&!_showing&&NativeMethods.GetForegroundWindow()!=PopupHandle&&!PointerOverAnchor())Close();
     }
     private static SolidColorBrush Brush(byte a,byte r,byte g,byte b)=>new(ColorHelper.FromArgb(a,r,g,b));
-    private static TextBlock Text(string text,double size=13,bool secondary=false)=>new() { Text=L.Text(text),FontSize=size,TextWrapping=TextWrapping.Wrap,Foreground=secondary?GlassStyle.Secondary:Brush(255,246,247,251) };
+    private static TextBlock Text(string text,double size=13,bool secondary=false)=>new() { Text=L.Text(text),FontSize=size,TextWrapping=TextWrapping.Wrap,Foreground=secondary?GlassStyle.Secondary:GlassStyle.Primary };
     private static StackPanel Panel()=>new() { Width=300,Spacing=12 };
+    private M3.Scheme? _builtScheme;
+    /// <summary>Panels cache their brushes; rebuild them when the seed or theme changed.</summary>
+    private void Rescheme(){var now=M3.Current;if(ReferenceEquals(_builtScheme,now))return;_builtScheme=now;_mainState=null;_mainPanel=null;_trayPanel=null;_trayPanelItems=null;}
     private static Grid Header(string title,string glyph)
     {
         var grid=new Grid { Margin=new Thickness(2,0,2,4) };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width=GridLength.Auto });grid.ColumnDefinitions.Add(new ColumnDefinition { Width=new GridLength(1,GridUnitType.Star) });
-        grid.Children.Add(new FontIcon { Glyph=glyph,FontSize=18,Margin=new Thickness(0,0,10,0),Foreground=Brush(255,164,199,255) });
-        var label=Text(title,17);label.FontWeight=Microsoft.UI.Text.FontWeights.SemiBold;Grid.SetColumn(label,1);grid.Children.Add(label);return grid;
+        grid.Children.Add(new FontIcon { Glyph=glyph,FontSize=20,Margin=new Thickness(0,0,12,0),Foreground=M3.Brush(M3.Current.Primary) });
+        var label=Text(title,18);label.FontWeight=new global::Windows.UI.Text.FontWeight { Weight=500 };Grid.SetColumn(label,1);grid.Children.Add(label);return grid;
     }
-    private static Border Divider()=>new() { Height=1,Background=Brush(24,255,255,255),Margin=new Thickness(0,3,0,3) };
+    private static Border Divider()=>new() { Height=1,Background=M3.Brush(M3.Current.OutlineVariant,150),Margin=new Thickness(0,6,0,6) };
+    /// <summary>A Material list item: leading icon, one or two lines of text, a trailing check when it is the current choice.</summary>
     private static Button Row(string title,string detail,string glyph,Action action,bool selected=false)
     {
-        var row=new Grid { ColumnSpacing=12 };
+        var c=M3.Current;
+        var row=new Grid { ColumnSpacing=16 };
         row.ColumnDefinitions.Add(new ColumnDefinition { Width=GridLength.Auto });row.ColumnDefinitions.Add(new ColumnDefinition { Width=new GridLength(1,GridUnitType.Star) });row.ColumnDefinitions.Add(new ColumnDefinition { Width=GridLength.Auto });
-        row.Children.Add(new FontIcon { Glyph=glyph,FontSize=17,Width=24,VerticalAlignment=VerticalAlignment.Center,Foreground=Brush(255,190,203,226) });
-        var text=new StackPanel { Spacing=3 };text.Children.Add(Text(title));if(detail.Length>0)text.Children.Add(Text(detail,12,true));Grid.SetColumn(text,1);row.Children.Add(text);
-        if(selected) { var check=new FontIcon { Glyph="\uE73E",FontSize=13,Foreground=Brush(255,149,196,255) };Grid.SetColumn(check,2);row.Children.Add(check); }
-        var b=new Button { Content=row,HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch,Padding=new Thickness(12),CornerRadius=new CornerRadius(14),BorderThickness=new Thickness(0) };
-        GlassStyle.Button(b);b.Background=selected?GlassStyle.Selected:GlassStyle.Inset;
+        row.Children.Add(new FontIcon { Glyph=glyph,FontSize=18,Width=24,VerticalAlignment=VerticalAlignment.Center,Foreground=M3.Brush(selected?c.OnSecondaryContainer:c.OnSurfaceVariant) });
+        var text=new StackPanel { Spacing=1,VerticalAlignment=VerticalAlignment.Center };var name=Text(title,14);if(selected)name.Foreground=M3.Brush(c.OnSecondaryContainer);text.Children.Add(name);
+        if(detail.Length>0)text.Children.Add(Text(detail,12,true));Grid.SetColumn(text,1);row.Children.Add(text);
+        if(selected) { var check=new FontIcon { Glyph="\uE73E",FontSize=14,Foreground=M3.Brush(c.OnSecondaryContainer),VerticalAlignment=VerticalAlignment.Center };Grid.SetColumn(check,2);row.Children.Add(check); }
+        var b=new Button { Tag="row",Content=row,HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch,Padding=new Thickness(16,0,16,0),MinHeight=detail.Length>0?56:48,CornerRadius=new CornerRadius(M3.CornerL),BorderThickness=new Thickness(0) };
+        GlassStyle.Button(b,flat:!selected);if(selected)b.Background=GlassStyle.Selected;
+        b.Foreground=M3.Brush(selected?c.OnSecondaryContainer:c.OnSurface);
         AutomationProperties.SetName(b,title+" "+detail);b.Click+=(_,_)=>action();return b;
     }
     private void Show(Button anchor,StackPanel content,string kind,bool replace=false)
@@ -125,20 +142,25 @@ internal sealed class MenuBarMenus : IDisposable
         {
             if(_popupWindow is null)
             {
-                _popupRoot=new Border { RequestedTheme=ElementTheme.Dark,Background=GlassStyle.Surface,BorderBrush=GlassStyle.Stroke,BorderThickness=new Thickness(1),CornerRadius=new CornerRadius(22),Padding=new Thickness(16) };
+                _popupRoot=new Border { Background=GlassStyle.Surface,BorderBrush=GlassStyle.Stroke,BorderThickness=new Thickness(1),CornerRadius=new CornerRadius(M3.CornerXl),Padding=new Thickness(16) };
                 _scroll=new ScrollViewer { HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled,VerticalScrollBarVisibility=ScrollBarVisibility.Auto };
                 _popupRoot.Child=_scroll;
-                _popupWindow=new Window { Title="FloatingDock quick menu",Content=_popupRoot,SystemBackdrop=_glass };
+                _popupHost=new Grid { Padding=Pop.Pad,Background=new SolidColorBrush(Colors.Transparent) };_popupHost.Children.Add(_popupRoot);
+                _popupWindow=new Window { Title="FloatingDock quick menu",Content=_popupHost,SystemBackdrop=new TransparentBackdrop() };
                 _popupHwnd=WindowSetup.Hwnd(_popupWindow);
                 WindowSetup.MakeBorderless(_popupWindow);WindowStyler.MakeOverlayWindow(PopupHandle,noActivate:false);
-                _motion=new MenuSurfaceMotion(PopupHandle,_popupRoot,_glass,minX:.88f,minY:.76f,lift:-10,radius:22);
+                _motion=new MenuSurfaceMotion(PopupHandle,_popupRoot);
                 _popupWindow.Activated+=(_,e)=> { if(!CaptureActive&&!Opening&&!_showing&&!TrayContextActive&&e.WindowActivationState==WindowActivationState.Deactivated&&NativeMethods.GetForegroundWindow()!=PopupHandle&&!PointerOverAnchor())Close(); };
                 _popupRoot.KeyDown+=(_,e)=> { if(e.Key==global::Windows.System.VirtualKey.Escape) { e.Handled=true;Close(); } };
             }
             var monitor=FloatingDock.Windows.Display.MonitorHelper.Describe(NativeMethods.MonitorFromWindow(Microsoft.UI.Win32Interop.GetWindowFromWindowId(anchor.XamlRoot.ContentIslandEnvironment.AppWindowId),NativeMethods.MONITOR_DEFAULTTONEAREST))!;
+            // The seed or theme may have changed since the surface was built.
+            M3.Theme(_popupRoot!);_popupRoot!.Background=GlassStyle.Surface;_popupRoot.BorderBrush=GlassStyle.Stroke;
             double maxHeight=Math.Max(160,(monitor.Bounds.Height-70)/monitor.Scale);
             _scroll!.MaxHeight=maxHeight-34;
-            if(!ReferenceEquals(_scroll.Content,content))_scroll.Content=content;
+            if(_contentHost is null){_contentHost=new Grid();_contentHost.Children.Add(_glide.Layer);_scroll.Content=_contentHost;_contentHost.PointerMoved+=OnPopupPointer;_contentHost.PointerExited+=(_,_)=>_glide.Hide();}
+            if(!ReferenceEquals(_shown,content)){if(_shown is not null)_contentHost.Children.Remove(_shown);if(content.Parent is Panel old)old.Children.Remove(content);_contentHost.Children.Add(content);_shown=content;}
+            _glide.Hide();
             _scroll.ChangeView(0,0,null,true); // Reopening starts at the top, like a fresh popup.
             _popupRoot!.IsHitTestVisible=true;
             _popupRoot.Measure(new global::Windows.Foundation.Size(334,maxHeight));
@@ -147,13 +169,14 @@ internal sealed class MenuBarMenus : IDisposable
             NativeMethods.GetWindowRect(Microsoft.UI.Win32Interop.GetWindowFromWindowId(anchor.XamlRoot.ContentIslandEnvironment.AppWindowId),out var owner);
             int x=Math.Clamp(owner.Left+(int)((kind=="main"?point.X-anchor.ActualWidth:point.X)*monitor.Scale)-(kind=="main"?0:width),monitor.Bounds.Left+8,monitor.Bounds.Right-width-8);
             int y=owner.Bottom+(int)Math.Ceiling(6*monitor.Scale);
-            WindowStyler.SetBounds(PopupHandle,x,y,width,Math.Max(height,100),topmost:!CaptureActive);
-            _glass.SetVisible(true);SurfaceVisible=true;
+            int pad=(int)Math.Ceiling(Pop.PadDip*monitor.Scale);
+            WindowStyler.SetBounds(PopupHandle,x-pad,y-pad,width+2*pad,Math.Max(height,100)+2*pad,topmost:!CaptureActive);
+            SurfaceVisible=true;
             // Clip the actual glass HWND to the same anchored transform as its XAML plate.
             double pivot=(owner.Left+(point.X-anchor.ActualWidth/2)*monitor.Scale-x)/monitor.Scale;
             _motion!.Prepare(SurfaceMotion.Enabled?progress:1);
             _motion.SetGeometry(width,Math.Max(height,100),monitor.Scale,pivot);
-            int duration=Math.Clamp((int)(DockApp.Current.Settings.Current.MenuAnimationMs*1.4),160,600);
+            int duration=Math.Clamp(DockApp.Current.Settings.Current.MenuAnimationMs*2,360,700);
             // The measured native geometry is enough to start even on the first open.
             // Waiting for Loaded left a completely transparent window before its first frame.
             if(progress<.99f)SurfaceMotion.MenuContent(content,duration,entering:true);
@@ -166,7 +189,7 @@ internal sealed class MenuBarMenus : IDisposable
                 if(generation!=_generation||ActiveKind!=kind)return;
                 _popupRoot.UpdateLayout();content.Measure(new global::Windows.Foundation.Size(300,double.PositiveInfinity));
                 int finalHeight=(int)Math.Ceiling(Math.Min(maxHeight,content.DesiredSize.Height+34)*monitor.Scale);
-                WindowStyler.SetBounds(PopupHandle,x,y,width,Math.Max(finalHeight,100),topmost:!CaptureActive);
+                WindowStyler.SetBounds(PopupHandle,x-pad,y-pad,width+2*pad,Math.Max(finalHeight,100)+2*pad,topmost:!CaptureActive);
                 _motion.SetGeometry(width,Math.Max(finalHeight,100),monitor.Scale,pivot);
             });
             _resizePopup();
@@ -199,7 +222,6 @@ internal sealed class MenuBarMenus : IDisposable
     {
         _motion?.Stop();
         bool focused=NativeMethods.GetForegroundWindow()==PopupHandle;
-        _glass.SetVisible(false);
         _popupWindow?.AppWindow.Hide();
         WindowStyler.Hide(PopupHandle);
         if(_popupRoot is not null)
@@ -221,6 +243,7 @@ internal sealed class MenuBarMenus : IDisposable
     internal void Main(Button anchor)
     {
         if(ActiveKind=="main") { Close();return; }
+        Rescheme();
         var app=DockApp.Current;
         var state=(app.Settings.Current.Language,app.Settings.Current.TopBarAutoHide);
         if(_mainState==state&&_mainPanel is not null){Show(anchor,_mainPanel,"main");return;}
@@ -258,21 +281,41 @@ internal sealed class MenuBarMenus : IDisposable
     internal void Media(Button anchor)
     {
         if(ActiveKind=="media"){Close();return;}
-        var panel=Panel();panel.Children.Add(Header("Media","\uE8D6"));
-        var title=Text("Searching…",17);title.FontWeight=Microsoft.UI.Text.FontWeights.SemiBold;
-        var artist=Text("",13,true);
-        panel.Children.Add(title);panel.Children.Add(artist);
-        var controls=new StackPanel { Orientation=Orientation.Horizontal,Spacing=10,HorizontalAlignment=HorizontalAlignment.Center };
-        Button Button(string glyph,string label)
+        var c=M3.Current;
+        var panel=Panel();
+        // Header: a tonal art tile (no cover art is exposed), title and artist.
+        var head=new Grid { ColumnSpacing=14 };
+        head.ColumnDefinitions.Add(new ColumnDefinition { Width=GridLength.Auto });head.ColumnDefinitions.Add(new ColumnDefinition { Width=new GridLength(1,GridUnitType.Star) });
+        var art=new Border { Width=64,Height=64,CornerRadius=new CornerRadius(M3.CornerL),Background=M3.Brush(c.SecondaryContainer),Child=new FontIcon { Glyph="",FontSize=26,Foreground=M3.Brush(c.OnSecondaryContainer),HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Center } };
+        head.Children.Add(art);
+        var names=new StackPanel { Spacing=2,VerticalAlignment=VerticalAlignment.Center };Grid.SetColumn(names,1);head.Children.Add(names);
+        var title=Text("Searching…",16);title.FontWeight=new global::Windows.UI.Text.FontWeight { Weight=600 };title.TextWrapping=TextWrapping.NoWrap;title.TextTrimming=TextTrimming.CharacterEllipsis;
+        var artist=Text("",13,true);artist.TextWrapping=TextWrapping.NoWrap;artist.TextTrimming=TextTrimming.CharacterEllipsis;
+        names.Children.Add(title);names.Children.Add(artist);panel.Children.Add(head);
+        // Transport: shuffle, previous, a large primary play/pause, next, repeat.
+        var controls=new StackPanel { Orientation=Orientation.Horizontal,Spacing=8,HorizontalAlignment=HorizontalAlignment.Center };
+        Button Round(string glyph,string label,double width,double height,bool primary,double glyphSize=18)
         {
-            var button=new Button { Content=new FontIcon { Glyph=glyph,FontSize=20 },Width=64,Height=44,CornerRadius=new CornerRadius(12),IsEnabled=false };
+            var button=new Button { Content=new FontIcon { Glyph=glyph,FontSize=glyphSize },Width=width,Height=height,CornerRadius=new CornerRadius(height/2),IsEnabled=false,BorderThickness=new Thickness(0),Padding=new Thickness(0) };
+            button.Style=(Style)Application.Current.Resources["M3ButtonStyle"];
+            button.Background=M3.Brush(primary?c.Primary:c.ContainerHighest);button.Foreground=M3.Brush(primary?c.OnPrimary:c.OnSurface);
             AutomationProperties.SetName(button,L.Text(label));ToolTipService.SetToolTip(button,L.Text(label));controls.Children.Add(button);return button;
         }
-        var previous=Button("\uE892","Previous");var toggle=Button("\uE768","Play / pause");var next=Button("\uE893","Next");panel.Children.Add(controls);
+        var shuffle=Round("","Shuffle",44,44,false);
+        var previous=Round("","Previous",48,48,false,20);var toggle=Round("","Play / pause",84,56,true,24);var next=Round("","Next",48,48,false,20);
+        var repeat=Round("","Repeat",44,44,false);
+        panel.Children.Add(controls);
+        // Progress: elapsed time, the wave, total time.
+        var line=new Grid { ColumnSpacing=10 };
+        line.ColumnDefinitions.Add(new ColumnDefinition { Width=GridLength.Auto });line.ColumnDefinitions.Add(new ColumnDefinition { Width=new GridLength(1,GridUnitType.Star) });line.ColumnDefinitions.Add(new ColumnDefinition { Width=GridLength.Auto });
+        var elapsed=Text("0:00",12,true);var total=Text("0:00",12,true);elapsed.VerticalAlignment=total.VerticalAlignment=VerticalAlignment.Center;
+        var wave=new WavySlider();Grid.SetColumn(wave,1);Grid.SetColumn(total,2);
+        line.Children.Add(elapsed);line.Children.Add(wave);line.Children.Add(total);panel.Children.Add(line);
         var status=Text("",12,true);panel.Children.Add(status);Show(anchor,panel,"media");
         int generation=_generation;bool reading=false,acting=false;
         MediaReady=false;MediaButtons=new[]{previous,toggle,next};
         bool Current()=>ActiveKind=="media"&&generation==_generation;
+        static string Clock(double seconds){var t=TimeSpan.FromSeconds(Math.Max(0,seconds));return t.TotalHours>=1?$"{(int)t.TotalHours}:{t.Minutes:00}:{t.Seconds:00}":$"{t.Minutes}:{t.Seconds:00}";}
         async Task Read()
         {
             if(reading||acting||!Current())return;reading=true;
@@ -282,9 +325,18 @@ internal sealed class MenuBarMenus : IDisposable
                 title.Text=state is null?L.Text("No active media session"):state.Title;
                 artist.Text=state?.Artist??"";
                 previous.IsEnabled=state?.Previous==true;toggle.IsEnabled=state?.Toggle==true;next.IsEnabled=state?.Next==true;
-                ((FontIcon)toggle.Content).Glyph=state?.Playing==true?"\uE769":"\uE768";status.Text="";
+                shuffle.IsEnabled=state?.CanShuffle==true;repeat.IsEnabled=state?.CanRepeat==true;
+                // An active toggle is a tonal container with the primary colour, as on the reference player.
+                shuffle.Background=M3.Brush(state?.Shuffle==true?c.SecondaryContainer:c.ContainerHighest);shuffle.Foreground=M3.Brush(state?.Shuffle==true?c.Primary:c.OnSurface);
+                bool repeating=(state?.Repeat??0)!=0;
+                repeat.Background=M3.Brush(repeating?c.SecondaryContainer:c.ContainerHighest);repeat.Foreground=M3.Brush(repeating?c.Primary:c.OnSurface);
+                ((FontIcon)repeat.Content).Glyph=state?.Repeat==1?"":"";
+                ((FontIcon)toggle.Content).Glyph=state?.Playing==true?"":"";status.Text="";
+                double duration=state?.Duration??0,position=state?.Position??0;
+                elapsed.Text=Clock(position);total.Text=duration>0?Clock(duration):"";
+                wave.Set(duration>0?position/duration:0,state?.Playing==true);
             }
-            catch(Exception) { if(Current()){title.Text=L.Text("Media controls are unavailable.");previous.IsEnabled=toggle.IsEnabled=next.IsEnabled=false;} }
+            catch(Exception) { if(Current()){title.Text=L.Text("Media controls are unavailable.");previous.IsEnabled=toggle.IsEnabled=next.IsEnabled=shuffle.IsEnabled=repeat.IsEnabled=false;} }
             finally { reading=false;if(Current()){MediaReady=true;_resizePopup?.Invoke();} }
         }
         async Task Act(string command)
@@ -295,6 +347,7 @@ internal sealed class MenuBarMenus : IDisposable
             finally { acting=false;if(Current())await Read(); }
         }
         previous.Click+=async(_,_)=>await Act("previous");toggle.Click+=async(_,_)=>await Act("toggle");next.Click+=async(_,_)=>await Act("next");
+        shuffle.Click+=async(_,_)=>await Act("shuffle");repeat.Click+=async(_,_)=>await Act("repeat");
         if(_audioTick is not null)_audioTimer.Tick-=_audioTick;
         _audioTick=async(_,_)=>await Read();_audioTimer.Tick+=_audioTick;_audioTimer.Start();_=Read();
     }
@@ -308,6 +361,7 @@ internal sealed class MenuBarMenus : IDisposable
     internal IReadOnlyList<TrayItem> TrayItems { get; private set; }=Array.Empty<TrayItem>();
     internal void Tray(Button anchor,IReadOnlyList<TrayItem> items,bool loading=false)
     {
+        Rescheme();
         if(!loading&&ReferenceEquals(items,_trayPanelItems)&&_trayPanel is not null&&_trayPanelLanguage==DockApp.Current.Settings.Current.Language)
         {TrayItems=items;Show(anchor,_trayPanel,"tray",replace:ActiveKind=="tray");return;}
         TrayItems=items;var panel=Panel();panel.Children.Add(Header("System tray","\uE70D"));
@@ -333,7 +387,7 @@ internal sealed class MenuBarMenus : IDisposable
             }
             async Task Activate(bool context)
             {
-                var p=button.TransformToVisual(_popupRoot).TransformPoint(new(button.ActualWidth/2,button.ActualHeight/2));
+                var p=button.TransformToVisual(_popupHost).TransformPoint(new(button.ActualWidth/2,button.ActualHeight/2));
                 NativeMethods.GetWindowRect(PopupHandle,out var bounds);
                 double scale=button.XamlRoot.RasterizationScale;
                 var point=new POINT {X=bounds.Left+(int)Math.Round(p.X*scale),Y=bounds.Top+(int)Math.Round(p.Y*scale)};
@@ -368,7 +422,14 @@ internal sealed class MenuBarMenus : IDisposable
         panel.Children.Add(number);panel.Children.Add(Text(L.Text("Output device volume"),12,true));
         var slider=new Slider { Minimum=0,Maximum=100,StepFrequency=1,SmallChange=1,LargeChange=10,HorizontalAlignment=HorizontalAlignment.Stretch };
         AutomationProperties.SetName(slider,L.Text("Volume"));panel.Children.Add(slider);
-        var mute=new ToggleButton { Content=L.Text("Mute"),CornerRadius=new CornerRadius(8),HorizontalAlignment=HorizontalAlignment.Stretch };
+        var mute=new ToggleButton { Content=L.Text("Mute"),CornerRadius=new CornerRadius(20),Height=40,HorizontalAlignment=HorizontalAlignment.Stretch,BorderThickness=new Thickness(0) };
+        {
+            // Unchecked = tonal, checked (muted) = filled primary.
+            var c=M3.Current;
+            foreach(var s in new[]{"","PointerOver","Pressed"}){mute.Resources["ToggleButtonBackground"+s]=M3.Brush(c.SecondaryContainer);mute.Resources["ToggleButtonForeground"+s]=M3.Brush(c.OnSecondaryContainer);
+                mute.Resources["ToggleButtonBackgroundChecked"+s]=M3.Brush(c.Primary);mute.Resources["ToggleButtonForegroundChecked"+s]=M3.Brush(c.OnPrimary);
+                mute.Resources["ToggleButtonBorderBrush"+s]=M3.Clear;mute.Resources["ToggleButtonBorderBrushChecked"+s]=M3.Clear;}
+        }
         panel.Children.Add(mute);var status=Text("",12,true);panel.Children.Add(status);
         bool syncing=false, pointerOver=false;
         slider.PointerEntered+=(_,_)=>pointerOver=true;slider.PointerExited+=(_,_)=>pointerOver=false;
@@ -436,10 +497,10 @@ internal sealed class MenuBarMenus : IDisposable
                 foreach(var a in result.adapters)
                 {
                     var info=new StackPanel { Spacing=4,Margin=new Thickness(10) };
-                    info.Children.Add(Text(a.Kind+" · "+a.Name));
-                    list.Children.Add(new Border { Child=info,Background=Brush(24,132,175,255),CornerRadius=new CornerRadius(9) });
+                    var adapterName=Text(a.Kind+" · "+a.Name);adapterName.Foreground=M3.Brush(M3.Current.OnSecondaryContainer);info.Children.Add(adapterName);
+                    list.Children.Add(new Border { Child=info,Background=M3.Brush(M3.Current.SecondaryContainer),CornerRadius=new CornerRadius(M3.CornerL) });
                 }
-                if(result.wireless.Networks.Count>0) { list.Children.Add(Divider());list.Children.Add(Text("WI-FI",11,true)); }
+                if(result.wireless.Networks.Count>0) { list.Children.Add(Divider());var wifi=Text("WI-FI",12);wifi.Foreground=M3.Brush(M3.Current.Primary);wifi.FontWeight=new global::Windows.UI.Text.FontWeight { Weight=600 };wifi.Margin=new Thickness(4,0,0,0);list.Children.Add(wifi); }
                 foreach(var network in result.wireless.Networks)
                 {
                     string detail=!network.Available?L.Text("Saved network · connect"):network.Connected?L.Text("Connected · ")+network.Signal+"%":(network.Secured?L.Text("Secured network"):L.Text("Open network"))+" · "+network.Signal+"%";
@@ -473,7 +534,7 @@ internal sealed class MenuBarMenus : IDisposable
     {
         if(ActiveKind=="calendar") { Close();return; }
         var panel=Panel();panel.Children.Add(Header(L.Text("Calendar"),"\uE787"));panel.Children.Add(Text(DateTime.Now.ToString("D"),12,true));
-        panel.Children.Add(new CalendarView { Width=300,SelectionMode=CalendarViewSelectionMode.None,RequestedTheme=ElementTheme.Dark });
+        panel.Children.Add(new CalendarView { Width=300,SelectionMode=CalendarViewSelectionMode.None,RequestedTheme=M3.ElementTheme,CornerRadius=new CornerRadius(M3.CornerL) });
         panel.Children.Add(Divider());panel.Children.Add(Row(L.Text("Date and time"),L.Text("More settings"),"\uE713",()=> { Close();ShellLauncher.Execute("ms-settings:dateandtime",null,null); }));
         Show(anchor,panel,"calendar");
     }

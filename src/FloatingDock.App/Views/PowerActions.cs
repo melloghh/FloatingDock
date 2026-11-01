@@ -15,6 +15,7 @@ internal static class PowerActions
             PrimaryButtonText=L.Text(restart?"Restart":"Shut down"),CloseButtonText=L.Text("Cancel"),
             DefaultButton=ContentDialogButton.Close,
         };
+        M3Dialog.Style(dialog);
         if(await dialog.ShowAsync()!=ContentDialogResult.Primary)return;
         // Diagnostics may inspect and cancel the dialog, but must never power off the user's machine.
         if(Program.IsSmokeTest||Program.IsDiagnosticProfile)return;
