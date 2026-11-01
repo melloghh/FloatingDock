@@ -27,7 +27,7 @@ $engine.Refresh(); $cpu = ($engine.TotalProcessorTime - $c0).TotalSeconds / ((Ge
 Push-Location $check
 try {
     & $dart pub get | Out-Null
-    & $dart run bin/ipc_check.dart $sock $Profile
+    & $dart run tool/ipc_check.dart $sock $Profile
     $code = $LASTEXITCODE
 } finally { Pop-Location }
 
