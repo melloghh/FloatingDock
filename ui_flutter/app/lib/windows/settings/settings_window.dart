@@ -1,0 +1,137 @@
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+
+import '../../core/app_state.dart';
+import '../../core/theme.dart';
+import '../../ui/motion.dart';
+import 'pages.dart';
+
+/// The settings window: a rounded navigation rail on the left with one highlight that glides between pages, the page
+/// on the surface to its right. Pages reveal with rise, fade and a sharpening blur.
+class SettingsView extends StatefulWidget {
+  const SettingsView({super.key, this.initialPage = 'Dock', this.navigate});
+  final String initialPage;
+
+  /// Asks the open window to show another page (set by the controller when settings are opened with a section).
+  final ValueListenable<String?>? navigate;
+
+  @override
+  State<SettingsView> createState() => _SettingsViewState();
+}
+
+class _SettingsViewState extends State<SettingsView> {
+  late String _page = widget.initialPage;
+  int _revision = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.navigate?.addListener(_onNavigate);
+  }
+
+  @override
+  void dispose() {
+    widget.navigate?.removeListener(_onNavigate);
+    super.dispose();
+  }
+
+  void _onNavigate() {
+    final page = widget.navigate?.value;
+    if (page != null && settingsPages.any((p) => p.name == page)) select(page);
+  }
+
+  void select(String name) {
+    if (name == _page) return;
+    setState(() {
+      _page = name;
+      _revision++;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = AppScope.of(context);
+    final cs = Theme.of(context).colorScheme;
+    final def = settingsPages.firstWhere((p) => p.name == _page, orElse: () => settingsPages.first);
+    final index = settingsPages.indexOf(def);
+    return Scaffold(
+      backgroundColor: cs.surfaceContainerLow,
+      body: Row(children: [
+        Container(
+          width: 272,
+          margin: const EdgeInsets.fromLTRB(12, 12, 0, 12),
+          padding: const EdgeInsets.fromLTRB(12, 14, 12, 12),
+          decoration: BoxDecoration(color: cs.surfaceContainer, borderRadius: BorderRadius.circular(Shapes.xl)),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 4, 0, 16),
+              child: Text('FloatingDock', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w500, color: cs.onSurface)),
+            ),
+            Expanded(
+              child: SingleChildScrollView(
+                child: GlideList(
+                  count: settingsPages.length,
+                  selected: index,
+                  itemExtent: 52,
+                  gap: 4,
+                  radius: 26,
+                  highlight: cs.primary,
+                  itemBuilder: (context, i, selected) {
+                    final p = settingsPages[i];
+                    final color = selected ? cs.onPrimary : cs.onSurfaceVariant;
+                    return Material(
+                      color: Colors.transparent,
+                      shape: const StadiumBorder(),
+                      clipBehavior: Clip.antiAlias,
+                      child: InkWell(
+                        onTap: () => select(p.name),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 18),
+                          child: Row(children: [
+                            Icon(p.icon, size: 20, color: color),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: AnimatedDefaultTextStyle(
+                                duration: const Duration(milliseconds: 200),
+                                style: Theme.of(context).textTheme.bodyMedium!.copyWith(fontSize: 14, color: color, fontWeight: selected ? FontWeight.w600 : FontWeight.w500),
+                                child: Text(tr(p.name), overflow: TextOverflow.ellipsis),
+                              ),
+                            ),
+                          ]),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+          ]),
+        ),
+        Expanded(
+          child: Scrollbar(
+            child: SingleChildScrollView(
+              key: PageStorageKey<String>('page-$_page'),
+              padding: const EdgeInsets.fromLTRB(32, 28, 40, 40),
+              child: Align(
+                alignment: Alignment.topLeft,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 860),
+                  child: Reveal(
+                    replayKey: _revision,
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+                        child: Text(tr(def.name), style: TextStyle(fontSize: 28, fontWeight: FontWeight.w500, color: cs.onSurface)),
+                      ),
+                      ...def.build(context, s),
+                    ]),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ]),
+    );
+  }
+}

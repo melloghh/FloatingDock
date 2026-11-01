@@ -139,6 +139,8 @@ public static class InterfaceText
     };
     private static readonly Dictionary<string,string> English = Russian.GroupBy(p=>p.Value).ToDictionary(g=>g.Key,g=>g.First().Key,StringComparer.Ordinal);
     private static readonly Dictionary<string,string> Aliases = Russian.GroupBy(p=>p.Key,StringComparer.OrdinalIgnoreCase).ToDictionary(g=>g.Key,g=>g.First().Value,StringComparer.OrdinalIgnoreCase);
+    /// <summary>English text to the text of <paramref name="language"/> (empty for English), for UIs that translate on their own side.</summary>
+    public static IReadOnlyDictionary<string,string> Table(InterfaceLanguage language)=>language==InterfaceLanguage.Russian?Aliases:new Dictionary<string,string>();
     public static string Get(string text,InterfaceLanguage language)
     {
         var key=English.TryGetValue(text,out var english)?english:text;

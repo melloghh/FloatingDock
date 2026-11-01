@@ -28,7 +28,7 @@ internal static class Program
                     throw new ArgumentException("Use a separate copy of the user profile for diagnostics.");
                 paths = new AppPaths(root);
             }
-            return args.Contains("--quit") ? Quit(paths) : Run(paths);
+            return args.Contains("--quit") ? Quit(paths) : Run(paths, args, profile >= 0);
         }
         catch (Exception ex)
         {
@@ -37,8 +37,14 @@ internal static class Program
         }
     }
 
-    private static int Run(AppPaths paths)
+    private static int Run(AppPaths paths, string[] args, bool diagnostic)
     {
+        // Used by "Restart": wait until the previous process is gone so the single-instance mutex is free.
+        int wait = Array.IndexOf(args, "--wait-for-exit");
+        if (wait >= 0 && wait + 1 < args.Length && int.TryParse(args[wait + 1], out var pid))
+        {
+            try { System.Diagnostics.Process.GetProcessById(pid).WaitForExit(10_000); } catch (ArgumentException) { }
+        }
         EngineLog.Open(paths.LogsDir);
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(paths.Root.ToUpperInvariant())))[..16];
         using var single = new Mutex(initiallyOwned: true, @"Local\FloatingDock.Engine." + hash, out bool first);
@@ -51,7 +57,8 @@ internal static class Program
         TaskScheduler.UnobservedTaskException += (_, e) => { EngineLog.Error("unobserved task exception", e.Exception); e.SetObserved(); };
 
         var ui = new UiLoop();
-        using var host = new EngineHost(paths, ui);
+        using var host = new EngineHost(paths, ui, args, diagnostic);
+        host.QuitRequested += ui.Quit;
         ui.Post(host.Start);
         ui.Run();
         return 0;

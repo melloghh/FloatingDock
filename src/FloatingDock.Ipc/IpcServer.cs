@@ -67,6 +67,10 @@ public sealed class IpcServer : IDisposable
         _handlers[method] = handler;
     }
 
+    /// <summary>For handlers that answer at once: <paramref name="handler"/> returns the result (or null) and throws <see cref="IpcException"/> to refuse.</summary>
+    public void RegisterSync(string method, Func<IpcRequest, JsonNode?> handler) =>
+        Register(method, request => Task.FromResult(handler(request)));
+
     public void Start()
     {
         _started = true;

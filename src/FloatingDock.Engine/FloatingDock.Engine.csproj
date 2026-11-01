@@ -24,6 +24,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <None Include="..\FloatingDock.App\Assets\Explorer.png" Link="Assets\Explorer.png" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\FloatingDock.App\Assets\AppIcon.png" Link="Assets\AppIcon.png" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\FloatingDock.Core\FloatingDock.Core.csproj" />
     <ProjectReference Include="..\FloatingDock.Windows\FloatingDock.Windows.csproj" />
     <ProjectReference Include="..\FloatingDock.Ipc\FloatingDock.Ipc.csproj" />
