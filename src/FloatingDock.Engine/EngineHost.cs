@@ -113,7 +113,8 @@ internal sealed partial class EngineHost : IDisposable
 
         _server = new IpcServer(IpcEndpoint.SocketPathFor(_paths.Root), Version);
         _server.SessionOpened += session => EngineLog.Info($"client #{session.Id} connected");
-        _server.SessionClosed += session => EngineLog.Info($"client #{session.Id} ({session.ClientName}) disconnected");
+        _server.SessionClosed += session => { EngineLog.Info($"client #{session.Id} ({session.ClientName}) disconnected"); _ui.Post(OnSessionClosed); };
+        _server.SessionOpened += _ => _ui.Post(OnSessionOpened);
         RegisterHandlers(_server);
         _server.Start();
 
@@ -270,9 +271,32 @@ internal sealed partial class EngineHost : IDisposable
 
     // ------------------------------------------------------------------ taskbar
 
+    // The taskbar stays hidden only while a UI (the dock) is there to replace it: when the last UI goes away it comes back.
+    private bool _uiGone;
+
+    private void OnSessionClosed()
+    {
+        if (_shuttingDown || _diagnostic) return;
+        // The supervisor restarts a crashed UI within a moment: give it a few seconds before giving the taskbar back.
+        _ = Task.Delay(4000).ContinueWith(_ => _ui.Post(() =>
+        {
+            if (_shuttingDown || _server.SessionCount != 0 || _uiGone) return;
+            _uiGone = true;
+            try { _taskbar.Restore(); EngineLog.Info("taskbar: the UI is gone, the Windows taskbar was restored"); }
+            catch (Exception ex) { EngineLog.Error("taskbar restore after the UI stopped failed", ex); }
+        }));
+    }
+
+    private void OnSessionOpened()
+    {
+        if (!_uiGone) return;
+        _uiGone = false;
+        ApplyTaskbarMode(_settings.Current.TaskbarMode, userChange: false);
+    }
+
     private void ApplyTaskbarMode(TaskbarMode mode, bool userChange)
     {
-        if (_diagnostic) return;         // a test profile never hides the user's taskbar, whatever its settings say
+        if (_diagnostic || _uiGone) return;        // a test profile never hides the user's taskbar, whatever its settings say
         TaskbarResult r;
         try { r = _taskbar.Apply(mode); }
         catch (Exception ex) { EngineLog.Error("taskbar apply failed", ex); r = new TaskbarResult(TaskbarOutcome.Refused, "Unexpected error: " + ex.Message); }
@@ -284,7 +308,7 @@ internal sealed partial class EngineHost : IDisposable
 
     private void MaintainTaskbar()
     {
-        if (_diagnostic || _shuttingDown || _trayOperations > 0 || _settings.Current.TaskbarMode == TaskbarMode.Leave) return;
+        if (_diagnostic || _uiGone || _shuttingDown || _trayOperations > 0 || _settings.Current.TaskbarMode == TaskbarMode.Leave) return;
         var r = _taskbar.Maintain(_settings.Current.TaskbarMode);
         if (r.NeedsAttention) EngineLog.Warn("taskbar maintenance: " + r.Message);
     }
