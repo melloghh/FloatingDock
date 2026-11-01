@@ -206,6 +206,36 @@ LRESULT WindowHost::HandleMessage(HostWindow* w, HWND hwnd, UINT message, WPARAM
   return DefWindowProc(hwnd, message, wparam, lparam);
 }
 
+void WindowHost::ClearThumbnails(HostWindow* w) {
+  for (HTHUMBNAIL t : w->thumbnails) DwmUnregisterThumbnail(t);
+  w->thumbnails.clear();
+}
+
+// Live previews of other windows, drawn by DWM over this window's client area. Rectangles are logical pixels
+// relative to the client area. Sizes of the sources stay theirs: the caller computes the rectangles from their aspect.
+void WindowHost::SetThumbnails(HostWindow* w, const flutter::EncodableList& items) {
+  ClearThumbnails(w);
+  double scale = GetDpiForWindow(w->hwnd) / 96.0;
+  for (const auto& item : items) {
+    const auto* m = std::get_if<Map>(&item);
+    if (!m) continue;
+    HWND source = reinterpret_cast<HWND>(static_cast<intptr_t>(Int(*m, "hwnd")));
+    if (!IsWindow(source)) continue;
+    HTHUMBNAIL thumb = nullptr;
+    if (FAILED(DwmRegisterThumbnail(w->hwnd, source, &thumb)) || !thumb) continue;
+    DWM_THUMBNAIL_PROPERTIES props = {};
+    props.dwFlags = DWM_TNP_RECTDESTINATION | DWM_TNP_VISIBLE | DWM_TNP_OPACITY | DWM_TNP_SOURCECLIENTAREAONLY;
+    props.rcDestination = {static_cast<LONG>(std::lround(Dbl(*m, "x") * scale)), static_cast<LONG>(std::lround(Dbl(*m, "y") * scale)),
+                           static_cast<LONG>(std::lround((Dbl(*m, "x") + Dbl(*m, "w")) * scale)),
+                           static_cast<LONG>(std::lround((Dbl(*m, "y") + Dbl(*m, "h")) * scale))};
+    props.fVisible = TRUE;
+    props.opacity = static_cast<BYTE>(std::lround(Dbl(*m, "opacity", 1.0) * 255));
+    props.fSourceClientAreaOnly = TRUE;
+    DwmUpdateThumbnailProperties(thumb, &props);
+    w->thumbnails.push_back(thumb);
+  }
+}
+
 void WindowHost::Emit(const char* type, HostWindow* w, Map extra) {
   if (!channel_ || !w) return;
   extra[Value("type")] = Value(std::string(type));
@@ -435,7 +465,28 @@ void WindowHost::OnMethod(const flutter::MethodCall<Value>& call, std::unique_pt
   if (name == "show") {
     Show(w, Bool(a, "activate", true));
   } else if (name == "hide") {
+    ClearThumbnails(w);
     ShowWindow(w->hwnd, SW_HIDE);
+  } else if (name == "thumbnails") {
+    if (auto* v = Get(a, "items")) {
+      if (auto* list = std::get_if<EncodableList>(v)) SetThumbnails(w, *list); else ClearThumbnails(w);
+    } else {
+      ClearThumbnails(w);
+    }
+  } else if (name == "windowSize") {
+    // Pixel size of another window (to lay out its preview with the right aspect).
+    RECT r;
+    HWND other = reinterpret_cast<HWND>(static_cast<intptr_t>(Int(a, "hwnd")));
+    Map m;
+    if (IsWindow(other) && GetClientRect(other, &r)) {
+      m[Value("w")] = Value(static_cast<int32_t>(r.right - r.left));
+      m[Value("h")] = Value(static_cast<int32_t>(r.bottom - r.top));
+    }
+    return result->Success(Value(std::move(m)));
+  } else if (name == "setNoActivate") {
+    w->no_activate = Bool(a, "on", true);
+    LONG_PTR ex = GetWindowLongPtr(w->hwnd, GWL_EXSTYLE);
+    SetWindowLongPtr(w->hwnd, GWL_EXSTYLE, w->no_activate ? (ex | WS_EX_NOACTIVATE) : (ex & ~static_cast<LONG_PTR>(WS_EX_NOACTIVATE)));
   } else if (name == "setBounds") {
     SetBounds(w, static_cast<int>(Int(a, "x")), static_cast<int>(Int(a, "y")), Dbl(a, "w"), Dbl(a, "h"));
   } else if (name == "getBounds") {

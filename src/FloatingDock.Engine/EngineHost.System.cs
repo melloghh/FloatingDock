@@ -188,7 +188,7 @@ internal sealed partial class EngineHost
         server.RegisterSync("windows.activate", request =>
         {
             var hwnd = new IntPtr(request.Params["hwnd"]?.GetValue<long>() ?? throw BadParams("hwnd is required."));
-            WindowStyler.BringToFront(hwnd);
+            WindowActivator.Activate(hwnd);
             return null;
         });
     }

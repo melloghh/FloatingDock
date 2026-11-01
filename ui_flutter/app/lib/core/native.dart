@@ -112,6 +112,14 @@ class Native {
       }))!;
 
   Future<void> removeAppBar(int viewId) => _channel.invokeMethod('removeAppBar', {'viewId': viewId});
+  Future<void> setNoActivate(int viewId, bool on) => _channel.invokeMethod('setNoActivate', {'viewId': viewId, 'on': on});
+
+  /// DWM live previews of other windows over [viewId]: each item is {hwnd, x, y, w, h (logical, client-relative), opacity}.
+  Future<void> thumbnails(int viewId, List<Map<String, Object?>> items) => _channel.invokeMethod('thumbnails', {'viewId': viewId, 'items': items});
+
+  /// Client size in pixels of another window ({w,h}), or an empty map when it is gone.
+  Future<Map<String, Object?>> windowSize(int viewId, int hwnd) async =>
+      (await _channel.invokeMapMethod<String, Object?>('windowSize', {'viewId': viewId, 'hwnd': hwnd})) ?? const {};
   Future<void> exit() => _channel.invokeMethod('exit');
 }
 

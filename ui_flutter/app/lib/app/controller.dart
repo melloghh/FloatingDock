@@ -13,6 +13,7 @@ import '../windows/popup/popup_view.dart';
 import '../windows/search/search_window.dart';
 import '../windows/settings/settings_window.dart';
 import 'bar_controller.dart';
+import 'dock_controller.dart';
 import 'host.dart';
 
 /// Owns the windows of the UI process and reacts to what the engine says: hotkeys, tray commands, display changes.
@@ -31,6 +32,7 @@ class AppController {
   Future<void> get exitRequested => _exit.future;
 
   late final BarController _bars = BarController(this);
+  late final DockController _dock = DockController(this);
 
   void start() {
     state.actions['search'] = ([_]) => toggleSearch();
@@ -41,6 +43,7 @@ class AppController {
     state.addListener(_onState);
     _onState();
     _bars.start();
+    _dock.start();
   }
 
   void _onEvent(FdEvent e) {
@@ -217,6 +220,8 @@ class AppController {
   DateTime _popupShownAt = DateTime.fromMillisecondsSinceEpoch(0);
 
   String? get openPopupKind => _popup.visible.value ? _popup.kind : null;
+
+  void closePreview() => _dock.closePreview();
   ValueNotifier<bool> get popupVisible => _popup.visible;
 
   /// Opens (or, for the same kind, closes) a menu anchored under [anchor], a rectangle in physical screen pixels.
@@ -346,6 +351,7 @@ class AppController {
 
   void dispose() {
     _bars.dispose();
+    _dock.dispose();
     _events?.cancel();
     _nativeEvents?.cancel();
     _lostEngine?.cancel();

@@ -21,6 +21,7 @@
 #include <flutter/standard_method_codec.h>
 
 #include <windows.h>
+#include <dwmapi.h>
 
 // One native window that shows one Flutter view.
 struct HostWindow {
@@ -33,6 +34,7 @@ struct HostWindow {
   int min_w = 0, min_h = 0;  // physical pixels, framed windows only
   bool app_bar = false;
   UINT app_bar_edge = 0;
+  std::vector<HTHUMBNAIL> thumbnails;  // DWM live previews drawn over this window
 };
 
 // Creates and manages every window of the UI process and exposes that to Dart over the "fd/windows" channel.
@@ -65,6 +67,8 @@ class WindowHost {
   Value SetAppBar(HostWindow* w, const Map& args);
   void RemoveAppBar(HostWindow* w);
   void Emit(const char* type, HostWindow* w, Map extra = {});
+  void SetThumbnails(HostWindow* w, const flutter::EncodableList& items);
+  void ClearThumbnails(HostWindow* w);
 
   flutter::DartProject project_;
   std::unique_ptr<flutter::FlutterViewController> hub_controller_;

@@ -379,7 +379,7 @@ internal sealed partial class EngineHost : IDisposable
     public void Dispose()
     {
         _shuttingDown = true;
-        _languageTimer?.Dispose(); _fullscreenTimer?.Dispose();
+        _languageTimer?.Dispose(); _fullscreenTimer?.Dispose(); _spaceTimer?.Dispose(); _dockTimer?.Dispose();
         _settingsTimer?.Dispose(); _taskbarTimer?.Dispose(); _displayTimer?.Dispose(); _packTimer?.Dispose();
         _packWatcher?.Dispose();
         _running?.Dispose();

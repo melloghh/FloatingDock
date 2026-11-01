@@ -49,7 +49,7 @@ internal sealed partial class EngineHost
             bool changed = kind == WindowEventKind.Foreground;
             if (!changed && (kind != WindowEventKind.LocationChanged || hwnd != foreground)) return;
             // Batch movement and always inspect the final geometry.
-            (_fullscreenTimer ??= new System.Threading.Timer(_ => _ui.Post(PublishFullscreen), null, Timeout.Infinite, Timeout.Infinite)).Change(changed ? 0 : 50, Timeout.Infinite);
+            (_fullscreenTimer ??= new System.Threading.Timer(_ => _ui.Post(() => { PublishFullscreen(); PublishSpace(); }), null, Timeout.Infinite, Timeout.Infinite)).Change(changed ? 0 : 50, Timeout.Infinite);
         };
     }
 

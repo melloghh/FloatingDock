@@ -73,7 +73,8 @@ internal sealed partial class EngineHost
         server.RegisterSync("apps.launch", request =>
         {
             var app = RequireApp(request);
-            _ = _worker.Run(() => { if (!ShellLauncher.Launch(app)) EngineLog.Warn("launch failed: " + app.Name); });
+            bool again = request.Params["newInstance"]?.GetValue<bool>() ?? false;
+            _ = _worker.Run(() => { if (!ShellLauncher.Launch(app, again)) EngineLog.Warn("launch failed: " + app.Name); });
             return null;
         });
         server.RegisterSync("apps.reveal", request =>
