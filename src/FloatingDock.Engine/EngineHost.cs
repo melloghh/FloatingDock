@@ -379,6 +379,7 @@ internal sealed partial class EngineHost : IDisposable
     public void Dispose()
     {
         _shuttingDown = true;
+        _languageTimer?.Dispose(); _fullscreenTimer?.Dispose();
         _settingsTimer?.Dispose(); _taskbarTimer?.Dispose(); _displayTimer?.Dispose(); _packTimer?.Dispose();
         _packWatcher?.Dispose();
         _running?.Dispose();
@@ -420,7 +421,7 @@ internal sealed partial class EngineHost : IDisposable
                 ["hwnd"] = w.Hwnd, ["pid"] = w.ProcessId, ["exePath"] = w.ExePath, ["aumid"] = w.Aumid,
                 ["title"] = w.Title, ["className"] = w.ClassName, ["minimized"] = w.IsMinimized,
             });
-        return new JsonObject { ["foreground"] = _running.ForegroundRoot, ["windows"] = windows };
+        return new JsonObject { ["foreground"] = _running.ForegroundRoot, ["foregroundName"] = ForegroundName(), ["windows"] = windows };
     }
 
     private static JsonNode? MediaNode(MediaState? m) => m is null ? null : new JsonObject

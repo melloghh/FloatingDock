@@ -27,6 +27,7 @@ internal sealed partial class EngineHost
         RegisterSearchHandlers(server);
         RegisterSystemHandlers(server);
         RegisterLaunchpadHandlers(server);
+        RegisterBarHandlers(server);
         // ---- state
         server.RegisterSync(Protocol.Methods.SettingsGet, _ => SettingsNode(_settings.Current));
         server.RegisterSync(Protocol.Methods.SettingsSet, request =>

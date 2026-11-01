@@ -30,6 +30,7 @@ class AppState extends ChangeNotifier {
   List<Map<String, Object?>> pinned = [];
   List<Map<String, Object?>> windows = [];
   int foreground = 0;
+  String? foregroundName;
   Map<String, String> texts = {};
   String _textsLanguage = 'English';
 
@@ -80,6 +81,7 @@ class AppState extends ChangeNotifier {
   void _setWindows(Map w) {
     windows = ((w['windows'] as List?) ?? const []).cast<Map>().map((e) => e.cast<String, Object?>()).toList();
     foreground = (w['foreground'] as num?)?.toInt() ?? 0;
+    foregroundName = w['foregroundName'] as String? ?? foregroundName;
   }
 
   void _onEvent(FdEvent e) {

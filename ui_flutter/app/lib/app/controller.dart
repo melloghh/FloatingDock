@@ -12,6 +12,7 @@ import '../windows/popup/menus.dart';
 import '../windows/popup/popup_view.dart';
 import '../windows/search/search_window.dart';
 import '../windows/settings/settings_window.dart';
+import 'bar_controller.dart';
 import 'host.dart';
 
 /// Owns the windows of the UI process and reacts to what the engine says: hotkeys, tray commands, display changes.
@@ -29,6 +30,8 @@ class AppController {
   /// Completes when the process should end (the engine is quitting or gone).
   Future<void> get exitRequested => _exit.future;
 
+  late final BarController _bars = BarController(this);
+
   void start() {
     state.actions['search'] = ([_]) => toggleSearch();
     state.actions['launchpad'] = ([_]) => toggleLaunchpad();
@@ -37,6 +40,7 @@ class AppController {
     _nativeEvents = native.events.listen(_onNative);
     state.addListener(_onState);
     _onState();
+    _bars.start();
   }
 
   void _onEvent(FdEvent e) {
@@ -213,6 +217,7 @@ class AppController {
   DateTime _popupShownAt = DateTime.fromMillisecondsSinceEpoch(0);
 
   String? get openPopupKind => _popup.visible.value ? _popup.kind : null;
+  ValueNotifier<bool> get popupVisible => _popup.visible;
 
   /// Opens (or, for the same kind, closes) a menu anchored under [anchor], a rectangle in physical screen pixels.
   /// [alignLeft] puts the panel's left edge at the anchor's (the main menu); otherwise its right edge.
@@ -340,6 +345,7 @@ class AppController {
   }
 
   void dispose() {
+    _bars.dispose();
     _events?.cancel();
     _nativeEvents?.cancel();
     _lostEngine?.cancel();
