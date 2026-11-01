@@ -130,6 +130,7 @@ internal sealed partial class EngineHost : IDisposable
         WatchIconPacks();
 
         if (firstRun) _ = SeedPinnedFromWindowsTaskbarAsync();
+        if (!_diagnostic) _ = Task.Delay(600).ContinueWith(_ => _startPins.GetAsync()).Unwrap().ContinueWith(t => { if (t.IsFaulted) EngineLog.Warn("Start pins preload failed: " + t.Exception?.GetBaseException().Message); });
         EngineLog.Info($"engine ready on {IpcEndpoint.SocketPathFor(_paths.Root)} (profile {_paths.Root}, settings {_settings.LoadStatus})");
     }
 

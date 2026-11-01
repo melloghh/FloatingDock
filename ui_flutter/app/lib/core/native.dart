@@ -76,10 +76,11 @@ class Native {
     double minW = 0,
     double minH = 0,
     bool darkCaption = true,
+    bool acceptFiles = false,
   }) async {
     final r = await _channel.invokeMapMethod<String, Object?>('create', {
       'kind': kind, 'x': x, 'y': y, 'w': w, 'h': h, 'framed': framed, 'noActivate': noActivate, 'topmost': topmost,
-      'toolWindow': toolWindow, 'title': title, 'minW': minW, 'minH': minH, 'darkCaption': darkCaption,
+      'toolWindow': toolWindow, 'title': title, 'minW': minW, 'minH': minH, 'darkCaption': darkCaption, 'acceptFiles': acceptFiles,
     });
     return CreatedWindow((r!['viewId'] as num).toInt(), (r['hwnd'] as num).toInt());
   }

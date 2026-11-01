@@ -184,6 +184,19 @@ LRESULT WindowHost::HandleMessage(HostWindow* w, HWND hwnd, UINT message, WPARAM
       // A window is hidden, never destroyed: Dart decides what a close means.
       Emit("closeRequested", w);
       return 0;
+    case WM_DROPFILES: {
+      HDROP drop = reinterpret_cast<HDROP>(wparam);
+      UINT count = DragQueryFile(drop, 0xFFFFFFFF, nullptr, 0);
+      EncodableList paths;
+      for (UINT i = 0; i < count; ++i) {
+        wchar_t buffer[MAX_PATH * 2];
+        UINT n = DragQueryFile(drop, i, buffer, MAX_PATH * 2);
+        if (n > 0) paths.push_back(Value(Utf8FromUtf16(buffer)));
+      }
+      DragFinish(drop);
+      Emit("filesDropped", w, {{Value("paths"), Value(std::move(paths))}});
+      return 0;
+    }
     case WM_ERASEBKGND:
       return 1;
     case kAppBarMessage:
@@ -223,6 +236,7 @@ HostWindow* WindowHost::Create(const Map& args, std::string* error) {
   if (Bool(args, "topmost")) ex |= WS_EX_TOPMOST;
   if (Bool(args, "toolWindow", !w->framed)) ex |= WS_EX_TOOLWINDOW;
   if (w->no_activate) ex |= WS_EX_NOACTIVATE;
+  if (Bool(args, "acceptFiles")) ex |= WS_EX_ACCEPTFILES;
   RECT rc = {0, 0, cw, ch};
   if (w->framed) AdjustWindowRectExForDpi(&rc, style, FALSE, ex, dpi);
 
@@ -438,6 +452,7 @@ void WindowHost::OnMethod(const flutter::MethodCall<Value>& call, std::unique_pt
     m[Value("h")] = Value(static_cast<int32_t>(c.bottom - c.top));
     m[Value("dpi")] = Value(static_cast<int32_t>(GetDpiForWindow(w->hwnd)));
     m[Value("visible")] = Value(IsWindowVisible(w->hwnd) != FALSE);
+    m[Value("active")] = Value(GetForegroundWindow() == w->hwnd);
     return result->Success(Value(std::move(m)));
   } else if (name == "setTopmost") {
     SetWindowPos(w->hwnd, Bool(a, "on", true) ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,

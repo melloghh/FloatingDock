@@ -22,12 +22,13 @@ class WindowSpec {
     this.minWidth = 0,
     this.minHeight = 0,
     this.darkCaption = true,
+    this.acceptFiles = false,
   });
 
   final String kind;
   final int x, y;
   final double width, height, minWidth, minHeight;
-  final bool framed, noActivate, topmost, toolWindow, darkCaption;
+  final bool framed, noActivate, topmost, toolWindow, darkCaption, acceptFiles;
   final String title;
 }
 
@@ -82,6 +83,7 @@ class WindowHost extends ChangeNotifier {
       minW: spec.minWidth,
       minH: spec.minHeight,
       darkCaption: spec.darkCaption,
+      acceptFiles: spec.acceptFiles,
     );
     final handle = WindowHandle._(created.viewId, created.hwnd, spec.kind);
     _handles[created.viewId] = handle;

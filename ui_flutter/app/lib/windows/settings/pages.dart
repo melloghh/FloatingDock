@@ -258,7 +258,7 @@ List<Widget> launchpadPage(BuildContext context, AppState s) => [
 List<Widget> searchPage(BuildContext context, AppState s) => [
       Group(title: 'Shortcut', children: [hotkeyField(s, 'SearchHotkey', 'Open / close search', 'search', 'Ctrl+Alt+K')]),
       Group(title: 'Search apps', children: [s.slider('SearchResultLimit', 'Maximum results', 5, 100)]),
-      ButtonRow([PillButton(label: 'Search', icon: Icons.search_rounded, onPressed: () => s.call('ui.toggleSearch'))]),
+      ButtonRow([PillButton(label: 'Search', icon: Icons.search_rounded, onPressed: () => s.act('search'))]),
     ];
 
 // ---------------------------------------------------------------------- Tiling

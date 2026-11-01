@@ -6,6 +6,7 @@ import 'package:flutter/widgets.dart';
 
 import '../core/app_state.dart';
 import '../core/native.dart';
+import '../windows/launchpad/launchpad_window.dart';
 import '../windows/popup/context_menu.dart';
 import '../windows/popup/menus.dart';
 import '../windows/popup/popup_view.dart';
@@ -29,8 +30,9 @@ class AppController {
   Future<void> get exitRequested => _exit.future;
 
   void start() {
-    state.actions['search'] = toggleSearch;
-    state.actions['settings'] = () => openSettings();
+    state.actions['search'] = ([_]) => toggleSearch();
+    state.actions['launchpad'] = ([_]) => toggleLaunchpad();
+    state.actions['settings'] = ([section]) => openSettings(section);
     _events = state.eventsOther.listen(_onEvent);
     _nativeEvents = native.events.listen(_onNative);
     state.addListener(_onState);
@@ -53,6 +55,8 @@ class AppController {
         unawaited(openSettings(data['section'] as String?));
       case 'toggleSearch':
         unawaited(toggleSearch());
+      case 'toggleLaunchpad':
+        unawaited(toggleLaunchpad());
     }
   }
 
@@ -135,6 +139,11 @@ class AppController {
     final menu = _popupWin;
     if (menu != null && e.viewId == menu.viewId && e.type == 'activated' && e.data['active'] == false) {
       if (_popup.visible.value && DateTime.now().difference(_popupShownAt) > const Duration(milliseconds: 300)) closePopup();
+    }
+    final pad = _launchpadWin;
+    if (pad != null && e.viewId == pad.viewId) {
+      if (e.type == 'filesDropped') _launchpad.dropped.add((e.data['paths'] as List).cast<String>());
+      if (e.type == 'activated' && e.data['active'] == false) _launchpadDeactivated();
     }
     final search = _searchWin;
     if (search != null && e.viewId == search.viewId && e.type == 'activated' && e.data['active'] == false) {
@@ -256,6 +265,78 @@ class AppController {
     final handle = _popupWin;
     if (handle == null || !_popup.visible.value) return;
     _hideLater(handle, _popup.visible);
+    // A menu opened from the Launchpad hands the focus back to it.
+    final pad = _launchpadWin;
+    if (pad != null && _launchpad.visible.value) native.focus(pad.viewId);
+  }
+
+  // ------------------------------------------------------------------ Launchpad
+
+  final _launchpad = LaunchpadModel();
+  WindowHandle? _launchpadWin;
+  Future<WindowHandle>? _launchpadCreating;
+  DateTime _launchpadShownAt = DateTime.fromMillisecondsSinceEpoch(0);
+  int _launchpadModal = 0;
+
+  Future<void> toggleLaunchpad() => _launchpad.visible.value ? hideLaunchpad() : showLaunchpad();
+
+  Future<void> showLaunchpad() async {
+    if (_launchpad.visible.value) return;
+    final mon = await monitorUnderCursor();
+    final w = mon.w / mon.scale, h = mon.h / mon.scale;
+    final handle = await (_launchpadCreating ??= host.create(
+      WindowSpec(kind: 'launchpad', x: mon.x, y: mon.y, width: w, height: h, topmost: true, acceptFiles: true, title: 'FloatingDock Launchpad'),
+      (context) => LaunchpadView(model: _launchpad),
+    ));
+    if (_launchpadWin == null) {
+      _launchpadWin = handle;
+      _launchpad.onClose = hideLaunchpad;
+      _launchpad.onContextMenu = (items, at) async {
+        final screen = await _viewToScreen(handle, at);
+        await showContextMenu(items, screen);
+      };
+      _launchpad.pickFile = (filters) async {
+        _launchpadModal++;
+        try {
+          return await native.pickFile(handle.viewId, filters: filters);
+        } finally {
+          _launchpadModal--;
+          if (_launchpad.visible.value) native.focus(handle.viewId);
+        }
+      };
+    }
+    await handle.setBounds(x: mon.x, y: mon.y, width: w, height: h);
+    _launchpad.reopen(Size(w, h));
+    _launchpadShownAt = DateTime.now();
+    _launchpad.visible.value = true;
+    await handle.show();
+    state.actions['dockSuspended']?.call('true');
+  }
+
+  Future<void> hideLaunchpad() async {
+    final handle = _launchpadWin;
+    if (handle == null || !_launchpad.visible.value) return;
+    _hideLater(handle, _launchpad.visible);
+    state.actions['dockSuspended']?.call('false');
+  }
+
+  void _launchpadDeactivated() {
+    if (!_launchpad.visible.value || _launchpadModal > 0 || _popup.visible.value) return;
+    if (DateTime.now().difference(_launchpadShownAt) < const Duration(milliseconds: 400)) return;
+    // Focus often moves for a moment (a menu, a dialog); only a stable change dismisses.
+    Future<void>.delayed(const Duration(milliseconds: 200), () async {
+      final handle = _launchpadWin;
+      if (handle == null || !_launchpad.visible.value || _launchpadModal > 0 || _popup.visible.value) return;
+      final b = await handle.bounds();
+      if (b['active'] != true) hideLaunchpad();
+    });
+  }
+
+  /// A point in a view (logical pixels) as a screen position (physical pixels).
+  Future<Offset> _viewToScreen(WindowHandle handle, Offset local) async {
+    final b = await handle.bounds();
+    final scale = ((b['dpi'] as num?) ?? 96) / 96;
+    return Offset((b['x'] as num).toDouble() + local.dx * scale, (b['y'] as num).toDouble() + local.dy * scale);
   }
 
   void dispose() {
