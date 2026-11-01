@@ -60,7 +60,9 @@ public sealed class RunningAppsService : IDisposable
         _includedOwnWindows.Add(hwnd);
         if (_ownWatcher is null)
         {
-            _ownWatcher = new WinEventWatcher(_ownPid, includeOwn: true);
+            // The included window may belong to another process of this product (the UI), so watch that process.
+            NativeMethods.GetWindowThreadProcessId(hwnd, out var windowPid);
+            _ownWatcher = new WinEventWatcher(windowPid != 0 ? windowPid : _ownPid, includeOwn: true);
             _ownWatcher.WindowEvent += (kind, h) => { if (_includedOwnWindows.Contains(h)) OnWindowEvent(kind, h); };
         }
         Evaluate(hwnd, 0);

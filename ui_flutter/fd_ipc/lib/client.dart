@@ -50,7 +50,7 @@ class FdClient {
     }
     final socket = await Socket.connect(InternetAddress(socketPath, type: InternetAddressType.unix), 0).timeout(timeout);
     final client = FdClient._(socket);
-    client.hello = ((await client.request(Methods.hello, {'client': name, 'protocol': protocolVersion}, timeout)) as Map).cast<String, Object?>();
+    client.hello = ((await client.request(Methods.hello, {'client': name, 'protocol': protocolVersion, 'pid': pid}, timeout)) as Map).cast<String, Object?>();
     return client;
   }
 

@@ -11,6 +11,9 @@ public static class WindowFilter
         "searchhost.exe", "startmenuexperiencehost.exe", "shellexperiencehost.exe", "textinputhost.exe", "searchui.exe", "shellhost.exe",
     };
 
+    /// <summary>Other processes of this product (the UI) whose windows must not appear as apps; checked only for filters that exclude the own process.</summary>
+    public static Func<uint, bool>? ExtraOwnProcess { get; set; }
+
     public static bool IsIgnoredExe(string? exePath) => exePath is not null && IgnoredExes.Contains(Path.GetFileName(exePath));
 
     /// <summary>Cheap checks that need no process access.</summary>
@@ -28,7 +31,7 @@ public static class WindowFilter
             HasOwner: NativeMethods.GetWindow(hwnd, NativeMethods.GW_OWNER) != IntPtr.Zero,
             Cloaked: cloaked,
             ClassName: NativeMethods.GetClass(hwnd),
-            IsOwnProcess: pid == ownPid,
+            IsOwnProcess: ownPid != 0 && (pid == ownPid || ExtraOwnProcess?.Invoke(pid) == true),
             Width: r.Width,
             Height: r.Height,
             Minimized: minimized);

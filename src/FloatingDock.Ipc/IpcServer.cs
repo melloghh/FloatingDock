@@ -27,6 +27,8 @@ public sealed class IpcSession
     public long Id { get; }
     /// <summary>Name the client gave in <c>hello</c>; null until then.</summary>
     public string? ClientName { get; internal set; }
+    /// <summary>Process id the client reported in <c>hello</c> (0 if it did not).</summary>
+    public int ClientPid { get; internal set; }
     internal ChannelReader<string> Outgoing => _outbox.Reader;
     internal bool Wants(string topic) { var t = Volatile.Read(ref _topics); return t.Contains("*") || t.Contains(topic); }
     internal void SetTopics(IEnumerable<string> topics) => Volatile.Write(ref _topics, new HashSet<string>(topics, StringComparer.Ordinal));
@@ -60,6 +62,9 @@ public sealed class IpcServer : IDisposable
     public int SessionCount => _sessions.Count;
     public event Action<IpcSession>? SessionOpened;
     public event Action<IpcSession>? SessionClosed;
+
+    /// <summary>Raised when a client has said hello (its name, protocol and pid are known).</summary>
+    public event Action<IpcSession>? SessionHello;
 
     public void Register(string method, IpcHandler handler)
     {
@@ -182,6 +187,8 @@ public sealed class IpcServer : IDisposable
         if (version != Protocol.Version)
             throw new IpcException(Protocol.Errors.ProtocolMismatch, $"Engine speaks protocol {Protocol.Version}, client asked for {version}.");
         session.ClientName = p["client"]?.GetValue<string>() ?? "unknown";
+        session.ClientPid = p["pid"]?.GetValue<int>() ?? 0;
+        SessionHello?.Invoke(session);
         return new JsonObject
         {
             ["protocol"] = Protocol.Version,

@@ -25,6 +25,7 @@ internal sealed partial class EngineHost
     private void RegisterHandlers(IpcServer server)
     {
         RegisterSearchHandlers(server);
+        RegisterSystemHandlers(server);
         // ---- state
         server.RegisterSync(Protocol.Methods.SettingsGet, _ => SettingsNode(_settings.Current));
         server.RegisterSync(Protocol.Methods.SettingsSet, request =>

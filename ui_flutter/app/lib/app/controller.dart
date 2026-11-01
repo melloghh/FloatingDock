@@ -2,10 +2,13 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:fd_ipc/client.dart';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 
 import '../core/app_state.dart';
 import '../core/native.dart';
+import '../windows/popup/context_menu.dart';
+import '../windows/popup/menus.dart';
+import '../windows/popup/popup_view.dart';
 import '../windows/search/search_window.dart';
 import '../windows/settings/settings_window.dart';
 import 'host.dart';
@@ -26,6 +29,8 @@ class AppController {
   Future<void> get exitRequested => _exit.future;
 
   void start() {
+    state.actions['search'] = toggleSearch;
+    state.actions['settings'] = () => openSettings();
     _events = state.eventsOther.listen(_onEvent);
     _nativeEvents = native.events.listen(_onNative);
     state.addListener(_onState);
@@ -127,6 +132,10 @@ class AppController {
   // ------------------------------------------------------------------ shared helpers
 
   void _onNative(NativeEvent e) {
+    final menu = _popupWin;
+    if (menu != null && e.viewId == menu.viewId && e.type == 'activated' && e.data['active'] == false) {
+      if (_popup.visible.value && DateTime.now().difference(_popupShownAt) > const Duration(milliseconds: 300)) closePopup();
+    }
     final search = _searchWin;
     if (search != null && e.viewId == search.viewId && e.type == 'activated' && e.data['active'] == false) {
       // Losing focus closes the palette (not in the first moments, while the window is still taking focus).
@@ -185,6 +194,68 @@ class AppController {
     final handle = _searchWin;
     if (handle == null || !_search.visible.value) return;
     _hideLater(handle, _search.visible);
+  }
+
+  // ------------------------------------------------------------------ popup menus (bar menus, context menus)
+
+  final _popup = PopupModel();
+  WindowHandle? _popupWin;
+  Future<WindowHandle>? _popupCreating;
+  DateTime _popupShownAt = DateTime.fromMillisecondsSinceEpoch(0);
+
+  String? get openPopupKind => _popup.visible.value ? _popup.kind : null;
+
+  /// Opens (or, for the same kind, closes) a menu anchored under [anchor], a rectangle in physical screen pixels.
+  /// [alignLeft] puts the panel's left edge at the anchor's (the main menu); otherwise its right edge.
+  Future<void> openPopup(String kind, Rect anchor, {WidgetBuilder? builder, double? width, bool alignLeft = false, bool toggle = true}) async {
+    if (toggle && _popup.visible.value && _popup.kind == kind) return closePopup();
+    final monitors = await native.monitors();
+    final mon = monitors.firstWhere((m) => m.rect.contains(anchor.center), orElse: () => monitors.firstWhere((m) => m.primary, orElse: () => monitors.first));
+    final panelW = width ?? menuWidth(kind);
+    final panelPx = (panelW * mon.scale).round();
+    final pad = (28 * mon.scale).round();
+    var x = alignLeft ? anchor.left.round() : anchor.right.round() - panelPx;
+    x = x.clamp(mon.x + 8, math.max<int>(mon.x + 8, mon.x + mon.w - panelPx - 8)).toInt();
+    final y = anchor.bottom.round() + (6 * mon.scale).round();
+    final maxH = math.max(160.0, (mon.y + mon.h - y) / mon.scale - 16);
+    final pivot = ((anchor.center.dx - x) / panelPx);
+    await _showPopup(kind, x - pad, y - pad, panelW, maxH, pivot, builder ?? (_) => menuFor(kind), mon);
+  }
+
+  /// A context menu at a point (the pointer); [above] makes it grow upwards from that point (dock menus).
+  Future<void> showContextMenu(List<ContextItem> items, Offset screenPx, {bool above = false}) async {
+    final monitors = await native.monitors();
+    final mon = monitors.firstWhere((m) => m.rect.contains(screenPx), orElse: () => monitors.firstWhere((m) => m.primary, orElse: () => monitors.first));
+    final panelPx = (contextMenuWidth * mon.scale).round();
+    final heightDip = contextMenuHeight(items);
+    final heightPx = (heightDip * mon.scale).round();
+    final pad = (28 * mon.scale).round();
+    final x = screenPx.dx.round().clamp(mon.x + 8, math.max<int>(mon.x + 8, mon.x + mon.w - panelPx - 8)).toInt();
+    var y = above ? screenPx.dy.round() - heightPx : screenPx.dy.round();
+    y = y.clamp(mon.y + 8, math.max<int>(mon.y + 8, mon.y + mon.h - heightPx - 8)).toInt();
+    await _showPopup('context', x - pad, y - pad, contextMenuWidth, heightDip, (screenPx.dx - x) / panelPx, (_) => ContextMenuContent(items: items), mon);
+  }
+
+  Future<void> _showPopup(String kind, int winX, int winY, double panelW, double maxH, double pivot, WidgetBuilder builder, MonitorInfo mon) async {
+    final handle = await (_popupCreating ??= host.create(
+      WindowSpec(kind: 'menu', x: winX, y: winY, width: panelW + 56, height: maxH + 56, topmost: true, title: 'FloatingDock menu'),
+      (context) => PopupView(model: _popup),
+    ));
+    if (_popupWin == null) {
+      _popupWin = handle;
+      _popup.onClose = closePopup;
+    }
+    await handle.setBounds(x: winX, y: winY, width: panelW + 56, height: maxH + 56);
+    _popup.open(kind: kind, builder: builder, panelWidth: panelW, maxHeight: maxH, pivot: pivot);
+    _popupShownAt = DateTime.now();
+    _popup.visible.value = true;
+    await handle.show();
+  }
+
+  Future<void> closePopup() async {
+    final handle = _popupWin;
+    if (handle == null || !_popup.visible.value) return;
+    _hideLater(handle, _popup.visible);
   }
 
   void dispose() {

@@ -38,6 +38,11 @@ class AppState extends ChangeNotifier {
 
   bool get connected => engine.connected;
 
+  /// Things only the UI process can do (open a window...), registered by the controller and used by menus.
+  final actions = <String, FutureOr<void> Function()>{};
+
+  void act(String name) => actions[name]?.call();
+
   /// Calls an engine method (for data that is not kept in this state).
   Future<Object?> call(String method, [Map<String, Object?>? params]) => engine.call(method, params);
 
