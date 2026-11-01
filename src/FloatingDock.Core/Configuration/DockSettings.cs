@@ -85,6 +85,8 @@ public sealed class DockSettings
     public bool KeepDockInFullscreen { get; set; } = false;
     public bool MinimizeOnRepeatClick { get; set; } = true;
     public bool StartWithWindows { get; set; } = false;
+    /// <summary>Which interface runs: "Flutter" (the engine and the Flutter UI) or "Classic" (the WinUI application). Both read this file.</summary>
+    public string UiMode { get; set; } = "Flutter";
 
     // ---- Menu bar ----
     public bool TopBarEnabled { get; set; } = true;
@@ -190,6 +192,7 @@ public sealed class DockSettings
         LaunchpadIconSize = Math.Clamp(LaunchpadIconSize, 32, 160);
         LaunchpadSpacing = Math.Clamp(LaunchpadSpacing, 4, 120);
         ActiveIconPack = string.IsNullOrWhiteSpace(ActiveIconPack) ? "Default" : ActiveIconPack;
+        if (UiMode is not ("Flutter" or "Classic")) UiMode = "Flutter";
         LaunchpadHotkey ??= "";
         RestoreTaskbarHotkey ??= "";
         DockFocusHotkey ??= "";

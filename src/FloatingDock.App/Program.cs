@@ -39,6 +39,25 @@ public static class Program
         return r.Success ? 0 : r.Outcome == TaskbarOutcome.NeedsConfirmation ? 2 : 1;
     }
 
+    private static bool TryStartEngine(string[] args)
+    {
+        try
+        {
+            if (FloatingDock.Core.Configuration.SettingsStore.Load(DataPaths.ConfigFile).UiMode != "Flutter") return false;
+            foreach (var candidate in new[] { Path.Combine(AppContext.BaseDirectory, "..", "FloatingDock.Engine.exe"), Path.Combine(AppContext.BaseDirectory, "engine", "FloatingDock.Engine.exe") })
+            {
+                var exe = Path.GetFullPath(candidate);
+                if (!File.Exists(exe)) continue;
+                var info = new System.Diagnostics.ProcessStartInfo(exe) { UseShellExecute = false, WorkingDirectory = Path.GetDirectoryName(exe)! };
+                foreach (var a in args.Where(a => a.Equals("--settings", StringComparison.OrdinalIgnoreCase) || a.Equals("--enable-autostart", StringComparison.OrdinalIgnoreCase))) info.ArgumentList.Add(a);
+                System.Diagnostics.Process.Start(info);
+                return true;
+            }
+        }
+        catch (Exception ex) { TraceStartup("could not start the new interface: " + ex.Message); }
+        return false;
+    }
+
     [STAThread]
     public static int Main(string[] args)
     {
@@ -125,6 +144,9 @@ public static class Program
         {
             try { System.Diagnostics.Process.GetProcessById(pid).WaitForExit(10_000); } catch (ArgumentException) { }
         }
+
+        // The interface is a setting shared with the new engine: when it says "Flutter" and the engine is installed beside this program, hand over.
+        if (!IsSmokeTest && !IsDiagnosticProfile && !args.Any(a => a.Equals("--stay-classic", StringComparison.OrdinalIgnoreCase)) && TryStartEngine(args)) return 0;
 
         using var single = new SingleInstance(instanceName);
         if (!single.IsFirst)

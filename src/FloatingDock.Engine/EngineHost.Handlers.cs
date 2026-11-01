@@ -44,6 +44,7 @@ internal sealed partial class EngineHost
         server.RegisterSync("settings.reset", _ =>
         {
             var defaults = new DockSettings();
+            defaults.UiMode = _settings.Current.UiMode;   // resetting the dock must not switch interfaces
             _settings.Update(target => SettingsPatch.CopyInto(defaults, target));
             return SettingsNode(_settings.Current);
         });
@@ -69,6 +70,24 @@ internal sealed partial class EngineHost
         server.RegisterSync("app.quit", request => Quit(request.Session.ClientName ?? "?"));
         server.RegisterSync("app.restart", _ =>
         {
+            _ui.Post(Restart);
+            return new JsonObject { ["restarting"] = true };
+        });
+        // A second launch of the program, or any tool, asks the UI to do something it alone can show.
+        server.RegisterSync("app.activate", _ => { UiCommand("settings"); return null; });
+        server.RegisterSync("ui.command", request =>
+        {
+            var name = RequireString(request, "command");
+            UiCommand(name, request.Params["data"] as JsonObject);
+            return null;
+        });
+        // Switches between the new interface and the WinUI application; both read the same profile.
+        server.RegisterSync("interface.switch", request =>
+        {
+            var mode = RequireString(request, "mode");
+            if (mode is not ("Flutter" or "Classic")) throw BadParams("mode must be Flutter or Classic.");
+            _settings.Update(d => d.UiMode = mode);
+            _settings.Flush();
             _ui.Post(Restart);
             return new JsonObject { ["restarting"] = true };
         });

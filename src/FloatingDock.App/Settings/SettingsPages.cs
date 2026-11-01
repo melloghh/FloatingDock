@@ -288,6 +288,9 @@ internal sealed partial class SettingsWindow
                 Ui.Note(_app.Paths.Root),
                 Ui.Row(Ui.Action("Open data folder", () => ShellLauncher.OpenFolder(_app.Paths.Root)),
                        Ui.Action("Open log folder", () => ShellLauncher.OpenFolder(_app.Paths.LogsDir)))),
+            Ui.Section("Interface",
+                Ui.Combo("Interface", new[] { ("New (Flutter)", "Flutter"), ("Classic (WinUI)", "Classic") }, S.UiMode, (d, v) => d.UiMode = v),
+                Ui.Note("The new interface needs the engine installed next to this program. Restart FloatingDock to apply.")),
             Ui.Section("Maintenance",
                 Ui.Action("Reset all settings to defaults", async () =>
                 {

@@ -360,6 +360,18 @@ List<Widget> aboutPage(BuildContext context, AppState s) => [
                 PillButton(label: 'Open log folder', icon: Icons.description_outlined, onPressed: () => state.call('shell.open', {'target': 'logs'})),
               ]),
             ]),
+            Group(title: 'Interface', children: [
+              ChoiceRow<String>(
+                label: 'Interface',
+                items: const [('New (Flutter)', 'Flutter'), ('Classic (WinUI)', 'Classic')],
+                value: state.setting<String>('UiMode', 'Flutter'),
+                onChanged: (mode) async {
+                  if (mode == state.setting<String>('UiMode', 'Flutter')) return;
+                  final ok = await confirmDialog(context, 'Interface', 'Switching the interface restarts FloatingDock.', ok: 'Restart');
+                  if (ok) await state.call('interface.switch', {'mode': mode});
+                },
+              ),
+            ]),
             Group(title: 'Maintenance', children: [
               ButtonRow([
                 PillButton(

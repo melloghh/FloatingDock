@@ -74,6 +74,8 @@ internal sealed partial class EngineHost : IDisposable
         bool firstRun = !File.Exists(_paths.PinnedFile);
         _settings = new SettingsStore(_paths.ConfigFile);
         _settings.SaveFailed += ex => EngineLog.Warn("settings could not be saved: " + ex.Message);
+        // The installer's "Start with Windows" task: the program owns this setting, so the installer just asks for it.
+        if (_args.Contains("--enable-autostart") && !_settings.Current.StartWithWindows) _settings.Update(x => x.StartWithWindows = true);
         // A diagnostic profile must never touch the user's desktop: leave the taskbar alone and do not autostart.
         if (_diagnostic) _settings.Update(x => { x.TaskbarMode = TaskbarMode.Leave; x.StartWithWindows = false; });
         _pinned = new AppListStore(_paths.PinnedFile);

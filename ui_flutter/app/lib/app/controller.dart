@@ -38,6 +38,7 @@ class AppController {
     state.actions['search'] = ([_]) => toggleSearch();
     state.actions['launchpad'] = ([_]) => toggleLaunchpad();
     state.actions['settings'] = ([section]) => openSettings(section);
+    state.actions['menu'] = ([kind]) => openMenuAt(kind ?? 'main');
     _events = state.eventsOther.listen(_onEvent);
     _nativeEvents = native.events.listen(_onNative);
     state.addListener(_onState);
@@ -64,6 +65,8 @@ class AppController {
         unawaited(toggleSearch());
       case 'toggleLaunchpad':
         unawaited(toggleLaunchpad());
+      case 'menu':
+        unawaited(openMenuAt('${(data['data'] as Map?)?['kind'] ?? 'main'}'));
     }
   }
 
@@ -347,6 +350,14 @@ class AppController {
     final b = await handle.bounds();
     final scale = ((b['dpi'] as num?) ?? 96) / 96;
     return Offset((b['x'] as num).toDouble() + local.dx * scale, (b['y'] as num).toDouble() + local.dy * scale);
+  }
+
+  /// Opens one of the bar menus near the right end of the primary monitor's top edge, as if its button had been clicked.
+  /// Used by the keyboard and by tests: the real buttons pass their own rectangle.
+  Future<void> openMenuAt(String kind) async {
+    final mon = await primaryMonitor();
+    final anchor = Rect.fromLTWH((mon.x + mon.w - 260 * mon.scale), mon.y + 4 * mon.scale, 40 * mon.scale, 36 * mon.scale);
+    await openPopup(kind, anchor, alignLeft: kind == 'main');
   }
 
   void dispose() {
