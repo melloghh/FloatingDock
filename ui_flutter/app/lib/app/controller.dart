@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 
 import '../core/app_state.dart';
 import '../core/native.dart';
+import '../windows/search/search_window.dart';
 import '../windows/settings/settings_window.dart';
 import 'host.dart';
 
@@ -17,6 +18,7 @@ class AppController {
   final AppState state;
   final WindowHost host;
   StreamSubscription<FdEvent>? _events;
+  StreamSubscription<NativeEvent>? _nativeEvents;
   Timer? _lostEngine;
   final _exit = Completer<void>();
 
@@ -25,6 +27,7 @@ class AppController {
 
   void start() {
     _events = state.eventsOther.listen(_onEvent);
+    _nativeEvents = native.events.listen(_onNative);
     state.addListener(_onState);
     _onState();
   }
@@ -43,6 +46,8 @@ class AppController {
     switch (name) {
       case 'settings':
         unawaited(openSettings(data['section'] as String?));
+      case 'toggleSearch':
+        unawaited(toggleSearch());
     }
   }
 
@@ -119,8 +124,72 @@ class AppController {
     }
   }
 
+  // ------------------------------------------------------------------ shared helpers
+
+  void _onNative(NativeEvent e) {
+    final search = _searchWin;
+    if (search != null && e.viewId == search.viewId && e.type == 'activated' && e.data['active'] == false) {
+      // Losing focus closes the palette (not in the first moments, while the window is still taking focus).
+      if (_search.visible.value && DateTime.now().difference(_searchShownAt) > const Duration(milliseconds: 300)) hideSearch();
+    }
+  }
+
+  Future<MonitorInfo> monitorUnderCursor() async {
+    final monitors = await native.monitors();
+    final c = await native.cursor();
+    return monitors.firstWhere((m) => m.rect.contains(c), orElse: () => monitors.firstWhere((m) => m.primary, orElse: () => monitors.first));
+  }
+
+  /// Hides [handle] after its surface has played the leaving animation, unless it was shown again meanwhile.
+  void _hideLater(WindowHandle handle, ValueNotifier<bool> shown) {
+    shown.value = false;
+    Future<void>.delayed(const Duration(milliseconds: 190), () {
+      if (!shown.value) handle.hide();
+    });
+  }
+
+  // ------------------------------------------------------------------ search
+
+  final _search = SearchModel();
+  WindowHandle? _searchWin;
+  Future<WindowHandle>? _searchCreating;
+  DateTime _searchShownAt = DateTime.fromMillisecondsSinceEpoch(0);
+
+  Future<void> toggleSearch() => _search.visible.value ? hideSearch() : showSearch();
+
+  Future<void> showSearch() async {
+    if (_search.visible.value) return;
+    final mon = await monitorUnderCursor();
+    final panelW = math.min(650.0, mon.w / mon.scale - 40);
+    final maxH = math.min(580.0, mon.h / mon.scale - 60);
+    final pad = (28 * mon.scale).round();
+    final x = mon.x + ((mon.w - panelW * mon.scale) / 2).round() - pad;
+    var y = mon.y + (mon.h * .18).round() - pad;
+    y = math.min(y, mon.y + mon.h - (maxH * mon.scale).round() - 16 - pad);
+    final handle = await (_searchCreating ??= host.create(
+      WindowSpec(kind: 'search', x: x, y: y, width: panelW + 56, height: maxH + 56, topmost: true, title: 'FloatingDock Search'),
+      (context) => SearchView(model: _search),
+    ));
+    if (_searchWin == null) {
+      _searchWin = handle;
+      _search.onClose = hideSearch;
+    }
+    await handle.setBounds(x: x, y: y, width: panelW + 56, height: maxH + 56);
+    _search.reopen(width: panelW, height: maxH);
+    _searchShownAt = DateTime.now();
+    _search.visible.value = true;
+    await handle.show();
+  }
+
+  Future<void> hideSearch() async {
+    final handle = _searchWin;
+    if (handle == null || !_search.visible.value) return;
+    _hideLater(handle, _search.visible);
+  }
+
   void dispose() {
     _events?.cancel();
+    _nativeEvents?.cancel();
     _lostEngine?.cancel();
     state.removeListener(_onState);
   }

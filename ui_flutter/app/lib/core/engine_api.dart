@@ -101,6 +101,9 @@ class FakeEngineApi implements EngineApi {
 
   /// Canned answers for every other method (null when absent).
   final responses = <String, Object?>{};
+
+  /// Computed answers, tried before [responses].
+  final handlers = <String, Object? Function(Map<String, Object?>? params)>{};
   final calls = <String>[];
   final _events = StreamController<FdEvent>.broadcast();
 
@@ -130,7 +133,8 @@ class FakeEngineApi implements EngineApi {
       case Methods.windowsList:
         return responses[method] ?? {'foreground': 0, 'windows': <Object?>[]};
       default:
-        return responses[method];
+        final handler = handlers[method];
+        return handler != null ? handler(params) : responses[method];
     }
   }
 }
