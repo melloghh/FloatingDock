@@ -1,0 +1,73 @@
+[workspace]
+resolver = "2"
+members = ["crates/fd-core", "crates/fd-ipc", "crates/fd-windows", "crates/fd-engine"]
+
+[workspace.package]
+version = "2.0.1"
+edition = "2021"
+publish = false
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+indexmap = { version = "2", features = ["serde"] }
+tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "sync", "time", "macros"] }
+md-5 = "0.10"
+sha2 = "0.10"
+getrandom = "0.3"
+hex = "0.4"
+base64 = "0.22"
+notify = { version = "8", default-features = false }
+unicode-normalization = "0.1"
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
+fd-core = { path = "crates/fd-core" }
+fd-ipc = { path = "crates/fd-ipc" }
+fd-windows = { path = "crates/fd-windows" }
+
+[workspace.dependencies.windows]
+version = "0.62"
+features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_System_Threading",
+  "Win32_System_SystemInformation",
+  "Win32_System_Power",
+  "Win32_System_Com",
+  "Win32_System_Diagnostics_Debug",
+  "Win32_System_Com_StructuredStorage",
+  "Win32_System_Variant",
+  "Win32_System_LibraryLoader",
+  "Win32_System_ProcessStatus",
+  "Win32_System_Ole",
+  "Win32_System_Registry",
+  "Win32_Storage_FileSystem",
+  "Win32_Storage_Xps",
+  "Win32_Storage_Packaging_Appx",
+  "Win32_Globalization",
+  "Win32_Graphics_Dwm",
+  "Win32_Media_Audio",
+  "Win32_Media_Audio_Endpoints",
+  "Win32_NetworkManagement_IpHelper",
+  "Win32_NetworkManagement_Ndis",
+  "Win32_NetworkManagement_WiFi",
+  "Win32_Networking_WinSock",
+  "Win32_Graphics_Gdi",
+  "Win32_UI_Accessibility",
+  "Win32_UI_HiDpi",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_Shell",
+  "Win32_UI_Shell_PropertiesSystem",
+  "Win32_UI_WindowsAndMessaging",
+  "Foundation",
+  "Foundation_Collections",
+  "Media",
+  "Media_Control",
+  "Storage_Streams",
+]
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true

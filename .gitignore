@@ -33,3 +33,6 @@ taskbar-state.json
 search-usage.json
 *.bak
 *.corrupt*
+
+# Rust engine build output
+/rust/target/

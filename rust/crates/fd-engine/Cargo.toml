@@ -1,0 +1,27 @@
+[package]
+name = "fd-engine"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "fd-engine"
+path = "src/main.rs"
+
+[dependencies]
+fd-core.workspace = true
+fd-ipc.workspace = true
+fd-windows.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+hex.workspace = true
+tokio.workspace = true
+windows.workspace = true
+base64.workspace = true
+notify.workspace = true
+indexmap.workspace = true
+serde.workspace = true
+getrandom.workspace = true
+
+[build-dependencies]
+embed-resource = "3"

@@ -1,5 +1,40 @@
 # Changelog
 
+## 2.0.1
+
+- The engine is rewritten in Rust (`rust/`): the same protocol, settings and data files, so the interface and your profile work unchanged. The download shrinks from 131 MB to 32 MB (zip 13 MB), the installer from 73 MB to 11.5 MB; the engine idles at about 0.05 % CPU and 40 MB. Not ported yet: the right-click menu of a tray icon in the bar's hidden-icons menu.
+- New look for the dock, the top bar and Settings, after the reference: a monospace face (Cascadia Mono), a lavender accent on blue-black surfaces (the default colour is now "Lavender"), a tile under every dock icon, the bar's groups as separate capsules, Settings with a full-height navigation column and one card per row. Behaviour is unchanged.
+- New bar style Settings > Menu Bar > Bar style > "Text only, transparent": no panel, islands, icons or dividers, only words over the desktop (app name, what is playing, workspace numbers, battery, input language, clock); each still opens its usual menu.
+- The default accent colour is now a plain neutral grey (a new "Gray" swatch, first in the list). A colour without a hue gives a palette with no tint at all.
+- Fix the dock stopping to react to the cursor a couple of seconds after hovering an icon: the window preview overlapped the dock and took the pointer. The preview now opens clear of the dock.
+- Fix the dock staying hidden after a full-screen or maximized window was minimized or closed: it comes back by itself (an auto-hiding dock still waits for the cursor at the edge).
+- Window previews: minimized windows no longer give a narrow, empty card (their size is read correctly and an app icon is shown instead of an empty picture), the preview window is prepared in advance and opens without a lag.
+- Fix the player progress jumping back to zero a few seconds after play when the browser reports an empty timeline: the last known length and position are carried on.
+- The search takes the dock's place (bottom, left or right, as the dock is) and the dock steps aside; no option is needed.
+- New option Settings > Menu Bar > Bar style: separate pills (as before), one floating panel, or a panel flush with the top and sides of the screen.
+- A connection to the engine that never says hello is closed after 10 seconds; a race in restarting the interface is fixed.
+- Fix the dock twitching when an unpinned app opens or closes: the dock window keeps its size while apps come and go, so it no longer jumps.
+- Much less work at rest: a window title that keeps changing (a counter in a chat title, a playing track in a browser tab) no longer makes the engine rebuild and resend the dock's list a few times a second (the unpinned apps also had a new random id on every rebuild); the bar does not redraw when the media or battery answer is unchanged, and the player's title is not asked from the player on every read.
+- Fix settings opening out of sight (and menus not showing) when an elevated window such as Task Manager is in front: the window is raised above the others even when Windows refuses to give it the focus. A click on the dock now also lets the engine bring the clicked app to the front, so that restoring or minimizing from the dock is not refused by the foreground lock.
+- Search: one dark panel in the colour of the dock and the bar, rows with a name and a kind, the field at the bottom; when it opens from the dock it takes the dock's place at the bottom, left or right edge, flush with the screen's edge with concave corners, and the dock steps aside.
+- Less work while using the dock: the plate's shadow is drawn without a blur filter, icons use a cheaper filter, the label text is laid out only when it changes, and the "Animation frame limit" now really limits how many frames are drawn (set it to 60 to save the most).
+- New option Settings > Behaviour > Interface sounds (off by default): soft water-drop sounds for buttons, switches, menus and when the search, Launchpad and settings open or close. They are made by the interface itself and played from memory, so they cost nothing while silent.
+- Fix the Launchpad showing "Loading Start pins..." forever on its first open.
+- Fix the dock animating slower than it should after the frame limit was introduced.
+- Menu bar styles: the "panel at the screen edge" has concave corners under its ends and takes less room; all panels are opaque.
+
+## 2.0.0
+
+- New interface: the whole UI is rebuilt in Flutter (Material 3) and runs next to a windowless C# engine that owns everything system-related (tray, hotkeys, taskbar, windows, media, tiling). Palette from a seed colour (mint by default, graphite as an alternative), light and dark theme.
+- Top bar as pill islands: app chip and now-playing capsule on the left (the capsule slides smoothly when the name pill grows), workspaces in the middle, status groups and the clock on the right. Player with a wavy progress bar.
+- Pop-up menus, search, Launchpad and settings use their own motion (pop, glide selection); dock drawn by a single painter with magnification and window previews.
+- New option Settings > Appearance: blur the desktop behind translucent surfaces (bar, dock).
+- A dock hidden by a maximized window comes back when the cursor touches the screen edge.
+- Screenshots (Win+Shift+S, PrtSc): the bar and the dock stay in place under the selection overlay and are dimmed with the rest of the screen; the overlay covers the whole monitor without flicker.
+- The engine and the interface talk over loopback TCP with a random token (Unix sockets were unreliable on Windows).
+- FloatingDock.exe is now the engine and starts the interface from the ui folder. The WinUI application of 1.x is not included; settings, pinned apps and icon packs are kept.
+
+
 ## 1.6.6
 
 - With "Keep the dock visible" on, a full-screen video in a browser or media player (Chrome, Edge, Firefox, Zen, Brave, Opera, Vivaldi, VLC, mpv, PotPlayer, MPC and others) now hides the dock again and covers the whole screen. Other applications still open above the dock.

@@ -29,7 +29,7 @@ Get the latest Windows x64 build from [Releases](https://github.com/melloghh/Flo
 | [FloatingDock-Setup-x64.exe](https://github.com/melloghh/FloatingDock/releases/latest/download/FloatingDock-Setup-x64.exe) | Install for the current user. Desktop shortcut and startup options are available. |
 | [FloatingDock-Portable-x64.zip](https://github.com/melloghh/FloatingDock/releases/latest/download/FloatingDock-Portable-x64.zip) | Extract the **entire archive**, then run `FloatingDock.exe`. Keep the EXE with its DLLs and resources. |
 
-Release builds include .NET and Windows App SDK runtimes. No separate runtime installation is required. Windows x64 is required; the project targets Windows 10 1809 and later and is tested locally on Windows 11. Builds are currently unsigned, so Windows may show a SmartScreen prompt.
+Since 2.0.1 the engine (`FloatingDock.exe`) is a single native program written in Rust and the interface is Flutter (`ui\`), so no runtime installation is required (the download is about 13 MB, the installer 11 MB). Windows x64 is required; the project targets Windows 10 1809 and later and is tested locally on Windows 11. Builds are currently unsigned, so Windows may show a SmartScreen prompt.
 
 Open FloatingDock settings from the main menu or the dock/tray context menu. The top-bar gear opens Windows Settings. Tiling is **off by default**; enable it in Tiling manager when you want automatic window placement. Two visible tiled windows use left/right columns, equally sized when their native minimum sizes allow it. The release includes `SHA256SUMS.txt` for checking downloads and license notices for bundled components.
 
@@ -66,7 +66,18 @@ Wi-Fi scanning follows Windows permissions. Windows may require location access 
 
 ## Build from source
 
-Use Windows x64 with the .NET SDK specified in [global.json](global.json): 10.0.401 or a compatible patch. Inno Setup 6.6.1 is needed only to produce the installer; make `ISCC.exe` available on `PATH`.
+**Release 2.x (Rust engine + Flutter interface).** Needs Rust (stable, MSVC toolchain) and Inno Setup 6 (only for the installer); the Flutter interface is built separately (`flutter build windows --release --no-tree-shake-icons` in `ui_flutter/app`).
+
+```powershell
+cd rust
+cargo test --workspace
+cd ..
+.\packaging\release-rust.ps1 -Out ..\release -Ui ui_flutter\app\build\windows\x64\runner\Release
+```
+
+The engine lives in [rust/](rust/README.md); the C# projects below remain for the 1.x WinUI application and as the reference of the engine's behaviour.
+
+**1.x (WinUI) and the C# projects.** Use Windows x64 with the .NET SDK specified in [global.json](global.json): 10.0.401 or a compatible patch. Inno Setup 6.6.1 is needed only to produce the installer; make `ISCC.exe` available on `PATH`.
 
 ```powershell
 git clone https://github.com/melloghh/FloatingDock.git
