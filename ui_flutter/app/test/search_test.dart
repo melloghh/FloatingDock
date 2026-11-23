@@ -62,6 +62,23 @@ void main() {
     await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/search_results.png'));
   });
 
+  for (final edge in ['Bottom', 'Left', 'Right']) {
+    testWidgets('search: flush with the $edge edge, where the dock was', (tester) async {
+      final h = await makeHarness();
+      h.engine.handlers['search.query'] = fakeSearch;
+      final model = SearchModel();
+      await pumpWindow(tester, onDesktop(appFor(h.state, SearchView(model: model))), size: const Size(760, 520));
+      model.reopen(width: 560, height: 480, dockEdge: edge);
+      model.visible.value = true;
+      await tester.pump();
+      await tester.enterText(find.byType(TextField), 'z');
+      await tester.pump(const Duration(milliseconds: 250));
+      await tester.pump(const Duration(milliseconds: 700));
+      expect(find.text('Zen Browser'), findsOneWidget);
+      await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/search_${edge.toLowerCase()}.png'));
+    });
+  }
+
   testWidgets('search: Russian labels', (tester) async {
     await open(tester, russian: true);
     await tester.enterText(find.byType(TextField), 'floating');

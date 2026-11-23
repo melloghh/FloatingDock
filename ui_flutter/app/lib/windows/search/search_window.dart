@@ -1,10 +1,10 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/app_state.dart';
-import '../../core/theme.dart';
 import '../../ui/app_icon.dart';
 import '../../ui/motion.dart';
 
@@ -17,25 +17,38 @@ class SearchModel extends ChangeNotifier {
   double panelWidth = 650;
   double maxHeight = 580;
 
+  /// Where the panel's top-left corner is inside the window (logical px): the window has a margin for the pop overshoot and,
+  /// when the search grows out of the dock, reaches down to it.
+  Offset panelOrigin = const Offset(28, 28);
+
+  /// Set when the search grows out of the dock: where the panel starts, relative to its place (logical px).
+  Offset? from;
+
+  /// Set when the search takes the dock's place: the edge ('Bottom', 'Left', 'Right') the panel is flush with. Its ends join the screen's
+  /// edge in concave corners, and it grows away from that edge. Null: a floating panel.
+  String? dockEdge;
+
+  /// How far the concave corners of the flush panel reach along the screen's edge (logical px).
+  static const double fillet = 14;
+
   /// Increases on every show: the view resets its text and results.
   int shown = 0;
 
   void Function()? onClose;
 
-  void reopen({required double width, required double height}) {
+  void reopen({required double width, required double height, Offset panelOrigin = const Offset(28, 28), Offset? from, String? dockEdge}) {
     panelWidth = width;
     maxHeight = height;
+    this.panelOrigin = panelOrigin;
+    this.from = from;
+    this.dockEdge = dockEdge;
     shown++;
     notifyListeners();
   }
 }
 
 class SearchResultItem {
-  SearchResultItem(Map m)
-      : id = '${m['id']}',
-        kind = '${m['kind']}',
-        name = '${m['name']}',
-        app = (m['app'] as Map?)?.cast<String, Object?>();
+  SearchResultItem(Map m) : id = '${m['id']}', kind = '${m['kind']}', name = '${m['name']}', app = (m['app'] as Map?)?.cast<String, Object?>();
   final String id, kind, name;
   final Map<String, Object?>? app;
 }
@@ -63,7 +76,7 @@ class _SearchViewState extends State<SearchView> {
   DateTime _openedAt = DateTime.now();
   bool _pointerSelects = false;
 
-  static const _rowExtent = 56.0, _rowGap = 2.0;
+  static const _rowExtent = 46.0, _rowGap = 2.0;
 
   @override
   void initState() {
@@ -186,67 +199,98 @@ class _SearchViewState extends State<SearchView> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final m = widget.model;
-    final listMax = (m.maxHeight - 126).clamp(44.0, 440.0);
+    final listMax = (m.maxHeight - 96).clamp(44.0, 460.0);
     final listHeight = (_results.length * (_rowExtent + _rowGap) - _rowGap).clamp(0.0, listMax);
+    final showStatus = _results.isEmpty && _status != 'idle';
+    final edge = m.dockEdge;
+    final content = SizedBox(
+      width: m.panelWidth,
+      // The results above, the query in an inset field at the bottom.
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (_results.isNotEmpty) ...[
+              SizedBox(
+                height: listHeight,
+                child: MouseRegion(
+                  onHover: (_) => _pointerSelects = DateTime.now().difference(_openedAt) > const Duration(milliseconds: 300),
+                  child: SingleChildScrollView(
+                    controller: _scroll,
+                    child: GlideList(
+                      count: _results.length,
+                      selected: _selected < 0 ? null : _selected,
+                      itemExtent: _rowExtent,
+                      gap: _rowGap,
+                      radius: 12,
+                      highlight: cs.primary,
+                      itemBuilder: (context, i, selected) => _ResultRow(
+                        item: _results[i],
+                        selected: selected,
+                        onHover: () {
+                          if (_pointerSelects) _select(i);
+                        },
+                        onTap: () => _open(_results[i]),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+            if (showStatus)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+                child: Text(_statusText, style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12)),
+              ),
+            _InputField(controller: _text, focus: _focus, onChanged: _onChanged, onKey: _onKey),
+          ],
+        ),
+      ),
+    );
+    final fill = cs.surfaceContainerHigh;
+    final Widget panel = edge == null
+        ? DecoratedBox(
+            decoration: BoxDecoration(
+              color: fill,
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: cs.outlineVariant.withValues(alpha: .3)),
+              boxShadow: const [BoxShadow(color: Color(0x40000000), blurRadius: 30, offset: Offset(0, 8))],
+            ),
+            child: content,
+          )
+        : CustomPaint(
+            painter: _FlushPanelPainter(edge, fill),
+            child: Padding(
+              padding: edge == 'Bottom'
+                  ? const EdgeInsets.symmetric(horizontal: SearchModel.fillet)
+                  : const EdgeInsets.symmetric(vertical: SearchModel.fillet),
+              child: content,
+            ),
+          );
+    final (alignment, origin) = switch (edge) {
+      'Bottom' => (Alignment.bottomCenter, Alignment.bottomCenter),
+      'Left' => (Alignment.centerLeft, Alignment.centerLeft),
+      'Right' => (Alignment.centerRight, Alignment.centerRight),
+      _ => (Alignment.topLeft, Alignment.topCenter),
+    };
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
       onTap: () => m.onClose?.call(), // a click in the transparent margin dismisses, like a click anywhere outside
       child: Padding(
-        padding: const EdgeInsets.all(28),
+        padding: edge == null ? EdgeInsets.only(left: m.panelOrigin.dx, top: m.panelOrigin.dy) : EdgeInsets.zero,
         child: Align(
-          alignment: Alignment.topCenter,
+          alignment: alignment,
           child: ValueListenableBuilder<bool>(
             valueListenable: m.visible,
-            builder: (context, visible, child) => PopSurface(visible: visible, child: child!),
+            builder: (context, visible, child) => m.from == null
+                ? PopSurface(visible: visible, child: child!)
+                : PopSurface(visible: visible, from: m.from, origin: origin, startScale: .32, milliseconds: 520, child: child!),
             child: GestureDetector(
               onTap: () {},
-              child: SizedBox(
-                width: m.panelWidth,
-                child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  _InputPill(controller: _text, focus: _focus, onChanged: _onChanged, onKey: _onKey),
-                  const SizedBox(height: 10),
-                  Material(
-                    color: cs.surfaceContainer,
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Shapes.xl)),
-                    clipBehavior: Clip.antiAlias,
-                    child: Padding(
-                      padding: const EdgeInsets.all(8),
-                      child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                        if (_results.isNotEmpty)
-                          SizedBox(
-                            height: listHeight,
-                            child: MouseRegion(
-                              onHover: (_) => _pointerSelects = DateTime.now().difference(_openedAt) > const Duration(milliseconds: 300),
-                              child: SingleChildScrollView(
-                                controller: _scroll,
-                                child: GlideList(
-                                  count: _results.length,
-                                  selected: _selected < 0 ? null : _selected,
-                                  itemExtent: _rowExtent,
-                                  gap: _rowGap,
-                                  highlight: cs.secondaryContainer,
-                                  itemBuilder: (context, i, selected) => _ResultRow(
-                                    item: _results[i],
-                                    selected: selected,
-                                    onHover: () {
-                                      if (_pointerSelects) _select(i);
-                                    },
-                                    onTap: () => _open(_results[i]),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
-                          child: Text(_statusText, style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12)),
-                        ),
-                      ]),
-                    ),
-                  ),
-                ]),
-              ),
+              child: Material(type: MaterialType.transparency, child: panel),
             ),
           ),
         ),
@@ -255,8 +299,54 @@ class _SearchViewState extends State<SearchView> {
   }
 }
 
-class _InputPill extends StatelessWidget {
-  const _InputPill({required this.controller, required this.focus, required this.onChanged, required this.onKey});
+/// The panel that has taken the dock's place: flush with one screen edge, its far corners rounded and, where it meets the edge,
+/// a concave corner on each side that joins it to the screen. Drawn for the bottom edge and turned for the others.
+class _FlushPanelPainter extends CustomPainter {
+  const _FlushPanelPainter(this.edge, this.color);
+  final String edge;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // Work in the "bottom edge" frame: [a] along the edge, [b] away from it.
+    final vertical = edge != 'Bottom';
+    final a = vertical ? size.height : size.width, b = vertical ? size.width : size.height;
+    if (edge == 'Left') {
+      canvas.translate(b, 0);
+      canvas.rotate(math.pi / 2);
+    } else if (edge == 'Right') {
+      canvas.translate(0, a);
+      canvas.rotate(-math.pi / 2);
+    }
+    const r = SearchModel.fillet, corner = 22.0;
+    final path = Path()
+      ..addRRect(
+        RRect.fromRectAndCorners(Rect.fromLTRB(r, 0, a - r, b), topLeft: const Radius.circular(corner), topRight: const Radius.circular(corner)),
+      )
+      ..moveTo(0, b)
+      ..lineTo(r, b)
+      ..lineTo(r, b - r)
+      ..arcTo(Rect.fromCircle(center: Offset(0, b - r), radius: r), 0, math.pi / 2, false)
+      ..close()
+      ..moveTo(a, b)
+      ..lineTo(a - r, b)
+      ..lineTo(a - r, b - r)
+      ..arcTo(Rect.fromCircle(center: Offset(a, b - r), radius: r), math.pi, -math.pi / 2, false)
+      ..close();
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = color
+        ..isAntiAlias = true,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_FlushPanelPainter old) => old.edge != edge || old.color != color;
+}
+
+class _InputField extends StatelessWidget {
+  const _InputField({required this.controller, required this.focus, required this.onChanged, required this.onKey});
   final TextEditingController controller;
   final FocusNode focus;
   final ValueChanged<String> onChanged;
@@ -265,44 +355,33 @@ class _InputPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    return Material(
-      color: cs.surfaceContainerHigh,
-      shape: const StadiumBorder(),
-      elevation: 0,
+    return DecoratedBox(
+      decoration: BoxDecoration(color: cs.surfaceContainerHighest, borderRadius: BorderRadius.circular(12)),
       child: SizedBox(
-        height: 56,
-        child: Row(children: [
-          const SizedBox(width: 20),
-          Icon(Icons.search_rounded, size: 24, color: cs.onSurfaceVariant),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Focus(
-              onKeyEvent: onKey,
-              child: TextField(
-                controller: controller,
-                focusNode: focus,
-                onChanged: onChanged,
-                style: TextStyle(fontSize: 16, color: cs.onSurface),
-                cursorColor: cs.primary,
-                decoration: InputDecoration(
-                  hintText: tr('Search apps'),
-                  hintStyle: TextStyle(color: cs.onSurfaceVariant.withValues(alpha: .8)),
-                  border: InputBorder.none,
-                  enabledBorder: InputBorder.none,
-                  focusedBorder: InputBorder.none,
-                  filled: false,
-                  contentPadding: EdgeInsets.zero,
-                ),
+        height: 44,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          child: Focus(
+            onKeyEvent: onKey,
+            child: TextField(
+              controller: controller,
+              focusNode: focus,
+              onChanged: onChanged,
+              style: TextStyle(fontSize: 14, color: cs.onSurface),
+              cursorColor: cs.onSurface,
+              decoration: InputDecoration(
+                hintText: tr('Search apps'),
+                hintStyle: TextStyle(color: cs.onSurfaceVariant.withValues(alpha: .7)),
+                border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                filled: false,
+                isCollapsed: true,
+                contentPadding: const EdgeInsets.symmetric(vertical: 14),
               ),
             ),
           ),
-          Container(
-            margin: const EdgeInsets.only(left: 8, right: 16),
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-            decoration: BoxDecoration(color: cs.surfaceContainerHighest, borderRadius: BorderRadius.circular(Shapes.s)),
-            child: Text('Esc', style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
-          ),
-        ]),
+        ),
       ),
     );
   }
@@ -317,33 +396,51 @@ class _ResultRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final fg = selected ? cs.onSecondaryContainer : cs.onSurface;
+    final fg = selected ? cs.onPrimary : cs.onSurface;
+    final sub = selected ? cs.onPrimary.withValues(alpha: .7) : cs.onSurfaceVariant;
     final isApp = item.app != null;
     return MouseRegion(
       onHover: (_) => onHover(),
-      child: InkWell(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
         onTap: onTap,
-        borderRadius: BorderRadius.circular(Shapes.l),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Row(children: [
-            SizedBox(
-              width: 32,
-              child: Center(
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 32,
+                height: 32,
                 child: isApp
-                    ? AppIcon(app: item.app!, size: 28)
-                    : Container(
-                        width: 32,
-                        height: 32,
-                        decoration: BoxDecoration(color: cs.surfaceContainerHighest, shape: BoxShape.circle),
-                        child: Icon(item.id == 'cmd:launchpad' ? Icons.apps_rounded : Icons.settings_rounded, size: 16, color: cs.onSurface),
+                    ? Center(child: AppIcon(app: item.app!, size: 28))
+                    : DecoratedBox(
+                        decoration: BoxDecoration(color: cs.surfaceContainerHighest, borderRadius: BorderRadius.circular(8)),
+                        child: Icon(item.id == 'cmd:launchpad' ? Icons.apps_rounded : Icons.settings_rounded, size: 18, color: cs.onSurface),
                       ),
               ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(child: Text(isApp ? item.name : tr(item.name), style: TextStyle(fontSize: 16, color: fg), overflow: TextOverflow.ellipsis)),
-            Text(tr(item.kind), style: TextStyle(fontSize: 12, color: selected ? cs.onSecondaryContainer : cs.onSurfaceVariant)),
-          ]),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      isApp ? item.name : tr(item.name),
+                      style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: fg, height: 1.2),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Text(
+                      tr(item.kind),
+                      style: TextStyle(fontSize: 11, color: sub, height: 1.2),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

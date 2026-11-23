@@ -4,9 +4,11 @@ The single description of the wire format. The code mirrors are `src/FloatingDoc
 `ui_flutter/fd_ipc/lib/protocol.dart` (Dart). Change the three together and bump `Version` for incompatible changes.
 
 ## Transport
-A Unix-domain stream socket at `<profile>\engine.sock` (default profile `%LOCALAPPDATA%\FloatingDock`), so only the
-profile's user can connect. A named pipe was the first idea; Dart has no asynchronous named-pipe API, while Unix sockets
-work in both .NET and `dart:io` on Windows 10 1803+. The path may not exceed 100 characters (`sun_path` is 108 bytes).
+TCP on the loopback interface, on a random port chosen at engine start. The engine publishes the endpoint `tcp:<port>:<token>` in
+`<profile>\engine.endpoint` (default profile `%LOCALAPPDATA%\FloatingDock`; only the profile's user can read it) and passes it to the UI
+as `--socket <endpoint>`. The random token must be sent as `token` in `hello`; any other client is refused (`unauthorized`).
+Unix-domain sockets were used first and dropped: on Windows they proved unreliable (connect failing with error 10022, files of
+dead sockets that can be neither deleted nor connected to, error 1920).
 
 Frames are UTF-8 JSON objects, one per line (`\n`; JSON strings escape their own newlines), at most 4 MB.
 A client that sends a larger frame is disconnected.

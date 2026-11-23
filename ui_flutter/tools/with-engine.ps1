@@ -11,11 +11,13 @@ $EngineExe = (Resolve-Path $EngineExe).Path
 Get-Process FloatingDock.Engine -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $EngineExe } | Stop-Process -Force
 if (Test-Path $Profile) { Remove-Item $Profile -Recurse -Force }
 New-Item -ItemType Directory $Profile | Out-Null
-$sock = Join-Path $Profile 'engine.sock'
+$sockFile = Join-Path $Profile 'engine.endpoint'   # the engine writes tcp:<port>:<token> here once it listens
+$sock = ''
 
 $engine = Start-Process $EngineExe -ArgumentList '--diagnostic-profile', $Profile -PassThru
-for ($i = 0; $i -lt 80 -and -not (Test-Path $sock); $i++) { Start-Sleep -Milliseconds 100 }
-if (-not (Test-Path $sock)) { Stop-Process -Id $engine.Id -Force; throw "engine did not create $sock; see $Profile\Logs\engine.log" }
+for ($i = 0; $i -lt 80 -and -not (Test-Path $sockFile); $i++) { Start-Sleep -Milliseconds 100 }
+if (-not (Test-Path $sockFile)) { Stop-Process -Id $engine.Id -Force; throw "engine did not publish $sockFile; see $Profile\Logs\engine.log" }
+$sock = (Get-Content $sockFile -Raw).Trim()
 $code = 0
 Push-Location $tool
 try {

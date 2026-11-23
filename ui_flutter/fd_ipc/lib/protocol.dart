@@ -5,9 +5,6 @@ import 'dart:io';
 
 const int protocolVersion = 1;
 
-/// The longest a Unix socket path may be on Windows.
-const int maxSocketPathChars = 100;
-
 abstract final class Methods {
   static const hello = 'hello';
   static const ping = 'ping';
@@ -36,11 +33,12 @@ abstract final class ErrorCodes {
   static const failed = 'failed';
 }
 
-/// Socket of the engine that serves the current user's real profile (mirrors IpcEndpoint.SocketPathFor).
-String defaultSocketPath() {
+/// Endpoint (`tcp:<port>:<token>`) of the engine that serves the current user's real profile (mirrors IpcEndpoint.Read).
+String defaultEndpoint() {
   final local = Platform.environment['LOCALAPPDATA'];
   if (local == null || local.isEmpty) {
     throw StateError('LOCALAPPDATA is not set.');
   }
-  return '$local\\FloatingDock\\engine.sock';
+  final file = File('$local${Platform.pathSeparator}FloatingDock${Platform.pathSeparator}engine.endpoint');
+  return file.existsSync() ? file.readAsStringSync().trim() : '';
 }

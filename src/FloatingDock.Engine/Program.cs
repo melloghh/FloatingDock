@@ -74,7 +74,7 @@ internal static class Program
             try
             {
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-                var client = IpcClient.ConnectAsync(IpcEndpoint.SocketPathFor(paths.Root), "second-launch", cts.Token).GetAwaiter().GetResult();
+                var client = IpcClient.ConnectAsync(IpcEndpoint.Read(paths.Root) ?? throw new IOException("no endpoint file"), "second-launch", cts.Token).GetAwaiter().GetResult();
                 client.RequestAsync("app.activate", timeout: TimeSpan.FromSeconds(5)).GetAwaiter().GetResult();
                 client.DisposeAsync().AsTask().GetAwaiter().GetResult();
             }
@@ -88,7 +88,7 @@ internal static class Program
         using var host = new EngineHost(paths, ui, args, diagnostic);
         UiSupervisor? supervisor = null;
         var uiExe = args.Contains("--no-ui") ? null : UiSupervisor.Find(args);
-        if (uiExe is not null) supervisor = new UiSupervisor(uiExe, IpcEndpoint.SocketPathFor(paths.Root), args.Contains("--settings"));
+        if (uiExe is not null) supervisor = new UiSupervisor(uiExe, () => IpcEndpoint.Read(paths.Root) ?? "", args.Contains("--settings"));
         else if (!diagnostic && !args.Contains("--no-ui")) EngineLog.Warn("no UI found next to the engine (ui\\fd_ui.exe); running without one");
         host.QuitRequested += () => { supervisor?.Stop(); ui.Quit(); };
         ui.Post(() =>
@@ -133,11 +133,12 @@ internal static class Program
 
     private static int Quit(AppPaths paths)
     {
-        var socket = IpcEndpoint.SocketPathFor(paths.Root);
+        var endpoint = IpcEndpoint.Read(paths.Root);
+        if (endpoint is null) return 0;                              // no engine is running
         try
         {
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-            var client = IpcClient.ConnectAsync(socket, "engine-quit", cts.Token).GetAwaiter().GetResult();
+            var client = IpcClient.ConnectAsync(endpoint, "engine-quit", cts.Token).GetAwaiter().GetResult();
             client.RequestAsync(Protocol.Methods.EngineQuit, timeout: TimeSpan.FromSeconds(5)).GetAwaiter().GetResult();
             client.DisposeAsync().AsTask().GetAwaiter().GetResult();
         }
@@ -145,7 +146,7 @@ internal static class Program
         var deadline = DateTime.UtcNow.AddSeconds(15);
         while (DateTime.UtcNow < deadline)
         {
-            if (!File.Exists(socket)) return 0;
+            if (IpcEndpoint.Read(paths.Root) is null) return 0;           // the engine removes its endpoint file when it is gone
             Thread.Sleep(100);
         }
         return 1;

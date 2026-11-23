@@ -36,8 +36,9 @@ $engineExe = Join-Path (Resolve-Path $Dist).Path 'FloatingDock.Engine.exe'
 New-Item -ItemType Directory -Force $Shots | Out-Null
 Get-Process FloatingDock.Engine, fd_ui -ErrorAction SilentlyContinue | Stop-Process -Force
 if (Test-Path $Profile) { Remove-Item $Profile -Recurse -Force }
-robocopy "$env:LOCALAPPDATA\FloatingDock" $Profile /E /XD Logs Cache /XF engine.sock /NFL /NDL /NJH /NJS /NP | Out-Null
-$sock = Join-Path $Profile 'engine.sock'
+robocopy "$env:LOCALAPPDATA\FloatingDock" $Profile /E /XD Logs Cache /XF engine.endpoint engine.sock* /NFL /NDL /NJH /NJS /NP | Out-Null
+$sockFile = Join-Path $Profile 'engine.endpoint'   # the engine writes tcp:<port>:<token> here once it listens
+$sock = ''
 Add-Type -AssemblyName System.Windows.Forms
 $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
 "screen $($screen.Width)x$($screen.Height)"
@@ -51,8 +52,9 @@ function Shot($name) {
 function Send($command, $arg) { Push-Location $tool; if ($arg) { & $dart run tool/send_command.dart $sock $command $arg | Out-Null } else { & $dart run tool/send_command.dart $sock $command | Out-Null }; Pop-Location }
 
 $engine = Start-Process $engineExe -ArgumentList '--diagnostic-profile', $Profile -PassThru
-for ($i = 0; $i -lt 100 -and -not (Test-Path $sock); $i++) { Start-Sleep -Milliseconds 100 }
-if (-not (Test-Path $sock)) { throw 'engine did not start' }
+for ($i = 0; $i -lt 100 -and -not (Test-Path $sockFile); $i++) { Start-Sleep -Milliseconds 100 }
+if (-not (Test-Path $sockFile)) { throw 'engine did not start' }
+$sock = (Get-Content $sockFile -Raw).Trim()
 Start-Sleep -Seconds 9
 $ui = Get-Process fd_ui -ErrorAction SilentlyContinue | Select-Object -First 1
 if (-not $ui) { Get-Content (Join-Path $Profile 'Logs\engine.log'); throw 'the UI did not start' }
@@ -97,7 +99,7 @@ $u.Refresh(); $e.Refresh(); $dt = ((Get-Date) - $t0).TotalSeconds
 # --- stop
 & $engineExe --diagnostic-profile $Profile --quit
 Start-Sleep -Seconds 3
-"after --quit: engine running=$([bool](Get-Process FloatingDock.Engine -ErrorAction SilentlyContinue)), ui running=$([bool](Get-Process fd_ui -ErrorAction SilentlyContinue)), socket exists=$(Test-Path $sock)"
+"after --quit: engine running=$([bool](Get-Process FloatingDock.Engine -ErrorAction SilentlyContinue)), ui running=$([bool](Get-Process fd_ui -ErrorAction SilentlyContinue)), endpoint file exists=$(Test-Path $sockFile)"
 Get-Process FloatingDock.Engine, fd_ui -ErrorAction SilentlyContinue | Stop-Process -Force
 "--- engine.log"
 Get-Content (Join-Path $Profile 'Logs\engine.log')

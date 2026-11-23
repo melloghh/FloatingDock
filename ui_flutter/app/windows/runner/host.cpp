@@ -4,7 +4,11 @@
 #include <shellapi.h>
 #include <shobjidl.h>
 
+#include <mmsystem.h>
+
 #include <cmath>
+#include <map>
+#include <vector>
 
 #include "flutter/generated_plugin_registrant.h"
 #include "utils.h"
@@ -14,6 +18,9 @@ namespace {
 constexpr wchar_t kWindowClass[] = L"FloatingDock.UiWindow";
 constexpr UINT kAppBarMessage = WM_APP + 1;
 bool g_class_registered = false;
+
+// Short interface sounds (WAV files made by the interface), kept in memory so that playing one is a single call.
+std::map<int, std::vector<uint8_t>> g_sounds;
 
 using flutter::EncodableList;
 using flutter::EncodableMap;
@@ -253,6 +260,7 @@ HostWindow* WindowHost::Create(const Map& args, std::string* error) {
   HostWindow* w = record.get();
   w->framed = Bool(args, "framed");
   w->no_activate = Bool(args, "noActivate");
+  w->topmost = Bool(args, "topmost");
   int x = static_cast<int>(Int(args, "x")), y = static_cast<int>(Int(args, "y"));
   UINT dpi = DpiAt({x, y});
   double scale = dpi / 96.0;
@@ -300,12 +308,20 @@ HostWindow* WindowHost::Create(const Map& args, std::string* error) {
   return w;
 }
 
-void WindowHost::Show(HostWindow* w, bool activate) {
-  if (w->app_bar || (GetWindowLong(w->hwnd, GWL_EXSTYLE) & WS_EX_TOPMOST))
+// [raise] false while a screenshot overlay is up: the window may appear but must stay under the overlay.
+void WindowHost::Show(HostWindow* w, bool activate, bool raise) {
+  if (raise && (w->app_bar || w->topmost))
     SetWindowPos(w->hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
   if (activate && !w->no_activate) {
     ShowWindow(w->hwnd, SW_SHOW);
     ForceForeground(w->hwnd);
+    if (!w->topmost && GetForegroundWindow() != w->hwnd) {
+      // Windows refused to hand over the foreground (an elevated window, such as Task Manager, is in front): the window is still
+      // lifted above the others, so that it does not open out of sight.
+      SetWindowPos(w->hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+      SetWindowPos(w->hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+      FlashWindow(w->hwnd, TRUE);
+    }
   } else {
     ShowWindow(w->hwnd, SW_SHOWNOACTIVATE);
   }
@@ -469,11 +485,29 @@ void WindowHost::OnMethod(const flutter::MethodCall<Value>& call, std::unique_pt
     PostQuitMessage(0);
     return result->Success();
   }
+  if (name == "registerSound") {
+    if (auto* v = Get(a, "bytes")) {
+      if (auto* bytes = std::get_if<std::vector<uint8_t>>(v)) g_sounds[static_cast<int>(Int(a, "id"))] = *bytes;
+    }
+    return result->Success();
+  }
+  if (name == "playSound") {
+    auto it = g_sounds.find(static_cast<int>(Int(a, "id")));
+    // Asynchronous, from memory: the call returns at once and costs nothing while the sound plays.
+    if (it != g_sounds.end()) PlaySoundW(reinterpret_cast<LPCWSTR>(it->second.data()), nullptr, SND_MEMORY | SND_ASYNC | SND_NODEFAULT);
+    return result->Success();
+  }
+  if (name == "allowForeground") {
+    // This process has just been clicked and so holds the right to change the foreground window: it is handed on, so that the
+    // engine process, which does the actual switching, is not refused by Windows' foreground lock.
+    AllowSetForegroundWindow(ASFW_ANY);
+    return result->Success();
+  }
   HostWindow* w = Find(a);
   if (!w) return result->Error("no-such-view", "Unknown viewId");
 
   if (name == "show") {
-    Show(w, Bool(a, "activate", true));
+    Show(w, Bool(a, "activate", true), Bool(a, "raise", true));
   } else if (name == "hide") {
     ClearThumbnails(w);
     ShowWindow(w->hwnd, SW_HIDE);
@@ -483,12 +517,42 @@ void WindowHost::OnMethod(const flutter::MethodCall<Value>& call, std::unique_pt
     } else {
       ClearThumbnails(w);
     }
+  } else if (name == "setRegion") {
+    // The part of the window that takes the pointer (window-relative pixels); the rest lets clicks through. No rectangles: the whole window.
+    HRGN region = nullptr;
+    if (auto* v = Get(a, "rects")) {
+      if (auto* list = std::get_if<EncodableList>(v); list && !list->empty()) {
+        region = CreateRectRgn(0, 0, 0, 0);
+        for (auto& item : *list) {
+          if (auto* m = std::get_if<EncodableMap>(&item)) {
+            const int x = static_cast<int>(Int(*m, "x")), y = static_cast<int>(Int(*m, "y"));
+            HRGN part = CreateRectRgn(x, y, x + static_cast<int>(Int(*m, "w")), y + static_cast<int>(Int(*m, "h")));
+            CombineRgn(region, region, part, RGN_OR);
+            DeleteObject(part);
+          }
+        }
+      }
+    }
+    SetWindowRgn(w->hwnd, region, TRUE);
   } else if (name == "windowSize") {
     // Pixel size of another window (to lay out its preview with the right aspect).
     RECT r;
     HWND other = reinterpret_cast<HWND>(static_cast<intptr_t>(Int(a, "hwnd")));
     Map m;
-    if (IsWindow(other) && GetClientRect(other, &r)) {
+    if (IsWindow(other) && IsIconic(other)) {
+      // A minimized window has no client area: use the size it will come back with.
+      WINDOWPLACEMENT wp = {sizeof(wp)};
+      if (GetWindowPlacement(other, &wp)) {
+        RECT n = wp.rcNormalPosition;
+        if (wp.flags & WPF_RESTORETOMAXIMIZED) {
+          MONITORINFO mi = {sizeof(mi)};
+          if (GetMonitorInfo(MonitorFromRect(&n, MONITOR_DEFAULTTONEAREST), &mi)) n = mi.rcWork;
+        }
+        m[Value("w")] = Value(static_cast<int32_t>(n.right - n.left));
+        m[Value("h")] = Value(static_cast<int32_t>(n.bottom - n.top));
+        m[Value("minimized")] = Value(true);
+      }
+    } else if (IsWindow(other) && GetClientRect(other, &r)) {
       m[Value("w")] = Value(static_cast<int32_t>(r.right - r.left));
       m[Value("h")] = Value(static_cast<int32_t>(r.bottom - r.top));
     }
@@ -518,6 +582,36 @@ void WindowHost::OnMethod(const flutter::MethodCall<Value>& call, std::unique_pt
   } else if (name == "setTopmost") {
     SetWindowPos(w->hwnd, Bool(a, "on", true) ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
                  SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+  } else if (name == "setBlur") {
+    // Blur of the desktop behind rounded rectangles (logical px in the client area). Nothing in the list: blur off.
+    HRGN region = nullptr;
+    if (auto* v = Get(a, "shapes")) {
+      if (auto* list = std::get_if<EncodableList>(v)) {
+        double scale = GetDpiForWindow(w->hwnd) / 96.0;
+        for (const auto& item : *list) {
+          const auto* m = std::get_if<Map>(&item);
+          if (!m) continue;
+          int l = static_cast<int>(std::floor(Dbl(*m, "x") * scale)), t = static_cast<int>(std::floor(Dbl(*m, "y") * scale));
+          int r = static_cast<int>(std::ceil((Dbl(*m, "x") + Dbl(*m, "w")) * scale)), b = static_cast<int>(std::ceil((Dbl(*m, "y") + Dbl(*m, "h")) * scale));
+          int d = static_cast<int>(std::lround(Dbl(*m, "r") * 2 * scale));
+          if (r <= l || b <= t) continue;
+          HRGN shape = CreateRoundRectRgn(l, t, r + 1, b + 1, d, d);
+          if (!shape) continue;
+          if (!region) {
+            region = shape;
+          } else {
+            CombineRgn(region, region, shape, RGN_OR);
+            DeleteObject(shape);
+          }
+        }
+      }
+    }
+    DWM_BLURBEHIND bb = {};
+    bb.dwFlags = DWM_BB_ENABLE | DWM_BB_BLURREGION;
+    bb.fEnable = region ? TRUE : FALSE;
+    bb.hRgnBlur = region;
+    DwmEnableBlurBehindWindow(w->hwnd, &bb);
+    if (region) DeleteObject(region);
   } else if (name == "setTitle") {
     SetWindowText(w->hwnd, Wide(Str(a, "title")).c_str());
   } else if (name == "setDarkCaption") {

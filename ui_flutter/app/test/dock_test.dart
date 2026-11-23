@@ -80,6 +80,24 @@ void main() {
     await expectLater(find.byType(DockView), matchesGoldenFile('goldens/dock_hover.png'));
   });
 
+  testWidgets('dock: the name label steps aside while a window preview is open over it', (tester) async {
+    final (_, m) = await openDock(tester);
+    final g = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await g.addPointer(location: const Offset(1, 1));
+    final it = m.motion.items[4];
+    await g.moveTo(Offset(it.x + it.size / 2, m.metrics.plateTop + m.gp.dockHeight / 2));
+    await settle(tester, 400);
+    expect(m.labelAlpha, closeTo(1, .01));
+    m.previewActive = true;
+    m.requestFrame();
+    await settle(tester, 400);
+    expect(m.labelAlpha, 0, reason: 'the label would be behind the preview');
+    m.previewActive = false;
+    m.requestFrame();
+    await settle(tester, 400);
+    expect(m.labelAlpha, closeTo(1, .01), reason: 'and it is back once the preview is closed');
+  });
+
   testWidgets('dock: leaving the window relaxes the zoom', (tester) async {
     final (_, m) = await openDock(tester);
     final g = await hoverAt(tester, m, m.motion.items[3].x + 20);
@@ -220,16 +238,23 @@ void main() {
     expect(m.hide, lessThan(0.9), reason: 'it comes back while the pointer is on it');
   });
 
-  testWidgets('dock: new apps grow in and the window keeps its size (room for two more)', (tester) async {
+  testWidgets('dock: new apps grow in and the window keeps its size until the row outgrows it', (tester) async {
     final (_, m) = await openDock(tester);
     final before = m.windowSize;
-    final more = [...sampleEntries(), DockEntry(key: 'run2', kind: DockEntryKind.app, name: 'Calc', running: true, app: {'Id': 'r2', 'Name': 'Calc', 'Key': 'run2'}, windows: [DockWindowInfo({'hwnd': 300, 'title': 'Calc'})])];
-    m.setEntries(more);
+    DockEntry extra(int i) => DockEntry(key: 'new$i', kind: DockEntryKind.app, name: 'Calc $i', running: true, app: {'Id': 'n$i', 'Name': 'Calc $i', 'Key': 'new$i'}, windows: [DockWindowInfo({'hwnd': 300 + i, 'title': 'Calc'})]);
+    m.setEntries([...sampleEntries(), extra(1)]);
     await settle(tester, 48);
     expect(m.motion.items.last.appear, lessThan(1));
     await settle(tester, 500);
     expect(m.motion.items.last.appear, 1);
-    expect(m.windowSize.width, greaterThan(before.width), reason: 'the metrics grow with the item set (the controller resizes the window)');
+    expect(m.windowSize, before, reason: 'opening one app must not resize the native window (it would jump)');
+    m.setEntries([...sampleEntries(), for (var i = 1; i <= 6; i++) extra(i)]);
+    await settle(tester, 600);
+    expect(m.windowSize.width, greaterThan(before.width), reason: 'the metrics grow once the row comes close to the window edge');
+    final grown = m.windowSize;
+    m.setEntries([...sampleEntries(), extra(1)]);
+    await settle(tester, 600);
+    expect(m.windowSize, grown, reason: 'closing a few apps does not shrink the window either');
   });
 
   testWidgets('dock: keyboard mode moves along the icons with the arrow keys and Enter activates', (tester) async {

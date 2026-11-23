@@ -1,3 +1,4 @@
+import 'package:fd_ui/core/blur.dart';
 import 'package:fd_ui/windows/bar/bar_view.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -23,7 +24,7 @@ Future<(Harness, BarModel)> openBar(WidgetTester tester,
   final h = await makeHarness(settings: settings, russian: russian);
   h.state.foregroundName = 'Visual Studio Code';
   h.engine.responses.addAll({
-    'media.get': media ? {'title': 'Midnight City', 'artist': 'M83', 'playing': true, 'canToggle': true, 'canNext': true} : null,
+    'media.get': media ? {'title': 'Midnight City', 'artist': 'M83', 'playing': true, 'canToggle': true, 'canNext': true, 'canPrevious': true} : null,
     'battery.get': {'present': true, 'percent': 87, 'charging': true},
     'language.current': {'tag': 'EN'},
     'network.available': true,
@@ -46,6 +47,49 @@ void main() {
     expect(find.text('Midnight City'), findsOneWidget);
     expect(find.text('87%'), findsNothing, reason: 'charging shows an arrow first') ;
     await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/bar.png'));
+  });
+
+  testWidgets('bar: one floating panel', (tester) async {
+    await openBar(tester, settings: {'TopBarStyle': 'Island'});
+    expect(find.text('Midnight City'), findsOneWidget);
+    await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/bar_island.png'));
+  });
+
+  testWidgets('bar: the panel of the reference, with workspaces, seconds and the date', (tester) async {
+    final (_, model) = await openBar(tester, settings: {'TopBarStyle': 'Island', 'TopBarShowDate': true, 'TopBarShowSeconds': true}, width: 1600);
+    model
+      ..workspaces = 6
+      ..activeWorkspace = 4
+      ..changed();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('Midnight City'), findsOneWidget);
+    expect(find.text('SUN'), findsOneWidget);
+    await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/bar_island_full.png'));
+  });
+
+  testWidgets('bar: the gear of the panel opens the program settings', (tester) async {
+    final (h, _) = await openBar(tester, settings: {'TopBarStyle': 'Island'});
+    final opened = <String?>[];
+    h.state.actions['settings'] = ([arg]) => opened.add(arg);
+    await tester.tap(find.byIcon(Icons.settings_rounded));
+    await tester.pump();
+    expect(opened, [null]);
+  });
+
+  testWidgets('bar: panel flush with the screen edge', (tester) async {
+    await openBar(tester, settings: {'TopBarStyle': 'Bar'});
+    expect(find.text('Midnight City'), findsOneWidget);
+    await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/bar_edge.png'));
+  });
+
+  testWidgets('bar: text only over the desktop', (tester) async {
+    await openBar(tester, settings: {'TopBarStyle': 'Text'});
+    expect(find.text('Visual Studio Code'), findsOneWidget);
+    expect(find.text('Midnight City — M83'), findsOneWidget);
+    expect(find.text('20:24'), findsOneWidget);
+    expect(find.byType(Icon), findsNothing, reason: 'no icons and no buttons, only words');
+    expect(find.byType(BlurSurface), findsNothing);
+    await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/bar_text.png'));
   });
 
   testWidgets('bar: with the date, seconds and Russian', (tester) async {

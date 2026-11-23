@@ -1,9 +1,10 @@
 ; Inno Setup 6 script for FloatingDock.
-;   ISCC /DAppVersion=1.6.6 /DSourceDir=..\..\artifacts\FloatingDock /O..\..\artifacts FloatingDock.iss
-; Produces FloatingDock-Setup-x64.exe. Everything the app needs is inside the installer (self-contained .NET runtime + self-contained Windows App SDK):
+;   ISCC /DAppVersion=2.0.1 /DSourceDir=..\..\artifacts\FloatingDock /O..\..\artifacts FloatingDock.iss
+; FloatingDock.exe is the engine (it starts ui\fd_ui.exe itself); the file name is the same as in 1.x so shortcuts and the autostart entry keep working.
+; Produces FloatingDock-Setup-x64.exe. Everything the app needs is inside the installer (self-contained .NET runtime + the Flutter interface):
 ; nothing is downloaded during installation, no admin rights are required (per-user by default).
 #ifndef AppVersion
-  #define AppVersion "1.6.6"
+  #define AppVersion "2.0.1"
 #endif
 #ifndef SourceDir
   #define SourceDir "..\..\artifacts\FloatingDock"

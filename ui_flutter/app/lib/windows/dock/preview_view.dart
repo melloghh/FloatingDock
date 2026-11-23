@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
@@ -13,9 +14,12 @@ const double previewCardWidth = 232, previewHeaderHeight = 40, previewThumbMax =
 
 /// One live preview card's layout: where DWM draws the window and how big the card is.
 class PreviewLayout {
-  PreviewLayout(this.window, this.thumbSize);
+  PreviewLayout(this.window, this.thumbSize, {this.snapshot});
   final DockWindowInfo window;
   final Size thumbSize;
+
+  /// A minimized window cannot be drawn live: this is what it showed the last time the engine saw it (PNG), if it ever did.
+  final Uint8List? snapshot;
 }
 
 /// What the controller tells the preview window.
@@ -26,11 +30,30 @@ class PreviewModel extends ChangeNotifier {
   List<PreviewLayout> cards = const [];
   int revision = 0;
 
+  /// The dock's edge: the panel opens on the side facing away from it.
+  String edge = 'Bottom';
+
+  /// Transparent margin around the panel (room for the pop overshoot and the shadow); the side that faces the dock gets less,
+  /// so the window never covers the dock's icons and takes the pointer away from them.
+  static const double margin = 28, faceMargin = 14;
+  EdgeInsets get insets => switch (edge) {
+        'Left' => const EdgeInsets.fromLTRB(faceMargin, margin, margin, margin),
+        'Right' => const EdgeInsets.fromLTRB(margin, margin, faceMargin, margin),
+        _ => const EdgeInsets.fromLTRB(margin, margin, margin, faceMargin),
+      };
+  Alignment get anchor => switch (edge) { 'Left' => Alignment.centerLeft, 'Right' => Alignment.centerRight, _ => Alignment.bottomCenter };
+
+  /// The native window's logical size for a panel of [panel].
+  Size windowSizeFor(Size panel) => Size(panel.width + insets.horizontal, panel.height + insets.vertical);
+
   void Function(DockWindowInfo window)? onActivate, onClose;
   void Function(bool inside)? onPointer;
 
   /// Called with the rectangles (logical, window-relative) where DWM should draw the thumbnails, once the surface has settled.
   void Function(List<(DockWindowInfo, Rect)> rects)? onThumbnails;
+
+  /// How opaque DWM draws the live pictures right now: they fade in once the surface has settled instead of snapping in.
+  double thumbOpacity = 1;
 
   /// The size of the panel for [cards] cards whose pictures are [thumbHeight] tall (including padding and the 1 px border).
   static Size panelSize(int cards, double thumbHeight) =>
@@ -57,7 +80,7 @@ class PreviewView extends StatefulWidget {
 
 class _PreviewViewState extends State<PreviewView> {
   final _thumbKeys = <int, GlobalKey>{};
-  Timer? _settle;
+  Timer? _settle, _fade;
   PreviewModel get m => widget.model;
 
   @override
@@ -70,6 +93,7 @@ class _PreviewViewState extends State<PreviewView> {
   @override
   void dispose() {
     _settle?.cancel();
+    _fade?.cancel();
     m.removeListener(_onChanged);
     m.visible.removeListener(_onChanged);
     super.dispose();
@@ -78,20 +102,32 @@ class _PreviewViewState extends State<PreviewView> {
   void _onChanged() {
     setState(() {});
     _settle?.cancel();
+    _fade?.cancel();
     if (!m.visible.value) return;
     // The surface scales while it pops in; the live pictures are placed after it has settled.
-    _settle = Timer(const Duration(milliseconds: 440), _reportRects);
+    _settle = Timer(const Duration(milliseconds: 270), _reportRects);
   }
 
   void _reportRects() {
     if (!mounted || !m.visible.value) return;
     final rects = <(DockWindowInfo, Rect)>[];
     for (final c in m.cards) {
+      if (c.window.minimized) continue;       // DWM has nothing live to draw for a minimized window: the card shows its icon
       final box = _thumbKeys[c.window.hwnd]?.currentContext?.findRenderObject() as RenderBox?;
       if (box == null || !box.attached) continue;
       rects.add((c.window, box.localToGlobal(Offset.zero) & box.size));
     }
+    // The pictures fade in over a few frames.
+    var step = 1;
+    const steps = 4;
+    m.thumbOpacity = step / steps;
     m.onThumbnails?.call(rects);
+    _fade = Timer.periodic(const Duration(milliseconds: 30), (timer) {
+      step++;
+      m.thumbOpacity = step / steps;
+      m.onThumbnails?.call(rects);
+      if (step >= steps) timer.cancel();
+    });
   }
 
   @override
@@ -100,12 +136,12 @@ class _PreviewViewState extends State<PreviewView> {
     return Material(
       type: MaterialType.transparency,
       child: Padding(
-        padding: const EdgeInsets.all(28),
+        padding: m.insets,
         child: Align(
-          alignment: Alignment.bottomCenter,
+          alignment: m.anchor,
           child: ValueListenableBuilder<bool>(
             valueListenable: m.visible,
-            builder: (context, visible, child) => PopSurface(visible: visible, origin: Alignment.bottomCenter, child: child!),
+            builder: (context, visible, child) => PopSurface(visible: visible, origin: m.anchor, milliseconds: 260, child: child!),
             child: MouseRegion(
               onEnter: (_) => m.onPointer?.call(true),
               onExit: (_) => m.onPointer?.call(false),
@@ -202,7 +238,22 @@ class _CardState extends State<_Card> {
                   key: widget.thumbKey,
                   width: widget.layout.thumbSize.width,
                   height: widget.layout.thumbSize.height,
-                  child: DecoratedBox(decoration: BoxDecoration(color: cs.surfaceContainerLowest.withValues(alpha: .5), borderRadius: BorderRadius.circular(Shapes.s))),
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(color: cs.surfaceContainerLowest.withValues(alpha: .5), borderRadius: BorderRadius.circular(Shapes.s)),
+                    child: !w.minimized
+                        ? null
+                        : widget.layout.snapshot != null
+                            ? ClipRRect(
+                                borderRadius: BorderRadius.circular(Shapes.s),
+                                child: Opacity(
+                                  opacity: .8,
+                                  child: Image.memory(widget.layout.snapshot!, fit: BoxFit.cover, gaplessPlayback: true, filterQuality: FilterQuality.medium),
+                                ),
+                              )
+                            : widget.app != null
+                                ? Center(child: Opacity(opacity: .85, child: AppIcon(app: widget.app!, size: 40)))
+                                : null,
+                  ),
                 ),
               ),
             ),

@@ -13,8 +13,6 @@ public static class Protocol
     /// <summary>Bumped when a message changes incompatibly; <c>hello</c> refuses a different value.</summary>
     public const int Version = 1;
     public const int MaxFrameBytes = 4 * 1024 * 1024;
-    /// <summary>The longest a Unix socket path may be on Windows (sun_path is 108 bytes).</summary>
-    public const int MaxSocketPathChars = 100;
 
     public static class Methods
     {
@@ -43,6 +41,7 @@ public static class Protocol
         public const string UnknownMethod = "unknown-method";
         public const string BadParams = "bad-params";
         public const string HelloRequired = "hello-required";
+        public const string Unauthorized = "unauthorized";
         public const string ProtocolMismatch = "protocol-mismatch";
         public const string Failed = "failed";
     }

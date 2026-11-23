@@ -1,7 +1,8 @@
 FloatingDock - portable build (Windows 10 1809+ / Windows 11, 64-bit)
 
 1. Unzip the whole folder anywhere (not into a folder that needs administrator rights).
-2. Run FloatingDock.exe. Nothing has to be installed: the .NET runtime and the Windows App SDK runtime are inside this folder.
+2. Run FloatingDock.exe (the engine; it starts the interface from the ui folder by itself). Nothing has to be installed: the .NET runtime is inside this folder.
+   Close it from the tray menu or with FloatingDock.exe --quit.
 
 Ctrl+Alt+K opens the app/file search palette. Its folders and shortcut are in Settings > Search.
 Choose English or Russian in Settings > Appearance. Use the + button in Launchpad to add a shortcut/application.

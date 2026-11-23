@@ -44,13 +44,15 @@ class FdClient {
   /// Completes when the connection ends (the engine quit, or the socket broke).
   Future<void> get done => _closed.future;
 
-  static Future<FdClient> connect(String socketPath, {String name = 'flutter-ui', Duration timeout = const Duration(seconds: 5)}) async {
-    if (socketPath.length > maxSocketPathChars) {
-      throw ArgumentError('Socket path is too long: $socketPath');
-    }
-    final socket = await Socket.connect(InternetAddress(socketPath, type: InternetAddressType.unix), 0).timeout(timeout);
+  /// [endpoint] is `tcp:<port>:<token>` (see `defaultEndpoint()`): the engine listens on a loopback port and wants the token in `hello`.
+  static Future<FdClient> connect(String endpoint, {String name = 'flutter-ui', Duration timeout = const Duration(seconds: 5)}) async {
+    final parts = endpoint.trim().split(':');
+    final port = parts.length == 3 && parts[0] == 'tcp' ? int.tryParse(parts[1]) : null;
+    if (port == null) throw ArgumentError('Not an engine endpoint: $endpoint');
+    final socket = await Socket.connect(InternetAddress.loopbackIPv4, port).timeout(timeout);
+    socket.setOption(SocketOption.tcpNoDelay, true);
     final client = FdClient._(socket);
-    client.hello = ((await client.request(Methods.hello, {'client': name, 'protocol': protocolVersion, 'pid': pid}, timeout)) as Map).cast<String, Object?>();
+    client.hello = ((await client.request(Methods.hello, {'client': name, 'protocol': protocolVersion, 'pid': pid, 'token': parts[2]}, timeout)) as Map).cast<String, Object?>();
     return client;
   }
 

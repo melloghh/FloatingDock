@@ -8,12 +8,19 @@ public sealed class IpcTests : IDisposable
 {
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "ipc-" + Guid.NewGuid().ToString("N")[..8]);
     private readonly IpcServer _server;
-    private string Socket => IpcEndpoint.SocketPathFor(_dir);
+    private string Socket => _server.Endpoint;
+
+    private static async Task<System.Net.Sockets.Socket> RawAsync(string endpoint)
+    {
+        var raw = new System.Net.Sockets.Socket(System.Net.Sockets.AddressFamily.InterNetwork, System.Net.Sockets.SocketType.Stream, System.Net.Sockets.ProtocolType.Tcp);
+        await raw.ConnectAsync(IpcEndpoint.Parse(endpoint).Address);
+        return raw;
+    }
 
     public IpcTests()
     {
         Directory.CreateDirectory(_dir);
-        _server = new IpcServer(Socket, "9.9.9");
+        _server = new IpcServer("9.9.9");
         _server.Register("echo", r => Task.FromResult<JsonNode?>(new JsonObject { ["got"] = r.Params["text"]?.DeepClone() }));
         _server.Register("fail", _ => throw new IpcException("custom", "nope"));
         _server.Register("crash", _ => throw new InvalidDataException("boom"));
@@ -38,8 +45,7 @@ public sealed class IpcTests : IDisposable
     [Fact]
     public async Task Requests_before_hello_are_refused_but_ping_is_allowed()
     {
-        using var raw = new System.Net.Sockets.Socket(System.Net.Sockets.AddressFamily.Unix, System.Net.Sockets.SocketType.Stream, System.Net.Sockets.ProtocolType.Unspecified);
-        await raw.ConnectAsync(new System.Net.Sockets.UnixDomainSocketEndPoint(Socket));
+        using var raw = await RawAsync(Socket);
         await using var stream = new System.Net.Sockets.NetworkStream(raw);
         var reader = new StreamReader(stream);
         await stream.WriteAsync(System.Text.Encoding.UTF8.GetBytes("{\"id\":1,\"method\":\"echo\",\"params\":{}}\n{\"id\":2,\"method\":\"ping\"}\n"));
@@ -53,8 +59,7 @@ public sealed class IpcTests : IDisposable
     [Fact]
     public async Task Wrong_protocol_version_is_refused()
     {
-        using var raw = new System.Net.Sockets.Socket(System.Net.Sockets.AddressFamily.Unix, System.Net.Sockets.SocketType.Stream, System.Net.Sockets.ProtocolType.Unspecified);
-        await raw.ConnectAsync(new System.Net.Sockets.UnixDomainSocketEndPoint(Socket));
+        using var raw = await RawAsync(Socket);
         await using var stream = new System.Net.Sockets.NetworkStream(raw);
         await stream.WriteAsync(System.Text.Encoding.UTF8.GetBytes("{\"id\":1,\"method\":\"hello\",\"params\":{\"client\":\"x\",\"protocol\":99}}\n"));
         var line = await new StreamReader(stream).ReadLineAsync();
@@ -107,8 +112,7 @@ public sealed class IpcTests : IDisposable
     [Fact]
     public async Task A_frame_over_the_limit_drops_the_client_only()
     {
-        using var raw = new System.Net.Sockets.Socket(System.Net.Sockets.AddressFamily.Unix, System.Net.Sockets.SocketType.Stream, System.Net.Sockets.ProtocolType.Unspecified);
-        await raw.ConnectAsync(new System.Net.Sockets.UnixDomainSocketEndPoint(Socket));
+        using var raw = await RawAsync(Socket);
         var huge = new byte[Protocol.MaxFrameBytes + 1024];
         Array.Fill(huge, (byte)'a');
         try { await raw.SendAsync(huge); } catch (System.Net.Sockets.SocketException) { }

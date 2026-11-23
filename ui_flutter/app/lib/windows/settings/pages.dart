@@ -32,6 +32,14 @@ final settingsPages = <SettingsPageDef>[
 // ---------------------------------------------------------------------- Menu bar
 
 List<Widget> menuBarPage(BuildContext context, AppState s) => [
+      Group(title: 'Look', children: [
+        s.choice('TopBarStyle', 'Bar style', const [
+          ('Separate pills', 'Pills'),
+          ('One floating panel', 'Island'),
+          ('Panel at the screen edge', 'Bar'),
+          ('Text only, transparent', 'Text'),
+        ]),
+      ]),
       Group(children: [
         s.toggle('TopBarEnabled', 'Show the top menu bar'),
         s.toggle('TopBarAutoHide', 'Auto-hide — reveal at the top edge'),
@@ -141,13 +149,14 @@ List<Widget> appearancePage(BuildContext context, AppState s) => [
         s.slider('CornerRadius', 'Corner radius', 0, 60, suffix: ' px'),
         s.toggle('Shadow', 'Drop shadow'),
         s.toggle('Border', 'Thin border'),
+        s.toggle('Blur', 'Blur the desktop behind translucent surfaces (bar, dock)'),
         s.toggle('MenuAnimations', 'Animate menus'),
         s.slider('MenuAnimationMs', 'Menu animation duration', 80, 600, suffix: ' ms'),
       ]),
       Group(title: 'Theme & indicators', children: [
         s.choice('Theme', 'Theme (settings, Launchpad menus)', const [('Dark', 'Dark'), ('Light', 'Light'), ('Follow system', 'System')]),
         SeedPickerRow(label: 'Accent color', value: s.seed, onChanged: (v) => s.update({'AccentSeed': v})),
-        s.text('AccentSeed', 'Accent color (hex RGB)', hint: '4E9F75', validate: (t) => hexColorError(t)?.replaceFirst('1E1E1E', '4E9F75'), normalize: normalizeHex),
+        s.text('AccentSeed', 'Accent color (hex RGB)', hint: '4A6BC8', validate: (t) => hexColorError(t)?.replaceFirst('1E1E1E', '4A6BC8'), normalize: normalizeHex),
         s.choice('IndicatorStyle', 'Running indicator', const [('Dot', 'Dot'), ('Bar', 'Bar')]),
         s.toggle('ShowLabels', 'Show app names above icons'),
       ]),
@@ -200,6 +209,7 @@ List<Widget> behaviourPage(BuildContext context, AppState s) => [
         s.toggle('ShowRunning', 'Running apps that are not pinned'),
         s.toggle('ShowActiveIndicator', 'Highlight the active app'),
       ]),
+      Group(title: 'Sounds', children: [s.toggle('UiSounds', 'Interface sounds')]),
       Group(title: 'Hiding', children: [
         s.toggle('AutoHide', 'Auto-hide the dock'),
         s.toggle('RevealOnEdgeHover', 'Reveal when the cursor touches the screen edge'),

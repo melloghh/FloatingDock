@@ -58,6 +58,11 @@ class _LaunchpadViewState extends State<LaunchpadView> {
     super.initState();
     widget.model.addListener(_onShown);
     _dropSub = widget.model.dropped.stream.listen(_onDrop);
+    // The window is created on the first open, after the model has already announced it: that first announcement is missed here, so the
+    // apps are asked for as soon as the view exists.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !_loaded) _load();
+    });
   }
 
   @override

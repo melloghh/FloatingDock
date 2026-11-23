@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using FloatingDock.Core.Configuration;
@@ -111,19 +112,20 @@ internal sealed partial class EngineHost : IDisposable
         _msg.TaskbarCreated += () => _ui.Post(OnExplorerRestarted);
         _msg.SessionEnding += () => { try { _taskbar.Restore(); _settings.Flush(); } catch (Exception) { } };
 
-        _server = new IpcServer(IpcEndpoint.SocketPathFor(_paths.Root), Version);
+        _server = new IpcServer(Version);
         _server.SessionOpened += session => EngineLog.Info($"client #{session.Id} connected");
         _server.SessionClosed += session => { EngineLog.Info($"client #{session.Id} ({session.ClientName}) disconnected"); _ui.Post(OnSessionClosed); };
         _server.SessionOpened += _ => _ui.Post(OnSessionOpened);
         RegisterHandlers(_server);
         _server.Start();
+        IpcEndpoint.Publish(_paths.Root, _server.Endpoint);
 
         _settings.Changed += _ => _ui.Post(ScheduleSettingsApply);
         _settings.Changed += snapshot => _server.Publish(Protocol.Events.SettingsChanged, SettingsNode(snapshot));
         _pinned.Changed += () => _server.Publish(Protocol.Events.PinnedChanged, PinnedNode());
         _tiles.Changed += () => _server.Publish("tiles.changed", null);
         _icons.Changed += () => _server.Publish("icons.changed", null);
-        _running.Changed += (_, _) => _server.Publish(Protocol.Events.WindowsChanged, WindowsNode());
+        _running.Changed += (_, _) => PublishWindowsIfChanged();
         _running.Start();
 
         _applied = s.Clone();
@@ -135,7 +137,7 @@ internal sealed partial class EngineHost : IDisposable
 
         if (firstRun) _ = SeedPinnedFromWindowsTaskbarAsync();
         if (!_diagnostic) _ = Task.Delay(600).ContinueWith(_ => _startPins.GetAsync()).Unwrap().ContinueWith(t => { if (t.IsFaulted) EngineLog.Warn("Start pins preload failed: " + t.Exception?.GetBaseException().Message); });
-        EngineLog.Info($"engine ready on {IpcEndpoint.SocketPathFor(_paths.Root)} (profile {_paths.Root}, settings {_settings.LoadStatus})");
+        EngineLog.Info($"engine ready on {_server.Endpoint[..(_server.Endpoint.LastIndexOf(':'))]} (token hidden) (profile {_paths.Root}, settings {_settings.LoadStatus})");
     }
 
     // ------------------------------------------------------------------ settings -> system
@@ -409,11 +411,12 @@ internal sealed partial class EngineHost : IDisposable
         _languageTimer?.Dispose(); _fullscreenTimer?.Dispose(); _spaceTimer?.Dispose(); _dockTimer?.Dispose();
         _settingsTimer?.Dispose(); _taskbarTimer?.Dispose(); _displayTimer?.Dispose(); _packTimer?.Dispose();
         _packWatcher?.Dispose();
-        _captureShortcut?.Dispose(); _captureTimer?.Dispose();
+        _captureShortcut?.Dispose(); _captureTimer?.Dispose(); _healTimer?.Dispose(); WatchOverlaySize(false); WatchOverlayShown(false);
         _running?.Dispose();
         _tray?.Dispose();
         _msg?.Dispose();
         _server?.Dispose();
+        IpcEndpoint.ClearPublished(_paths.Root);
         _worker?.Dispose();
         _settings?.Dispose();
         EngineLog.Info("engine stopped");
@@ -438,6 +441,19 @@ internal sealed partial class EngineHost : IDisposable
     }
 
     private JsonNode PinnedNode() => AppsNode(_pinned.Snapshot());
+
+    private string _windowsShape = "";
+
+    /// <summary>Titles change all the time and nothing that listens draws them: only the foreground app and the set of windows are published.</summary>
+    private void PublishWindowsIfChanged()
+    {
+        var shape = new StringBuilder().Append(_running.ForegroundRoot).Append('|').Append(ForegroundName());
+        foreach (var w in _running.Snapshot()) shape.Append('|').Append(w.Hwnd).Append(w.IsMinimized ? 'm' : 'n');
+        var text = shape.ToString();
+        if (text == _windowsShape) return;
+        _windowsShape = text;
+        _server.Publish(Protocol.Events.WindowsChanged, WindowsNode());
+    }
 
     /// <summary>Must run on the UI-loop thread (the running-apps service is not thread-safe).</summary>
     private JsonObject WindowsNode()

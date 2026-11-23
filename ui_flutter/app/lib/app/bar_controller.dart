@@ -55,7 +55,7 @@ class BarController {
   }
 
   String _settingsSignature() => [
-        'TopBarEnabled', 'TopBarAutoHide', 'TopBarReserveSpace', 'MonitorMode', 'TopBarHideDelayMs',
+        'TopBarEnabled', 'TopBarAutoHide', 'TopBarReserveSpace', 'MonitorMode', 'TopBarHideDelayMs', 'TopBarStyle',
       ].map((k) => '${state.settings[k]}').join('|');
 
   void _onState() {
@@ -110,11 +110,14 @@ class BarController {
           ..scale = mon.scale
           ..widthDip = w
           ..changed();
-        await bar.handle.setBounds(x: mon.x, y: mon.y, width: w, height: barWindowHeight);
+        final style = state.setting<String>('TopBarStyle', 'Pills');
+        final height = barWindowHeightFor(style);
+        await bar.handle.setBounds(x: mon.x, y: mon.y, width: w, height: height);
+        await _shape(bar, style, mon);
         if (!bar.model.hidden.value && !bar.windowShown) await _showWindow(bar);
         final reserveNow = reserve && !autoHide;
         if (reserveNow) {
-          await native.appBar(bar.handle.viewId, edge: 1, size: (barWindowHeight * mon.scale).ceil(), monitor: mon);
+          await native.appBar(bar.handle.viewId, edge: 1, size: (barReservedHeightFor(style) * mon.scale).ceil(), monitor: mon);
           bar.appBarOn = true;
         } else if (bar.appBarOn) {
           await native.removeAppBar(bar.handle.viewId);
@@ -150,6 +153,30 @@ class BarController {
     try {
       _applyFullscreen(((await state.call('fullscreen.get')) as Map).cast<String, Object?>());
     } catch (_) {}
+  }
+
+  /// In the "Bar" style the window is taller than the panel (room for the corners under its ends): only the panel and the two
+  /// corners take the pointer, so the strip between them does not get in the way of the windows below. In the "Island" style only
+  /// the (narrower) panel takes it.
+  Future<void> _shape(_Bar bar, String style, MonitorInfo mon) async {
+    if (style == 'Island') {
+      // The panel is narrower than the monitor: the strip on either side of it must not take the pointer.
+      final width = (barIslandWidth(mon.w / mon.scale) * mon.scale).ceil();
+      await native.setRegion(bar.handle.viewId, [
+        {'x': ((mon.w - width) / 2).floor(), 'y': 0, 'w': width, 'h': (barIslandHeight * mon.scale).ceil()},
+      ]).catchError((_) => null);
+      return;
+    }
+    if (style != 'Bar') {
+      await native.setRegion(bar.handle.viewId, const []).catchError((_) => null);
+      return;
+    }
+    final body = (barEdgeHeight * mon.scale).ceil(), r = (barEdgeRadius * mon.scale).ceil();
+    await native.setRegion(bar.handle.viewId, [
+      {'x': 0, 'y': 0, 'w': mon.w, 'h': body},
+      {'x': 0, 'y': body, 'w': r, 'h': r},
+      {'x': mon.w - r, 'y': body, 'w': r, 'h': r},
+    ]).catchError((_) => null);
   }
 
   Future<_Bar> _create(String key, MonitorInfo mon) async {
@@ -217,7 +244,7 @@ class BarController {
       cursor ??= await native.cursor();
       final mon = bar.monitor;
       final inset = (barSideInset * mon.scale).round();
-      final reach = bar.model.hidden.value ? 2 : ((barTopInset + barHeight) * mon.scale).round();
+      final reach = bar.model.hidden.value ? 2 : (barHoverHeight(state.setting<String>('TopBarStyle', 'Pills')) * mon.scale).round();
       final over = cursor.dx >= mon.x + inset && cursor.dx < mon.x + mon.w - inset && cursor.dy >= mon.y && cursor.dy < mon.y + reach;
       if (over) {
         _reveal(bar);
@@ -263,4 +290,4 @@ extension _FirstOrNull<T> on Iterable<T> {
 }
 
 /// Used by the layout maths in tests.
-int reservedBarPixels(double scale) => math.max(1, (barWindowHeight * scale).ceil());
+int reservedBarPixels(double scale, [String style = 'Pills']) => math.max(1, (barReservedHeightFor(style) * scale).ceil());

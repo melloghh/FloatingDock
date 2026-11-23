@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/app_state.dart';
+import '../../core/sfx.dart';
 import '../../core/theme.dart';
 import '../../ui/glide_scope.dart';
 import '../../ui/motion.dart';
@@ -122,7 +123,12 @@ class MenuRow extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     final fg = selected ? cs.onSecondaryContainer : cs.onSurface;
     return GlideRow(
-      onTap: onTap,
+      onTap: onTap == null
+          ? null
+          : () {
+              Sfx.play(Sound.tap);
+              onTap!();
+            },
       enabled: enabled,
       child: Container(
         constraints: BoxConstraints(minHeight: detail.isEmpty ? 48 : 56),

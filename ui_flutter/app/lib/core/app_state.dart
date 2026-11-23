@@ -199,7 +199,7 @@ class AppState extends ChangeNotifier {
     if (setting<String>('Theme', 'Dark') == 'System') notifyListeners();
   }
 
-  String get seed => setting<String>('AccentSeed', '4E9F75');
+  String get seed => setting<String>('AccentSeed', defaultSeed);
 
   ColorScheme? _scheme;
   String _schemeKey = '';

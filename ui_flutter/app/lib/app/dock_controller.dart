@@ -1,10 +1,13 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:fd_ipc/client.dart';
 import 'package:flutter/material.dart';
 
 import '../core/app_state.dart';
+import '../core/sfx.dart';
 import '../core/native.dart';
 import '../windows/dock/dock_math.dart';
 import '../windows/dock/dock_view.dart';
@@ -190,6 +193,9 @@ class DockController {
       ..onLeftKbMode = (() => native.setNoActivate(handle.viewId, true));
     _docks[key] = d;
     model.addListener(() => _onModel(d));
+    Future<void>.delayed(const Duration(seconds: 2), () {
+      if (state.setting<bool>('ShowWindowPreviews', true) == true) unawaited(_ensurePreviewWindow(d));
+    });
     return d;
   }
 
@@ -238,6 +244,8 @@ class DockController {
 
   Future<void> _showDock(_Dock d) async {
     d.shown = true;
+    // A dock that is shown again starts from "just barely hidden": the tick slides it in, and nothing takes it off the screen first.
+    if (d.model.hide >= 1) d.model.hide = .999;
     await d.handle.show(activate: false);
     d.model.requestFrame();
   }
@@ -266,13 +274,33 @@ class DockController {
       final entry = list.where((m) => m['x'] == d.monitor.x && m['y'] == d.monitor.y).firstOrNull;
       d.concealed = entry?['hide'] == true;
       d.blockReveal = entry?['blockReveal'] == true;
+      final was = d.model.concealed;
       d.model.concealed = d.concealed;
-      if (d.concealed) d.model.endHover();
+      if (!d.concealed || d.blockReveal) d.model.peek = false;
+      if (d.concealed && !was) d.model.endHover();
       _wake(d);
     }
   }
 
-  void _wake(_Dock d) => d.model.requestFrame();
+  /// The dock's plate on [mon] in physical screen pixels where it rests, or null when there is no dock on that monitor.
+  Rect? plateOn(MonitorInfo mon) {
+    for (final d in _docks.values) {
+      if (d.monitor.x == mon.x && d.monitor.y == mon.y) return d.screenPlate;
+    }
+    return null;
+  }
+
+  void _wake(_Dock d) {
+    _revealIfNeeded(d);
+    d.model.requestFrame();
+  }
+
+  /// A dock that was taken off the screen (a covering window, "hide the dock") comes back by itself when the reason is gone.
+  /// Only an auto-hiding dock stays away until the cursor asks for it at the edge.
+  void _revealIfNeeded(_Dock d) {
+    if (d.shown || d.screenPlate == null || d.concealed || _userHidden || _suspended || d.model.effectiveAutoHide) return;     // screenPlate: placed yet
+    unawaited(_showDock(d));
+  }
 
   void _onModel(_Dock d) {
     // Fully slid away (auto-hide, a fullscreen window): take the window off the screen so it cannot block what is under it.
@@ -282,7 +310,43 @@ class DockController {
     }
   }
 
+  bool _watching = false;
+
+  /// The dock must settle back when the cursor is gone. Normally the window's own "pointer left" does it, but that event can be
+  /// missed (the preview window closing under the cursor, a fast move out, a window taking the pointer), and then the dock would
+  /// stay magnified. While a dock is hovered the cursor is therefore also checked here, a few times a second.
+  Future<void> _watchHover() async {
+    if (_watching) return;
+    final active = _docks.values.where((d) => d.shown && d.model.mag.hovering && !d.model.dragging && !d.model.kbMode).toList();
+    if (active.isEmpty) return;
+    _watching = true;
+    try {
+      final cursor = await native.cursor();
+      for (final d in active) {
+        if (!d.model.mag.hovering) continue;
+        final b = await d.handle.bounds();
+        final scale = d.monitor.scale;
+        final p = Offset((cursor.dx - (b['x'] as num)) / scale, (cursor.dy - (b['y'] as num)) / scale);
+        final (a, c) = d.model.axis.logical(p);
+        if (d.model.zones.keepZone.contains(Offset(a, c))) continue;
+        final preview = _previewWin;
+        if (preview != null && _preview.visible.value) {
+          final pb = await preview.bounds();
+          final inPreview = cursor.dx >= (pb['x'] as num) && cursor.dx < (pb['x'] as num) + (pb['w'] as num) && cursor.dy >= (pb['y'] as num) && cursor.dy < (pb['y'] as num) + (pb['h'] as num);
+          if (inPreview) continue;
+        }
+        d.model.previewInside = false;
+        d.model.endHover();
+      }
+    } catch (_) {
+      // A window that is going away: the next tick looks again.
+    } finally {
+      _watching = false;
+    }
+  }
+
   Future<void> _edge() async {
+    unawaited(_watchHover());
     final hidden = _docks.values.where((d) => !d.shown && !d.blockReveal && !d.model.suspended).toList();
     if (hidden.isEmpty || state.setting<bool>('RevealOnEdgeHover', true) != true) return;
     if (_userHidden) return;
@@ -299,6 +363,7 @@ class DockController {
       };
       if (onEdge) {
         d.model
+          ..peek = d.concealed
           ..hide = math.max(d.model.hide, .999)
           ..idleFor = 0;
         await _showDock(d);
@@ -309,6 +374,8 @@ class DockController {
   // ------------------------------------------------------------------ actions
 
   void _activate(_Dock d, DockEntry e, bool newInstance) {
+    Sfx.play(Sound.pop);
+    native.allowForeground().catchError((_) => null);
     app.closePreview();
     if (e.kind == DockEntryKind.launchpad) {
       unawaited(app.toggleLaunchpad());
@@ -420,11 +487,8 @@ class DockController {
   Timer? _previewHideTimer;
   int _previewGeneration = 0;
 
-  Future<void> _showPreview(_Dock d, DockEntry e, Rect iconRect) async {
-    if (d.model.menuOpen || app.openPopupKind != null || e.windows.isEmpty) return;
-    final generation = ++_previewGeneration;
-    _previewHideTimer?.cancel();
-    final windows = e.windows.take(6).toList();
+  /// Creates the preview window (once) and wires it to the docks. Done shortly after start-up so the first hover does not wait for it.
+  Future<WindowHandle> _ensurePreviewWindow(_Dock d) async {
     final handle = await (_previewCreating ??= app.host.create(
       WindowSpec(kind: 'preview', x: d.monitor.x, y: d.monitor.y, width: 300, height: 200, topmost: true, noActivate: true, title: 'FloatingDock preview'),
       (context) => PreviewView(model: _preview),
@@ -433,7 +497,9 @@ class DockController {
       _previewWin = handle;
       _preview
         ..onPointer = ((inside) {
-          d.model.previewInside = inside;
+          for (final dock in _docks.values) {
+            dock.model.previewInside = inside;
+          }
           if (inside) {
             _previewHideTimer?.cancel();
           } else {
@@ -441,53 +507,109 @@ class DockController {
           }
         })
         ..onActivate = ((w) {
+          native.allowForeground().catchError((_) => null);
           closePreview();
           state.call('windows.activate', {'hwnd': w.hwnd}).catchError((_) => null);
         })
         ..onClose = ((w) => state.call('windows.close', {'hwnd': w.hwnd}).catchError((_) => null))
         ..onThumbnails = ((rects) {
           native.thumbnails(handle.viewId, [
-            for (final (w, r) in rects) {'hwnd': w.hwnd, 'x': r.left, 'y': r.top, 'w': r.width, 'h': r.height, 'opacity': 1.0},
+            for (final (w, r) in rects) {'hwnd': w.hwnd, 'x': r.left, 'y': r.top, 'w': r.width, 'h': r.height, 'opacity': _preview.thumbOpacity},
           ]).catchError((_) => null);
         });
     }
-    // Pixel sizes of the windows give the pictures their aspect ratio.
-    final cards = <PreviewLayout>[];
-    for (final w in windows) {
-      final sz = await native.windowSize(handle.viewId, w.hwnd);
-      cards.add(PreviewLayout(w, thumbSizeFor(sz.isEmpty ? null : Size((sz['w'] as num).toDouble(), (sz['h'] as num).toDouble()))));
-    }
+    return handle;
+  }
+
+  Future<void> _showPreview(_Dock d, DockEntry e, Rect iconRect) async {
+    if (d.model.menuOpen || app.openPopupKind != null || e.windows.isEmpty) return;
+    final generation = ++_previewGeneration;
+    _previewHideTimer?.cancel();
+    final shown = e.windows.take(6).toList();
+    final handle = await _ensurePreviewWindow(d);
+    // Pixel sizes of the windows give the pictures their aspect ratio; everything else is asked at the same time. The dock does not
+    // hear about title changes (they would keep it busy for nothing), so the current titles are asked for here.
+    final results = await Future.wait<Object?>([
+      for (final w in shown) native.windowSize(handle.viewId, w.hwnd),
+      d.handle.bounds(),
+      // Fresh titles are a nicety: the preview does not wait longer than a moment for them.
+      state.call('dock.entries').timeout(const Duration(milliseconds: 120), onTimeout: () => null).catchError((_) => null),
+    ]);
     if (generation != _previewGeneration) return;
+    final fresh = <int, DockWindowInfo>{};
+    if (results.last is List) {
+      for (final m in (results.last as List).cast<Map>()) {
+        if ('${m['key']}' != e.key) continue;
+        for (final w in (m['windows'] as List).cast<Map>()) {
+          final info = DockWindowInfo(w);
+          fresh[info.hwnd] = info;
+        }
+      }
+    }
+    final windows = [for (final w in shown) fresh[w.hwnd] ?? w];
+    // DWM draws nothing live for a minimized window: the engine's last picture of it is shown instead.
+    final snapshots = <int, Uint8List>{};
+    await Future.wait([
+      for (final w in windows.where((w) => w.minimized))
+        state.call('window.snapshot', {'hwnd': w.hwnd}).timeout(const Duration(milliseconds: 250)).then((r) {
+          final image = r is Map ? r['image'] : null;
+          if (image is String) snapshots[w.hwnd] = base64Decode(image);
+        }).catchError((_) => null),
+    ]);
+    if (generation != _previewGeneration) return;
+    final cards = <PreviewLayout>[
+      for (var i = 0; i < windows.length; i++)
+        PreviewLayout(windows[i], thumbSizeFor(_pixelSize(results[i] as Map<String, Object?>)), snapshot: snapshots[windows[i].hwnd]),
+    ];
+    final box = results[shown.length] as Map<String, Object?>;
     final thumbH = cards.map((c) => c.thumbSize.height).reduce(math.max);
     final panel = PreviewModel.panelSize(cards.length, thumbH);
     final mon = d.monitor;
     final scale = mon.scale;
-    final box = await d.handle.bounds();
     final origin = Offset((box['x'] as num).toDouble(), (box['y'] as num).toDouble());
     final edge = '${state.settings['Edge'] ?? 'Bottom'}';
+    _preview.edge = edge;
     final iconScreen = Rect.fromLTWH(origin.dx + iconRect.left * scale, origin.dy + iconRect.top * scale, iconRect.width * scale, iconRect.height * scale);
-    final pad = (28 * scale).round();
+    final face = PreviewModel.faceMargin * scale;
     final wPx = (panel.width * scale).round(), hPx = (panel.height * scale).round();
+    // The panel sits beside the (magnified) icon, and the window's margin on that side is thin: the window stays clear of the dock.
     int x, y;
-    final plate = d.screenPlate ?? iconScreen;
     switch (edge) {
       case 'Left':
-        x = (plate.right + 8 * scale).round();
+        x = (iconScreen.right + face).round();
         y = (iconScreen.center.dy - hPx / 2).round();
       case 'Right':
-        x = (plate.left - 8 * scale - wPx).round();
+        x = (iconScreen.left - face - wPx).round();
         y = (iconScreen.center.dy - hPx / 2).round();
       default:
         x = (iconScreen.center.dx - wPx / 2).round();
-        y = (plate.top - 8 * scale - hPx).round();
+        y = (iconScreen.top - face - hPx).round();
     }
     x = x.clamp(mon.x + 4, math.max(mon.x + 4, mon.x + mon.w - wPx - 4)).toInt();
     y = y.clamp(mon.y + 4, math.max(mon.y + 4, mon.y + mon.h - hPx - 4)).toInt();
-    await handle.setBounds(x: x - pad, y: y - pad, width: panel.width + 56, height: panel.height + 56);
+    final inset = _preview.insets;
+    final window = _preview.windowSizeFor(panel);
+    await handle.setBounds(x: x - (inset.left * scale).round(), y: y - (inset.top * scale).round(), width: window.width, height: window.height);
+    if (generation != _previewGeneration) return;
+    // The content is laid out at the new size while the surface is still invisible, and only then shown and popped in:
+    // otherwise the first frames are the old content stretched into the new window.
     _preview.open(appName: e.name, app: e.app, cards: cards);
-    _preview.visible.value = true;
+    await Future.any([WidgetsBinding.instance.endOfFrame, Future<void>.delayed(const Duration(milliseconds: 60))]);
+    if (generation != _previewGeneration) return;
     await handle.show(activate: false);
+    _preview.visible.value = true;
+    _setLabelsAside(true);
   }
+
+  void _setLabelsAside(bool aside) {
+    for (final d in _docks.values) {
+      if (d.model.previewActive == aside) continue;
+      d.model.previewActive = aside;
+      d.model.requestFrame();
+    }
+  }
+
+  static Size? _pixelSize(Map<String, Object?> m) => m['w'] is num && m['h'] is num ? Size((m['w'] as num).toDouble(), (m['h'] as num).toDouble()) : null;
 
   void _scheduleHidePreview() {
     _previewHideTimer?.cancel();
@@ -501,10 +623,15 @@ class DockController {
   void closePreview() {
     _previewGeneration++;
     _previewHideTimer?.cancel();
+    // A window that is hidden sends no "pointer left": a stale "inside the preview" would keep the dock magnified for good.
+    for (final d in _docks.values) {
+      d.model.previewInside = false;
+    }
     final handle = _previewWin;
     if (handle == null || !_preview.visible.value) return;
     native.thumbnails(handle.viewId, const []).catchError((_) => null);
     _preview.visible.value = false;
+    _setLabelsAside(false);
     Future<void>.delayed(const Duration(milliseconds: 190), () {
       if (!_preview.visible.value) handle.hide();
     });

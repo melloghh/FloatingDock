@@ -103,6 +103,10 @@ public static class AppMatching
         };
         // A normal Win32 app is identified by its exe; keep the AUMID only when it is the only identity (packaged apps).
         if (!string.IsNullOrEmpty(app.ExePath) && !string.IsNullOrEmpty(app.Aumid) && !app.Aumid.Contains('!')) app.Aumid = null;
+        // The same window group must give the same identity every time: a fresh random Id on every rebuild made the dock's list differ
+        // from the last one on every change (and the interface's icon cache miss).
+        app.Id = Convert.ToHexString(System.Security.Cryptography.MD5.HashData(System.Text.Encoding.UTF8.GetBytes(
+            (app.ExePath ?? "").ToLowerInvariant() + "|" + (app.Aumid ?? "") + "|" + (app.ExePath is null && app.Aumid is null ? GroupKey(w) : "")))).ToLowerInvariant();
         return app;
     }
 

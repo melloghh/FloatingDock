@@ -5,6 +5,7 @@ import 'package:fd_ipc/client.dart';
 import 'package:flutter/widgets.dart';
 
 import '../core/app_state.dart';
+import '../core/sfx.dart';
 import '../core/native.dart';
 import '../windows/launchpad/launchpad_window.dart';
 import '../windows/popup/context_menu.dart';
@@ -71,8 +72,13 @@ class AppController {
   }
 
   bool _wasConnected = true;
+  bool _underOverlay = false;
 
   void _onState() {
+    if (state.captureHidden != _underOverlay) {
+      _underOverlay = state.captureHidden;
+      WindowHost.underOverlay = _underOverlay;
+    }
     // The engine owns the system; without it this process has nothing to show. Give a restarting engine time to come back.
     if (state.connected && !_wasConnected) _lostEngine?.cancel();
     if (!state.connected && _wasConnected) {
@@ -99,12 +105,19 @@ class AppController {
   }
 
   Future<void> openSettings([String? section]) async {
-    final handle = await (_settingsCreating ??= _createSettings());
+    final WindowHandle handle;
+    try {
+      handle = await (_settingsCreating ??= _createSettings());
+    } catch (_) {
+      _settingsCreating = null;     // a failed attempt must not make every later one fail with it
+      rethrow;
+    }
     if (section != null) {
       _settingsPage.value = null;
       _settingsPage.value = section;
     }
     await handle.show();
+    Sfx.play(Sound.open);
     _syncSettingsWindow();
   }
 
@@ -116,8 +129,17 @@ class AppController {
     final y = m.workY + math.max<int>(0, (m.workH - ph) ~/ 2);
     final handle = await host.create(
       WindowSpec(
-        kind: 'settings', x: x, y: y, width: w, height: h, framed: true, minWidth: 760, minHeight: 520,
-        title: tr('FloatingDock settings'), darkCaption: state.brightness == Brightness.dark, toolWindow: false,
+        kind: 'settings',
+        x: x,
+        y: y,
+        width: w,
+        height: h,
+        framed: true,
+        minWidth: 760,
+        minHeight: 520,
+        title: tr('FloatingDock settings'),
+        darkCaption: state.brightness == Brightness.dark,
+        toolWindow: false,
       ),
       (context) => SettingsView(navigate: _settingsPage),
     );
@@ -169,9 +191,9 @@ class AppController {
   }
 
   /// Hides [handle] after its surface has played the leaving animation, unless it was shown again meanwhile.
-  void _hideLater(WindowHandle handle, ValueNotifier<bool> shown) {
+  void _hideLater(WindowHandle handle, ValueNotifier<bool> shown, {int ms = 190}) {
     shown.value = false;
-    Future<void>.delayed(const Duration(milliseconds: 190), () {
+    Future<void>.delayed(Duration(milliseconds: ms), () {
       if (!shown.value) handle.hide();
     });
   }
@@ -183,36 +205,90 @@ class AppController {
   Future<WindowHandle>? _searchCreating;
   DateTime _searchShownAt = DateTime.fromMillisecondsSinceEpoch(0);
 
+  /// The search opened out of the dock and has taken it off the screen: the dock returns with it.
+  bool _searchHidesDock = false;
+
   Future<void> toggleSearch() => _search.visible.value ? hideSearch() : showSearch();
 
   Future<void> showSearch() async {
     if (_search.visible.value) return;
     final mon = await monitorUnderCursor();
-    final panelW = math.min(650.0, mon.w / mon.scale - 40);
-    final maxH = math.min(580.0, mon.h / mon.scale - 60);
-    final pad = (28 * mon.scale).round();
-    final x = mon.x + ((mon.w - panelW * mon.scale) / 2).round() - pad;
+    final scale = mon.scale;
+    final panelW = math.min(650.0, mon.w / scale - 40);
+    var maxH = math.min(580.0, mon.h / scale - 60);
+    final pad = (28 * scale).round();
+    // Dropping in from the top: the window is the panel and a margin around it.
+    var x = mon.x + ((mon.w - panelW * scale) / 2).round() - pad;
     var y = mon.y + (mon.h * .18).round() - pad;
-    y = math.min(y, mon.y + mon.h - (maxH * mon.scale).round() - 16 - pad);
+    y = math.min(y, mon.y + mon.h - (maxH * scale).round() - 16 - pad);
+    var winW = panelW + 56, winH = maxH + 56;
+    var origin = const Offset(28, 28);
+    Offset? from;
+    final plate = _dock.plateOn(mon);
+    final edge = '${state.settings['Edge'] ?? 'Bottom'}';
+    String? dockEdge;
+    if (plate != null) {
+      // The dock goes away and the search takes its place: a panel flush with the dock's screen edge, in front of where the plate stood,
+      // growing away from the edge; it starts as a small card at the plate. Its window ends exactly at the screen's edge.
+      dockEdge = edge == 'Left' || edge == 'Right' ? edge : 'Bottom';
+      final off = (((state.settings['BottomOffset'] as num?) ?? 10) * scale).toDouble();
+      final margin = 28 * scale, fillet = SearchModel.fillet * scale;
+      final pw = panelW * scale;
+      if (dockEdge == 'Bottom') {
+        final flush = plate.bottom + off;
+        maxH = math.min(580.0, (flush - mon.y) / scale - 24);
+        final ph = maxH * scale, shapeW = pw + 2 * fillet;
+        final left = (plate.center.dx - shapeW / 2)
+            .clamp(mon.x + 8 * scale, math.max(mon.x + 8 * scale, mon.x + mon.w - shapeW - 8 * scale))
+            .toDouble();
+        final win = Rect.fromLTRB(left - margin, flush - ph - margin, left + shapeW + margin, flush);
+        x = win.left.round();
+        y = win.top.round();
+        winW = win.width / scale;
+        winH = win.height / scale;
+        from = Offset((plate.center.dx - (left + shapeW / 2)) / scale, (plate.center.dy - flush) / scale);
+      } else {
+        maxH = math.min(580.0, mon.h / scale - 2 * SearchModel.fillet - 56 - 24);
+        final ph = maxH * scale, longSide = ph + 2 * fillet + 2 * margin;
+        final flush = dockEdge == 'Left' ? plate.left - off : plate.right + off;
+        final top = (plate.center.dy - longSide / 2).clamp(mon.y.toDouble(), math.max(mon.y.toDouble(), mon.y + mon.h - longSide)).toDouble();
+        final left = dockEdge == 'Left' ? flush : flush - pw - margin;
+        x = left.round();
+        y = top.round();
+        winW = (pw + margin) / scale;
+        winH = longSide / scale;
+        from = Offset((plate.center.dx - flush) / scale, (plate.center.dy - (top + longSide / 2)) / scale);
+      }
+    }
     final handle = await (_searchCreating ??= host.create(
-      WindowSpec(kind: 'search', x: x, y: y, width: panelW + 56, height: maxH + 56, topmost: true, title: 'FloatingDock Search'),
+      WindowSpec(kind: 'search', x: x, y: y, width: winW, height: winH, topmost: true, title: 'FloatingDock Search'),
       (context) => SearchView(model: _search),
     ));
     if (_searchWin == null) {
       _searchWin = handle;
       _search.onClose = hideSearch;
     }
-    await handle.setBounds(x: x, y: y, width: panelW + 56, height: maxH + 56);
-    _search.reopen(width: panelW, height: maxH);
+    await handle.setBounds(x: x, y: y, width: winW, height: winH);
+    _search.reopen(width: panelW, height: maxH, panelOrigin: origin, from: from, dockEdge: dockEdge);
     _searchShownAt = DateTime.now();
     _search.visible.value = true;
+    Sfx.play(Sound.open);
+    if (plate != null) {
+      _searchHidesDock = true;
+      state.actions['dockSuspended']?.call('true');
+    }
     await handle.show();
   }
 
   Future<void> hideSearch() async {
     final handle = _searchWin;
     if (handle == null || !_search.visible.value) return;
-    _hideLater(handle, _search.visible);
+    Sfx.play(Sound.close);
+    _hideLater(handle, _search.visible, ms: _search.from == null ? 190 : 300);
+    if (_searchHidesDock) {
+      _searchHidesDock = false;
+      state.actions['dockSuspended']?.call('false');
+    }
   }
 
   // ------------------------------------------------------------------ popup menus (bar menus, context menus)
@@ -232,7 +308,10 @@ class AppController {
   Future<void> openPopup(String kind, Rect anchor, {WidgetBuilder? builder, double? width, bool alignLeft = false, bool toggle = true}) async {
     if (toggle && _popup.visible.value && _popup.kind == kind) return closePopup();
     final monitors = await native.monitors();
-    final mon = monitors.firstWhere((m) => m.rect.contains(anchor.center), orElse: () => monitors.firstWhere((m) => m.primary, orElse: () => monitors.first));
+    final mon = monitors.firstWhere(
+      (m) => m.rect.contains(anchor.center),
+      orElse: () => monitors.firstWhere((m) => m.primary, orElse: () => monitors.first),
+    );
     final panelW = width ?? menuWidth(kind);
     final panelPx = (panelW * mon.scale).round();
     final pad = (28 * mon.scale).round();
@@ -247,7 +326,10 @@ class AppController {
   /// A context menu at a point (the pointer); [above] makes it grow upwards from that point (dock menus).
   Future<void> showContextMenu(List<ContextItem> items, Offset screenPx, {bool above = false}) async {
     final monitors = await native.monitors();
-    final mon = monitors.firstWhere((m) => m.rect.contains(screenPx), orElse: () => monitors.firstWhere((m) => m.primary, orElse: () => monitors.first));
+    final mon = monitors.firstWhere(
+      (m) => m.rect.contains(screenPx),
+      orElse: () => monitors.firstWhere((m) => m.primary, orElse: () => monitors.first),
+    );
     final panelPx = (contextMenuWidth * mon.scale).round();
     final heightDip = contextMenuHeight(items);
     final heightPx = (heightDip * mon.scale).round();
@@ -255,7 +337,16 @@ class AppController {
     final x = screenPx.dx.round().clamp(mon.x + 8, math.max<int>(mon.x + 8, mon.x + mon.w - panelPx - 8)).toInt();
     var y = above ? screenPx.dy.round() - heightPx : screenPx.dy.round();
     y = y.clamp(mon.y + 8, math.max<int>(mon.y + 8, mon.y + mon.h - heightPx - 8)).toInt();
-    await _showPopup('context', x - pad, y - pad, contextMenuWidth, heightDip, (screenPx.dx - x) / panelPx, (_) => ContextMenuContent(items: items), mon);
+    await _showPopup(
+      'context',
+      x - pad,
+      y - pad,
+      contextMenuWidth,
+      heightDip,
+      (screenPx.dx - x) / panelPx,
+      (_) => ContextMenuContent(items: items),
+      mon,
+    );
   }
 
   Future<void> _showPopup(String kind, int winX, int winY, double panelW, double maxH, double pivot, WidgetBuilder builder, MonitorInfo mon) async {
@@ -273,6 +364,7 @@ class AppController {
     _popupRectPx = Rect.fromLTWH(winX.toDouble(), winY.toDouble(), (panelW + 56) * mon.scale, (maxH + 56) * mon.scale);
     _popup.visible.value = true;
     await handle.show();
+    Sfx.play(Sound.open);
     _watchOutsideClicks();
   }
 
@@ -355,12 +447,14 @@ class AppController {
     _launchpadShownAt = DateTime.now();
     _launchpad.visible.value = true;
     await handle.show();
+    Sfx.play(Sound.open);
     state.actions['dockSuspended']?.call('true');
   }
 
   Future<void> hideLaunchpad() async {
     final handle = _launchpadWin;
     if (handle == null || !_launchpad.visible.value) return;
+    Sfx.play(Sound.close);
     _hideLater(handle, _launchpad.visible);
     state.actions['dockSuspended']?.call('false');
   }

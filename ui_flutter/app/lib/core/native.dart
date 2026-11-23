@@ -91,10 +91,18 @@ class Native {
     return CreatedWindow((r!['viewId'] as num).toInt(), (r['hwnd'] as num).toInt());
   }
 
-  Future<void> show(int viewId, {bool activate = true}) => _channel.invokeMethod('show', {'viewId': viewId, 'activate': activate});
+  Future<void> show(int viewId, {bool activate = true, bool raise = true}) =>
+      _channel.invokeMethod('show', {'viewId': viewId, 'activate': activate, 'raise': raise});
   Future<void> hide(int viewId) => _channel.invokeMethod('hide', {'viewId': viewId});
   Future<void> focus(int viewId) => _channel.invokeMethod('focus', {'viewId': viewId});
   Future<void> setTopmost(int viewId, bool on) => _channel.invokeMethod('setTopmost', {'viewId': viewId, 'on': on});
+  /// Blurs the desktop behind rounded rectangles (logical px, relative to the window); an empty list switches the blur off.
+  Future<void> setBlur(int viewId, List<(Rect, double)> shapes) => _channel.invokeMethod('setBlur', {
+        'viewId': viewId,
+        'shapes': [
+          for (final (r, radius) in shapes) {'x': r.left, 'y': r.top, 'w': r.width, 'h': r.height, 'r': radius},
+        ],
+      });
   Future<void> setTitle(int viewId, String title) => _channel.invokeMethod('setTitle', {'viewId': viewId, 'title': title});
   Future<void> setDarkCaption(int viewId, bool on) => _channel.invokeMethod('setDarkCaption', {'viewId': viewId, 'on': on});
   Future<void> setBounds(int viewId, {required int x, required int y, required double w, required double h}) =>
@@ -122,6 +130,16 @@ class Native {
 
   /// DWM live previews of other windows over [viewId]: each item is {hwnd, x, y, w, h (logical, client-relative), opacity}.
   Future<void> thumbnails(int viewId, List<Map<String, Object?>> items) => _channel.invokeMethod('thumbnails', {'viewId': viewId, 'items': items});
+
+  /// Hands a short WAV over to the native side, to be played later by [playSound] (one call per sound, at start-up).
+  Future<void> registerSound(int id, Uint8List wav) => _channel.invokeMethod('registerSound', {'id': id, 'bytes': wav});
+  Future<void> playSound(int id) => _channel.invokeMethod('playSound', {'id': id});
+
+  /// Lets another process (the engine) bring a window to the front right after a click on one of ours.
+  Future<void> allowForeground() => _channel.invokeMethod('allowForeground');
+
+  /// Limits the part of the window that takes the pointer to [rects] (window-relative pixels: {x,y,w,h}); empty: the whole window.
+  Future<void> setRegion(int viewId, List<Map<String, int>> rects) => _channel.invokeMethod('setRegion', {'viewId': viewId, 'rects': rects});
 
   /// Client size in pixels of another window ({w,h}), or an empty map when it is gone.
   Future<Map<String, Object?>> windowSize(int viewId, int hwnd) async =>

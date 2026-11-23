@@ -9,13 +9,13 @@ namespace FloatingDock.Engine;
 internal sealed class UiSupervisor : IDisposable
 {
     private readonly string _exe;
-    private readonly string _socketPath;
+    private readonly Func<string> _socketPath;
     private readonly bool _openSettings;
     private readonly List<DateTime> _starts = new();
     private Process? _process;
     private bool _stopping;
 
-    public UiSupervisor(string exe, string socketPath, bool openSettings)
+    public UiSupervisor(string exe, Func<string> socketPath, bool openSettings)
     {
         _exe = exe;
         _socketPath = socketPath;
@@ -36,18 +36,20 @@ internal sealed class UiSupervisor : IDisposable
     public void Start()
     {
         if (_stopping) return;
+        bool first;
         lock (_starts)
         {
             _starts.RemoveAll(t => DateTime.UtcNow - t > TimeSpan.FromMinutes(1));
             if (_starts.Count >= 4) { EngineLog.Error("the UI keeps stopping; it will not be started again until the engine restarts"); return; }
+            first = _starts.Count == 0;
             _starts.Add(DateTime.UtcNow);
         }
         try
         {
             var info = new ProcessStartInfo(_exe) { UseShellExecute = false, WorkingDirectory = Path.GetDirectoryName(_exe)! };
             info.ArgumentList.Add("--socket");
-            info.ArgumentList.Add(_socketPath);
-            if (_openSettings && _starts.Count == 1) info.ArgumentList.Add("--open-settings");
+            info.ArgumentList.Add(_socketPath());
+            if (_openSettings && first) info.ArgumentList.Add("--open-settings");
             _process = Process.Start(info);
             if (_process is null) return;
             _process.EnableRaisingEvents = true;

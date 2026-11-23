@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../core/app_state.dart';
+import '../core/sfx.dart';
 import '../core/theme.dart';
 
 /// A line of explanatory text between rows (no card).
@@ -15,7 +16,7 @@ class NoteText extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
-      child: Text(tr(text), style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12.5, height: 1.4)),
+      child: Text(tr(text), style: TextStyle(color: cs.onSurfaceVariant, fontSize: 11.5, height: 1.45)),
     );
   }
 }
@@ -29,8 +30,7 @@ class Advanced extends StatelessWidget {
   Widget build(BuildContext context) => const SizedBox.shrink();
 }
 
-/// A labelled group of rows: a primary-coloured label, then rows that share one shape: 24 dp outer corners,
-/// 6 dp between neighbours and 3 dp gaps.
+/// A labelled group of rows: a small primary-coloured label, then each row as its own card: 16 dp corners, 6 dp gaps.
 class Group extends StatefulWidget {
   const Group({super.key, this.title, required this.children});
   final String? title;
@@ -59,15 +59,13 @@ class _GroupState extends State<Group> {
     var run = <Widget>[];
     void flush() {
       for (var i = 0; i < run.length; i++) {
-        final top = i == 0 ? 24.0 : 6.0, bottom = i == run.length - 1 ? 24.0 : 6.0;
         out.add(Padding(
-          padding: EdgeInsets.only(top: i == 0 ? 0 : 3),
+          padding: EdgeInsets.only(top: i == 0 ? 0 : 6),
           child: Material(
-            color: cs.surfaceContainerHigh,
+            color: cs.surfaceContainer,
             clipBehavior: Clip.antiAlias,
-            shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.vertical(top: Radius.circular(top), bottom: Radius.circular(bottom))),
-            child: ConstrainedBox(constraints: const BoxConstraints(minHeight: 56), child: run[i]),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: ConstrainedBox(constraints: const BoxConstraints(minHeight: 52), child: run[i]),
           ),
         ));
       }
@@ -90,7 +88,7 @@ class _GroupState extends State<Group> {
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
             child: Text(tr(widget.title!),
-                style: TextStyle(color: cs.primary, fontSize: 13.5, fontWeight: FontWeight.w600, letterSpacing: .2)),
+                style: TextStyle(color: cs.primary, fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: .3)),
           ),
         ...out,
       ]),
@@ -111,7 +109,7 @@ class _AdvancedToggle extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         child: Row(children: [
-          Expanded(child: Text(tr('Advanced'), style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w500))),
+          Expanded(child: Text(tr('Advanced'), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500))),
           AnimatedRotation(
             turns: open ? .5 : 0,
             duration: const Duration(milliseconds: 220),
@@ -137,7 +135,7 @@ class _RowPadding extends StatelessWidget {
 }
 
 TextStyle rowLabel(BuildContext context) =>
-    TextStyle(fontSize: 14.5, fontWeight: FontWeight.w500, color: Theme.of(context).colorScheme.onSurface);
+    TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: Theme.of(context).colorScheme.onSurface);
 
 class ToggleRow extends StatelessWidget {
   const ToggleRow({super.key, required this.label, required this.value, required this.onChanged});
@@ -146,14 +144,21 @@ class ToggleRow extends StatelessWidget {
   final ValueChanged<bool> onChanged;
 
   @override
-  Widget build(BuildContext context) => _RowPadding(
-        onTap: () => onChanged(!value),
+  Widget build(BuildContext context) {
+    void flip(bool v) {
+      Sfx.play(v ? Sound.on : Sound.off);
+      onChanged(v);
+    }
+
+    return _RowPadding(
+        onTap: () => flip(!value),
         child: Row(children: [
           Expanded(child: Text(tr(label), style: rowLabel(context))),
           const SizedBox(width: 12),
-          Switch(value: value, onChanged: onChanged),
+          Switch(value: value, onChanged: flip),
         ]),
       );
+  }
 }
 
 class SliderRow extends StatelessWidget {
@@ -178,7 +183,7 @@ class SliderRow extends StatelessWidget {
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
           Expanded(child: Text(tr(label), style: rowLabel(context))),
-          Text('$value${tr(suffix)}', style: TextStyle(color: cs.primary, fontWeight: FontWeight.w600, fontSize: 13.5)),
+          Text('$value${tr(suffix)}', style: TextStyle(color: cs.primary, fontWeight: FontWeight.w700, fontSize: 12.5)),
         ]),
         SliderTheme(
           data: SliderTheme.of(context).copyWith(trackHeight: 16),
@@ -222,7 +227,10 @@ class ChoiceRow<T> extends StatelessWidget {
           menuChildren: [
             for (final (text, v) in items)
               MenuItemButton(
-                onPressed: () => onChanged(v),
+                onPressed: () {
+                  Sfx.play(Sound.tap);
+                  onChanged(v);
+                },
                 style: ButtonStyle(
                   backgroundColor: WidgetStatePropertyAll(v == value ? cs.secondaryContainer : Colors.transparent),
                   shape: WidgetStatePropertyAll(RoundedRectangleBorder(borderRadius: BorderRadius.circular(Shapes.m))),
@@ -234,10 +242,12 @@ class ChoiceRow<T> extends StatelessWidget {
           builder: (context, controller, _) => FilledButton.tonal(
             onPressed: () => controller.isOpen ? controller.close() : controller.open(),
             style: FilledButton.styleFrom(
-              minimumSize: const Size(0, 40),
-              padding: const EdgeInsets.only(left: 16, right: 10),
+              minimumSize: const Size(0, 38),
+              padding: const EdgeInsets.only(left: 14, right: 8),
               backgroundColor: cs.surfaceContainerHighest,
               foregroundColor: cs.onSurface,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              textStyle: Theme.of(context).textTheme.labelLarge!.copyWith(fontSize: 12.5, fontWeight: FontWeight.w500),
             ),
             child: Row(mainAxisSize: MainAxisSize.min, children: [
               Flexible(child: Text(tr(current.$1), overflow: TextOverflow.ellipsis)),
@@ -394,9 +404,13 @@ class PillButton extends StatelessWidget {
       padding: WidgetStatePropertyAll(EdgeInsets.symmetric(horizontal: icon == null ? 20 : 16)),
       foregroundColor: danger ? WidgetStatePropertyAll(cs.error) : null,
     );
-    return filled
-        ? FilledButton(onPressed: onPressed, style: style, child: child)
-        : FilledButton.tonal(onPressed: onPressed, style: style, child: child);
+    final press = onPressed == null
+        ? null
+        : () {
+            Sfx.play(Sound.tap);
+            onPressed!();
+          };
+    return filled ? FilledButton(onPressed: press, style: style, child: child) : FilledButton.tonal(onPressed: press, style: style, child: child);
   }
 }
 
@@ -408,7 +422,7 @@ class SeedPickerRow extends StatelessWidget {
   final ValueChanged<String> onChanged;
 
   static const seeds = [
-    ('Mint', '4E9F75'), ('Graphite', '5F6368'), ('Blue', '4A7BD0'), ('Teal', '2E8B7F'), ('Gold', 'C9A227'),
+    ('Lavender', '4A6BC8'), ('Gray', '808080'), ('Mint', '4E9F75'), ('Graphite', '5F6368'), ('Blue', '4A7BD0'), ('Teal', '2E8B7F'), ('Gold', 'C9A227'),
     ('Orange', 'D9732B'), ('Red', 'C8484A'), ('Violet', '8A5CC8'), ('Pink', 'C2578C'),
   ];
 

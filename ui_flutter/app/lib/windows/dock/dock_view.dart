@@ -8,6 +8,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/app_state.dart';
+import '../../core/blur.dart';
 import '../../core/theme.dart';
 import 'dock_math.dart';
 
@@ -53,6 +54,7 @@ class DockModel extends ChangeNotifier {
   DockModel({required this.state, Map<String, Object?>? settings}) : _settings = settings ?? state.settings {
     gp = GeometryParams.fromSettings(_settings);
     metrics = WindowMetrics.compute(gp, 1, 0);
+    zones = metrics;
   }
 
   final AppState state;
@@ -60,6 +62,10 @@ class DockModel extends ChangeNotifier {
 
   late GeometryParams gp;
   late WindowMetrics metrics;
+
+  /// The hover zones for the icons that are really there (the window itself is sized for a few more).
+  late WindowMetrics zones;
+  int _capacity = 0;
   final motion = DockMotion();
   final mag = MagnificationState();
   final layout = DockLayoutResult();
@@ -77,6 +83,12 @@ class DockModel extends ChangeNotifier {
   bool dragging = false;
   String? dragKey;
   bool menuOpen = false, suspended = false, userHidden = false, concealed = false, kbMode = false;
+
+  /// A window preview is open above the icon: the name label would sit behind it, so it steps aside.
+  bool previewActive = false;
+  /// Set by the controller when the cursor reached the screen edge while a maximized window conceals the dock: the dock
+  /// then behaves like an auto-hidden one until the cursor leaves it again.
+  bool peek = false;
   int kbIndex = -1;
   double labelAlpha = 0;
   String? labelKey;
@@ -154,11 +166,15 @@ class DockModel extends ChangeNotifier {
     final shape = motion.metricsShape();
     if (!force && shape == _shape) return;
     _shape = shape;
-    // Room for two more icons, so launching an app does not resize the native window.
+    // The window is sized for a few icons more than there are, and keeps its size while apps come and go: a resize is a jump in the
+    // native window that the painted plate cannot follow, so opening or closing an app must not cause one. It grows when the icons
+    // come within one slot of its edge and shrinks only after the row has become much shorter.
     final count = math.max(1, shape.$1);
-    final extra = 2;
-    metrics = WindowMetrics.compute(gp, count + extra, shape.$2);
-    onSizeChanged?.call(windowSize);
+    final resize = force || _capacity == 0 || count + 1 > _capacity || count + 9 < _capacity;
+    if (resize) _capacity = count + 4;
+    if (resize) metrics = WindowMetrics.compute(gp, _capacity, shape.$2);
+    zones = WindowMetrics.compute(gp, count, shape.$2, viewportWidth: metrics.windowWidth);
+    if (resize) onSizeChanged?.call(windowSize);
   }
 
   // ------------------------------------------------------------------ frame loop
@@ -166,7 +182,11 @@ class DockModel extends ChangeNotifier {
   void requestFrame() => onNeedFrame?.call();
 
   /// Advances every animation by [dt] seconds. True while something is still moving.
+  /// Counts the frames the dock advanced (read by the diagnostic frame log).
+  static int ticks = 0;
+
   bool tick(double dt) {
+    ticks++;
     final a = mag.advance(dt, responsiveness: _i('Responsiveness', 10), animationSpeed: _i('AnimationSpeed', 6), smoothness: _i('Smoothness', 5));
     final b = motion.advance(dt, iconAnimation: _b('IconAnimation', true), iconAnimationMs: _i('IconAnimationMs', 240));
     final c = _stepAutoHide(dt);
@@ -190,9 +210,13 @@ class DockModel extends ChangeNotifier {
   bool get effectiveAutoHide => _b('AutoHide', false) || concealed;
 
   bool _stepAutoHide(double dt) {
-    final forced = suspended || userHidden || concealed;
+    var forced = suspended || userHidden || (concealed && !peek);
     final busy = !forced && (mag.hovering || dragging || menuOpen || kbMode || previewInside);
     idleFor = busy ? 0 : idleFor + dt;
+    if (peek && !busy && idleFor > .55) {
+      peek = false;
+      forced = suspended || userHidden || concealed;
+    }
     final target = forced || (effectiveAutoHide && !busy && idleFor > .55) ? 1.0 : 0.0;
     final speed = 1.2 + _i('AnimationSpeed', 6) * 0.3;
     final before = hide;
@@ -201,7 +225,7 @@ class DockModel extends ChangeNotifier {
   }
 
   bool _stepLabel(double dt) {
-    final show = hoverIndex >= 0 && hoverIndex < motion.items.length && _b('ShowLabels', true) && !dragging && !menuOpen && mag.hovering;
+    final show = hoverIndex >= 0 && hoverIndex < motion.items.length && _b('ShowLabels', true) && !dragging && !menuOpen && !previewActive && mag.hovering;
     final target = show ? 1.0 : 0.0;
     final before = labelAlpha;
     labelAlpha = target > labelAlpha ? math.min(1, labelAlpha + dt / .12) : math.max(0, labelAlpha - dt / .10);
@@ -217,14 +241,14 @@ class DockModel extends ChangeNotifier {
   (double a, double c) _logical(Offset p) => axis.logical(p);
 
   void pointerMoved(Offset p) {
-    if (menuOpen || suspended || userHidden || concealed) return;
+    if (menuOpen || suspended || userHidden || (concealed && !peek)) return;
     final (a, c) = _logical(p);
     pointerInside = true;
-    if (!mag.hovering && metrics.enterZone.contains(Offset(a, c)) && (hide < .5 || _b('RevealOnEdgeHover', true))) {
+    if (!mag.hovering && zones.enterZone.contains(Offset(a, c)) && (hide < .5 || _b('RevealOnEdgeHover', true))) {
       mag.hovering = true;
       mag.setCursor(a, snap: mag.zoom <= 0.001);
     } else if (mag.hovering) {
-      if (!dragging && !metrics.keepZone.contains(Offset(a, c)) && !previewInside) {
+      if (!dragging && !zones.keepZone.contains(Offset(a, c)) && !previewInside) {
         endHover();
       } else {
         mag.setCursor(a);
@@ -457,6 +481,7 @@ class _DockViewState extends State<DockView> with SingleTickerProviderStateMixin
     m.state.removeListener(_onState);
     m.onNeedFrame = null;
     m.cancelTimers();
+    _wait?.cancel();
     _ticker.dispose();
     _focus.dispose();
     super.dispose();
@@ -473,16 +498,37 @@ class _DockViewState extends State<DockView> with SingleTickerProviderStateMixin
     }
   }
 
+  Timer? _wait;
+
   void _start() {
+    if (_wait != null) return; // the next frame is already on its way (see _onTick)
     if (!_ticker.isActive) {
       _last = Duration.zero;
       _ticker.start();
     }
   }
 
+  void _resume() {
+    _wait = null;
+    if (!_ticker.isActive) _ticker.start();
+  }
+
   void _onTick(Duration elapsed) {
-    final dt = _last == Duration.zero ? 1 / 60 : (elapsed - _last).inMicroseconds / 1e6;
-    _last = elapsed;
+    // "Animation frame limit". A tick that comes sooner than the limit allows is not just skipped: the ticker is stopped until the
+    // rest of the interval has passed, because as long as it runs the engine draws a frame on every refresh of the display.
+    // Frame timestamps run on across restarts of the ticker, and they are real time: dt must not be shorter than what has passed.
+    final now = SchedulerBinding.instance.currentFrameTimeStamp;
+    final interval = 1e6 / ((m.state.settings['AnimationFps'] as num?)?.toInt() ?? 60);
+    if (_last != Duration.zero) {
+      final since = (now - _last).inMicroseconds;
+      if (since < interval * .85) {
+        _ticker.stop();
+        _wait = Timer(Duration(microseconds: (interval - since).round()), _resume);
+        return;
+      }
+    }
+    final dt = _last == Duration.zero ? 1 / 60 : (now - _last).inMicroseconds / 1e6;
+    _last = now;
     final moving = m.tick(dt);
     if (!moving && _ticker.isActive) _ticker.stop();
   }
@@ -507,10 +553,17 @@ class _DockViewState extends State<DockView> with SingleTickerProviderStateMixin
           onPointerMove: (e) => m.pointerMoved(e.localPosition),
           onPointerUp: (e) => m.pointerUp(e.localPosition, _buttonOf()),
           onPointerCancel: (_) => m.pointerCancelled(),
-          child: CustomPaint(
-            size: Size.infinite,
-            painter: DockPainter(m, cs, _settingsView(m.state)),
-            isComplex: true,
+          child: BlurScope(
+            child: Builder(
+              builder: (context) {
+                final blur = BlurScope.maybeOf(context);
+                return CustomPaint(
+                  size: Size.infinite,
+                  painter: DockPainter(m, cs, _settingsView(m.state), onPlate: (rect, radius) => blur?.setExtra(this, rect, radius)),
+                  isComplex: true,
+                );
+              },
+            ),
           ),
         ),
       ),
@@ -528,9 +581,13 @@ class _DockViewState extends State<DockView> with SingleTickerProviderStateMixin
   Map<String, Object?> _settingsView(AppState s) => s.settings;
 }
 
+/// How far the plate of a dock touching the screen's edge flares out under each end.
+const double flushWing = 12;
+
 /// Paints the dock. Settings and colours are read at paint time, so a theme change repaints at once.
 class DockPainter extends CustomPainter {
-  DockPainter(this.m, this.cs, this.settings) : super(repaint: m);
+  DockPainter(this.m, this.cs, this.settings, {this.onPlate}) : super(repaint: m);
+  final void Function(Rect plate, double radius)? onPlate;
   final DockModel m;
   final ColorScheme cs;
   final Map<String, Object?> settings;
@@ -542,7 +599,7 @@ class DockPainter extends CustomPainter {
     final hex = '${settings['BackgroundColor'] ?? '1E1E1E'}'.toUpperCase();
     final opacity = (_i('Opacity', 55) / 100).clamp(0.0, 1.0);
     // The default colour means "follow the palette"; a colour the user chose is used as it is.
-    final base = hex == '1E1E1E' ? cs.surfaceContainer : Color(0xFF000000 | (int.tryParse(hex, radix: 16) ?? 0x1E1E1E));
+    final base = hex == '1E1E1E' ? cs.surface : Color(0xFF000000 | (int.tryParse(hex, radix: 16) ?? 0x1E1E1E));
     return base.withValues(alpha: opacity);
   }
 
@@ -556,12 +613,24 @@ class DockPainter extends CustomPainter {
     final res = m.layout;
     final radius = _i('CornerRadius', 22).toDouble();
     final plate = RRect.fromRectAndRadius(axis.rect(res.plateLeft, m.metrics.plateTop, res.plateRight, m.metrics.plateBottom), Radius.circular(radius));
-    if (_b('Shadow', true)) {
-      canvas.drawRRect(plate.shift(const Offset(0, 4)), Paint()..color = const Color(0x55000000)..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12));
-    }
-    canvas.drawRRect(plate, Paint()..color = plateColor);
-    if (_b('Border', true)) {
-      canvas.drawRRect(plate.deflate(.5), Paint()..style = PaintingStyle.stroke..strokeWidth = 1..color = cs.onSurface.withValues(alpha: .14));
+    // Touching the screen's edge (distance 0) the plate is rounded only on the free side and flares out into the edge on both ends
+    // (the reference); anywhere else it is a floating rounded plate with a shadow and a thin border.
+    final flush = _i('BottomOffset', 10) <= 0;
+    onPlate?.call(plate.outerRect.shift(off), radius);
+    if (flush) {
+      final top = math.min(radius, m.gp.dockHeight / 2);
+      canvas.drawPath(
+        _flushPlate(axis, res.plateLeft, m.metrics.plateTop, res.plateRight, m.metrics.plateBottom, top, math.min(flushWing, m.gp.dockHeight / 2)),
+        Paint()..color = plateColor..isAntiAlias = true,
+      );
+    } else {
+      if (_b('Shadow', true)) {
+        _drawShadow(canvas, plate);
+      }
+      canvas.drawRRect(plate, Paint()..color = plateColor);
+      if (_b('Border', true)) {
+        canvas.drawRRect(plate.deflate(.5), Paint()..style = PaintingStyle.stroke..strokeWidth = 1..color = cs.onSurface.withValues(alpha: .08));
+      }
     }
 
     final gp = m.gp;
@@ -592,9 +661,40 @@ class DockPainter extends CustomPainter {
     canvas.restore();
   }
 
+  /// The plate of a dock that touches the screen's edge: rounded corners [rad] on the free side, and under both ends a concave fillet
+  /// of [wing] that joins the plate to the edge. Built in the dock's own (along, across) coordinates and mapped to the window.
+  static Path _flushPlate(DockAxis axis, double l, double t, double r, double b, double rad, double wing) {
+    const k = .5523;
+    Offset p(double a, double c) => axis.point(a, c);
+    return Path()
+      ..moveTo(p(l - wing, b).dx, p(l - wing, b).dy)
+      ..cubicTo(p(l - wing + k * wing, b).dx, p(l - wing + k * wing, b).dy, p(l, b - wing + k * wing).dx, p(l, b - wing + k * wing).dy, p(l, b - wing).dx, p(l, b - wing).dy)
+      ..lineTo(p(l, t + rad).dx, p(l, t + rad).dy)
+      ..cubicTo(p(l, t + rad - k * rad).dx, p(l, t + rad - k * rad).dy, p(l + rad - k * rad, t).dx, p(l + rad - k * rad, t).dy, p(l + rad, t).dx, p(l + rad, t).dy)
+      ..lineTo(p(r - rad, t).dx, p(r - rad, t).dy)
+      ..cubicTo(p(r - rad + k * rad, t).dx, p(r - rad + k * rad, t).dy, p(r, t + rad - k * rad).dx, p(r, t + rad - k * rad).dy, p(r, t + rad).dx, p(r, t + rad).dy)
+      ..lineTo(p(r, b - wing).dx, p(r, b - wing).dy)
+      ..cubicTo(p(r, b - wing + k * wing).dx, p(r, b - wing + k * wing).dy, p(r + wing - k * wing, b).dx, p(r + wing - k * wing, b).dy, p(r + wing, b).dx, p(r + wing, b).dy)
+      ..close();
+  }
+
+  /// A soft shadow made of a few translucent rings: a blur filter on a plate that changes size every frame was the most expensive part of
+  /// painting the dock.
+  void _drawShadow(Canvas canvas, RRect plate) {
+    final paint = Paint()..color = const Color(0x06000000);
+    final base = plate.shift(const Offset(0, 4));
+    for (var i = 15; i >= 1; i--) {
+      canvas.drawRRect(base.inflate(i * 1.5), paint);
+    }
+  }
+
   void _drawIcon(Canvas canvas, DockItem it, Rect dst, double presence) {
+    // Every icon sits on its own softly lighter rounded tile (the reference), which grows and moves with the icon. The tile reaches
+    // out over half of the gap between icons, leaving a thin gap between tiles.
+    final tile = dst.inflate(math.max(2.0, (m.gp.gap - 4) / 2));
+    canvas.drawRRect(RRect.fromRectAndRadius(tile, Radius.circular(tile.width * .28)), Paint()..color = cs.surfaceContainerHigh.withValues(alpha: presence));
     final image = m.images[it.key];
-    final paint = Paint()..filterQuality = FilterQuality.high..color = Color.fromRGBO(255, 255, 255, presence.clamp(0.0, 1.0));
+    final paint = Paint()..filterQuality = FilterQuality.medium..color = Color.fromRGBO(255, 255, 255, presence.clamp(0.0, 1.0));
     if (image != null) {
       canvas.drawImageRect(image, Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()), dst, paint);
       return;
@@ -605,8 +705,8 @@ class DockPainter extends CustomPainter {
       case DockEntryKind.launchpad:
         _drawLaunchpad(canvas, dst, presence);
       default:
-        // The picture is still loading: a soft tile of the palette, never an empty hole.
-        canvas.drawRRect(RRect.fromRectAndRadius(dst.deflate(dst.width * .06), Radius.circular(dst.width * .22)), Paint()..color = cs.surfaceContainerHighest.withValues(alpha: .7 * presence));
+        // The picture is still loading: a slightly brighter tile of the palette, never an empty hole.
+        canvas.drawRRect(RRect.fromRectAndRadius(dst.deflate(dst.width * .06), Radius.circular(dst.width * .22)), Paint()..color = cs.surfaceContainerHighest.withValues(alpha: .85 * presence));
     }
   }
 
@@ -653,16 +753,31 @@ class DockPainter extends CustomPainter {
     }
   }
 
+  static TextPainter? _labelPainter;
+  static String _labelText = '';
+  static int _labelStep = -1;
+  static Color? _labelColor;
+
   void _drawLabel(Canvas canvas, DockAxis axis) {
     if (m.labelAlpha <= 0.01 || m.labelKey == null) return;
     final it = m.motion.items.where((i) => i.key == m.labelKey).firstOrNull;
     if (it == null || it.entry.name.isEmpty) return;
-    final painter = TextPainter(
-      text: TextSpan(text: it.entry.kind == DockEntryKind.app ? it.entry.name : tr(it.entry.name), style: TextStyle(fontFamily: fontFamily, fontFamilyFallback: fontFallback, fontSize: 12.5, color: cs.onSurface.withValues(alpha: m.labelAlpha), fontWeight: FontWeight.w500)),
-      textDirection: TextDirection.ltr,
-      maxLines: 1,
-      ellipsis: '…',
-    )..layout(maxWidth: 260);
+    final text = it.entry.kind == DockEntryKind.app ? it.entry.name : tr(it.entry.name);
+    final step = (m.labelAlpha * 16).round();
+    var painter = _labelPainter;
+    if (painter == null || _labelText != text || _labelStep != step || _labelColor != cs.onSurface) {
+      // Laying out the text is repeated only when the text or the fade has moved a step, not on every frame of the hover.
+      painter = TextPainter(
+        text: TextSpan(text: text, style: TextStyle(fontFamily: fontFamily, fontFamilyFallback: fontFallback, fontSize: 11.5, color: cs.onSurface.withValues(alpha: step / 16), fontWeight: FontWeight.w500)),
+        textDirection: TextDirection.ltr,
+        maxLines: 1,
+        ellipsis: '…',
+      )..layout(maxWidth: 260);
+      _labelPainter = painter;
+      _labelText = text;
+      _labelStep = step;
+      _labelColor = cs.onSurface;
+    }
     final w = painter.width + 20, h = painter.height + 10;
     final a = it.x + it.size / 2;
     final c = it.top - 10 - h;

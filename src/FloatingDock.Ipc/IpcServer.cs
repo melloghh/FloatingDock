@@ -37,12 +37,14 @@ public sealed class IpcSession
 }
 
 /// <summary>
-/// Accepts UI processes on a Unix-domain socket, answers their requests and pushes events to those subscribed to the topic.
+/// Accepts UI processes on a loopback TCP port (see <see cref="IpcEndpoint"/>), answers their requests and pushes events to those subscribed to the topic.
 /// Frames are newline-delimited JSON; see <see cref="Protocol"/>.
 /// </summary>
 public sealed class IpcServer : IDisposable
 {
-    private readonly string _path;
+    private static readonly TimeSpan HelloTimeout = TimeSpan.FromSeconds(10);
+    private readonly string _token = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16));
+    private string _endpoint = "";
     private readonly string _engineVersion;
     private readonly Dictionary<string, IpcHandler> _handlers = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<long, IpcSession> _sessions = new();
@@ -51,13 +53,14 @@ public sealed class IpcServer : IDisposable
     private long _nextSession;
     private bool _started;
 
-    public IpcServer(string socketPath, string engineVersion)
+    public IpcServer(string engineVersion)
     {
-        if (socketPath.Length > Protocol.MaxSocketPathChars) throw new ArgumentException("Socket path is too long: " + socketPath);
-        _path = socketPath;
         _engineVersion = engineVersion;
         Register(Protocol.Methods.Ping, _ => Task.FromResult<JsonNode?>(new JsonObject { ["time"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() }));
     }
+
+    /// <summary>What clients connect to (known once <see cref="Start"/> ran); the engine publishes it with <see cref="IpcEndpoint.Publish"/>.</summary>
+    public string Endpoint => _endpoint;
 
     public int SessionCount => _sessions.Count;
     public event Action<IpcSession>? SessionOpened;
@@ -79,12 +82,10 @@ public sealed class IpcServer : IDisposable
     public void Start()
     {
         _started = true;
-        Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
-        // The caller holds the single-instance lock, so a socket file that is still here belongs to a dead engine.
-        try { File.Delete(_path); } catch (IOException) { }
-        _listener = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
-        _listener.Bind(new UnixDomainSocketEndPoint(_path));
+        _listener = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp) { ExclusiveAddressUse = true };
+        _listener.Bind(new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, 0));
         _listener.Listen(16);
+        _endpoint = IpcEndpoint.Format(((System.Net.IPEndPoint)_listener.LocalEndPoint!).Port, _token);
         _ = Task.Run(AcceptLoopAsync);
     }
 
@@ -118,10 +119,13 @@ public sealed class IpcServer : IDisposable
 
     private async Task ServeAsync(Socket socket)
     {
+        socket.NoDelay = true;
         var session = new IpcSession(Interlocked.Increment(ref _nextSession));
         _sessions[session.Id] = session;
         SessionOpened?.Invoke(session);
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(_stop.Token);
+        // A connection that never says hello (a stray local process) must not hold a session open for ever.
+        _ = Task.Delay(HelloTimeout, cts.Token).ContinueWith(t => { if (!t.IsCanceled && session.ClientName is null) cts.Cancel(); }, TaskScheduler.Default);
         await using var stream = new NetworkStream(socket, ownsSocket: true);
         var writer = Task.Run(async () =>
         {
@@ -186,6 +190,9 @@ public sealed class IpcServer : IDisposable
         int version = p["protocol"]?.GetValue<int>() ?? 0;
         if (version != Protocol.Version)
             throw new IpcException(Protocol.Errors.ProtocolMismatch, $"Engine speaks protocol {Protocol.Version}, client asked for {version}.");
+        // Any local process can reach a loopback port: only a client that read the endpoint file knows the token.
+        if (!string.Equals(p["token"]?.GetValue<string>(), _token, StringComparison.Ordinal))
+            throw new IpcException(Protocol.Errors.Unauthorized, "Wrong or missing token.");
         session.ClientName = p["client"]?.GetValue<string>() ?? "unknown";
         session.ClientPid = p["pid"]?.GetValue<int>() ?? 0;
         SessionHello?.Invoke(session);
@@ -210,7 +217,6 @@ public sealed class IpcServer : IDisposable
         _stop.Cancel();
         try { _listener?.Dispose(); } catch (ObjectDisposedException) { }
         foreach (var s in _sessions.Values) s.Complete();
-        try { File.Delete(_path); } catch (IOException) { }
         _stop.Dispose();
     }
 }

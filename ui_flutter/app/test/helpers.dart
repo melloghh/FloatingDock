@@ -10,10 +10,10 @@ import 'package:fd_ui/core/app_state.dart';
 import 'package:fd_ui/core/engine_api.dart';
 import 'package:fd_ui/core/theme.dart';
 
-/// Real fonts instead of the test font, so goldens look like the app: Segoe UI for text. (Material Icons come with the SDK.)
+/// Real fonts instead of the test font, so goldens look like the app: Cascadia Mono for text. (Material Icons come with the SDK.)
 Future<void> loadFonts() async {
   final loader = FontLoader(fontFamily);
-  final file = File('C:/Windows/Fonts/segoeui.ttf');
+  final file = File('C:/Windows/Fonts/CascadiaMono.ttf');
   if (!file.existsSync()) return;
   loader.addFont(Future.value(ByteData.sublistView(file.readAsBytesSync())));
   await loader.load();

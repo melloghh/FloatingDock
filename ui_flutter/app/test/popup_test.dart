@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:fd_ui/ui/wavy_progress.dart';
 import 'package:fd_ui/windows/popup/context_menu.dart';
@@ -82,6 +83,10 @@ void main() {
   }
 
   testWidgets('menu: calendar', (tester) async {
+    // The calendar highlights today's date, so its picture legitimately differs by a few cells from day to day.
+    final previous = goldenFileComparator;
+    goldenFileComparator = _TolerantComparator(Uri.parse('test/popup_test.dart'), 0.02);
+    addTearDown(() => goldenFileComparator = previous);
     await openMenu(tester, 'calendar', size: const Size(460, 760));
     await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/menu_calendar.png'));
   });
@@ -202,4 +207,16 @@ void main() {
     await tester.pump();
     expect(sent.single, {'target': 1, 'handle': 2});
   });
+}
+
+/// Accepts a picture that differs from its golden by at most [tolerance] (a fraction of the pixels).
+class _TolerantComparator extends LocalFileComparator {
+  _TolerantComparator(super.testFile, this.tolerance);
+  final double tolerance;
+
+  @override
+  Future<bool> compare(Uint8List imageBytes, Uri golden) async {
+    final result = await GoldenFileComparator.compareLists(imageBytes, await getGoldenBytes(golden));
+    return result.passed || result.diffPercent <= tolerance;
+  }
 }

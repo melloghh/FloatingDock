@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/app_state.dart';
-import '../../core/theme.dart';
+import '../../core/sfx.dart';
 import '../../ui/motion.dart';
 import 'pages.dart';
 
@@ -54,27 +54,28 @@ class _SettingsViewState extends State<SettingsView> {
     final cs = Theme.of(context).colorScheme;
     final def = settingsPages.firstWhere((p) => p.name == _page, orElse: () => settingsPages.first);
     final index = settingsPages.indexOf(def);
+    // The reference: a lighter navigation column running the full height on the left, the near-black page to its right,
+    // the current page marked by one lavender pill with dark text.
     return Scaffold(
-      backgroundColor: cs.surfaceContainerLow,
+      backgroundColor: cs.surface,
       body: Row(children: [
         Container(
-          width: 272,
-          margin: const EdgeInsets.fromLTRB(12, 12, 0, 12),
-          padding: const EdgeInsets.fromLTRB(12, 14, 12, 12),
-          decoration: BoxDecoration(color: cs.surfaceContainer, borderRadius: BorderRadius.circular(Shapes.xl)),
+          width: 248,
+          padding: const EdgeInsets.fromLTRB(12, 16, 12, 12),
+          color: cs.surfaceContainerLow,
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(18, 4, 0, 16),
-              child: Text('FloatingDock', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w500, color: cs.onSurface)),
+              padding: const EdgeInsets.fromLTRB(12, 2, 0, 16),
+              child: Text('FloatingDock', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: cs.onSurface)),
             ),
             Expanded(
               child: SingleChildScrollView(
                 child: GlideList(
                   count: settingsPages.length,
                   selected: index,
-                  itemExtent: 52,
-                  gap: 4,
-                  radius: 26,
+                  itemExtent: 40,
+                  gap: 2,
+                  radius: 20,
                   highlight: cs.primary,
                   itemBuilder: (context, i, selected) {
                     final p = settingsPages[i];
@@ -84,16 +85,19 @@ class _SettingsViewState extends State<SettingsView> {
                       shape: const StadiumBorder(),
                       clipBehavior: Clip.antiAlias,
                       child: InkWell(
-                        onTap: () => select(p.name),
+                        onTap: () {
+                          Sfx.play(Sound.tap);
+                          select(p.name);
+                        },
                         child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 18),
+                          padding: const EdgeInsets.symmetric(horizontal: 14),
                           child: Row(children: [
-                            Icon(p.icon, size: 20, color: color),
+                            Icon(p.icon, size: 18, color: color),
                             const SizedBox(width: 12),
                             Expanded(
                               child: AnimatedDefaultTextStyle(
                                 duration: const Duration(milliseconds: 200),
-                                style: Theme.of(context).textTheme.bodyMedium!.copyWith(fontSize: 14, color: color, fontWeight: selected ? FontWeight.w600 : FontWeight.w500),
+                                style: Theme.of(context).textTheme.bodyMedium!.copyWith(fontSize: 12.5, color: color, fontWeight: selected ? FontWeight.w700 : FontWeight.w500),
                                 child: Text(tr(p.name), overflow: TextOverflow.ellipsis),
                               ),
                             ),
@@ -111,7 +115,7 @@ class _SettingsViewState extends State<SettingsView> {
           child: Scrollbar(
             child: SingleChildScrollView(
               key: PageStorageKey<String>('page-$_page'),
-              padding: const EdgeInsets.fromLTRB(32, 28, 40, 40),
+              padding: const EdgeInsets.fromLTRB(28, 24, 32, 40),
               child: Align(
                 alignment: Alignment.topLeft,
                 child: ConstrainedBox(
@@ -121,7 +125,7 @@ class _SettingsViewState extends State<SettingsView> {
                     child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                       Padding(
                         padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
-                        child: Text(tr(def.name), style: TextStyle(fontSize: 28, fontWeight: FontWeight.w500, color: cs.onSurface)),
+                        child: Text(tr(def.name), style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: cs.onSurface)),
                       ),
                       ...def.build(context, s),
                     ]),

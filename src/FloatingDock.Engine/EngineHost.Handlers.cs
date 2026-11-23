@@ -30,6 +30,7 @@ internal sealed partial class EngineHost
         RegisterBarHandlers(server);
         RegisterDockHandlers(server);
         RegisterSpaceHandlers(server);
+        RegisterSnapshotHandlers(server);
         // ---- state
         server.RegisterSync(Protocol.Methods.SettingsGet, _ => SettingsNode(_settings.Current));
         server.RegisterSync(Protocol.Methods.SettingsSet, request =>

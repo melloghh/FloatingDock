@@ -16,7 +16,7 @@ internal sealed partial class EngineHost
 {
     private readonly DockEntryReconciler _reconciler = new();
     private IReadOnlyList<DockEntry> _dockEntries = Array.Empty<DockEntry>();
-    private string _dockEntriesJson = "";
+    private string _dockEntriesShape = "";
     private System.Threading.Timer? _dockTimer;
     private readonly HashSet<string> _activating = new();
 
@@ -135,20 +135,22 @@ internal sealed partial class EngineHost
         var entries = _reconciler.Build(new DockEntryOptions(s.ShowStartButton, s.ShowLaunchpadButton, s.ShowPinned, s.ShowRunning),
             _pinned.Snapshot(), _running.Snapshot(), _running.ForegroundRoot);
         Volatile.Write(ref _dockEntries, entries);
-        var json = DockEntriesNode().ToJsonString();
-        if (json == _dockEntriesJson) return;
-        _dockEntriesJson = json;
-        if (publish) _server.Publish("dock.entries", JsonNode.Parse(json));
+        // Window titles change all the time (a counter in a title, a playing track) and the dock draws none of them: only a change
+        // in what the dock shows is published. Previews ask for the current titles when they open (dock.entries).
+        var shape = DockEntriesNode(withTitles: false).ToJsonString();
+        if (shape == _dockEntriesShape) return;
+        _dockEntriesShape = shape;
+        if (publish) _server.Publish("dock.entries", DockEntriesNode());
     }
 
-    private JsonArray DockEntriesNode()
+    private JsonArray DockEntriesNode(bool withTitles = true)
     {
         var list = new JsonArray();
         foreach (var e in Volatile.Read(ref _dockEntries))
         {
             var windows = new JsonArray();
             foreach (var w in e.Windows)
-                windows.Add(new JsonObject { ["hwnd"] = w.Hwnd, ["title"] = w.Title, ["minimized"] = w.IsMinimized });
+                windows.Add(new JsonObject { ["hwnd"] = w.Hwnd, ["title"] = withTitles ? w.Title : "", ["minimized"] = w.IsMinimized });
             var app = e.Kind switch { DockEntryKind.Start => StartApp, DockEntryKind.Launchpad => LaunchpadApp, _ => e.App };
             list.Add(new JsonObject
             {

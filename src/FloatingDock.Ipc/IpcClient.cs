@@ -30,14 +30,15 @@ public sealed class IpcClient : IAsyncDisposable
     public event Action<string, JsonNode?>? EventReceived;
     public JsonNode? HelloResult { get; private set; }
 
-    public static async Task<IpcClient> ConnectAsync(string socketPath, string clientName, CancellationToken ct = default)
+    public static async Task<IpcClient> ConnectAsync(string endpoint, string clientName, CancellationToken ct = default)
     {
-        var socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
-        try { await socket.ConnectAsync(new UnixDomainSocketEndPoint(socketPath), ct).ConfigureAwait(false); }
+        var (address, token) = IpcEndpoint.Parse(endpoint);
+        var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+        try { await socket.ConnectAsync(address, ct).ConfigureAwait(false); }
         catch { socket.Dispose(); throw; }
         var client = new IpcClient(socket);
         client.HelloResult = await client.RequestAsync(Protocol.Methods.Hello,
-            new JsonObject { ["client"] = clientName, ["protocol"] = Protocol.Version }, TimeSpan.FromSeconds(5), ct).ConfigureAwait(false);
+            new JsonObject { ["client"] = clientName, ["protocol"] = Protocol.Version, ["token"] = token }, TimeSpan.FromSeconds(5), ct).ConfigureAwait(false);
         return client;
     }
 

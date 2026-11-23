@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:fd_ui/windows/dock/dock_math.dart';
 import 'package:fd_ui/windows/dock/preview_view.dart';
 import 'package:flutter/gestures.dart';
@@ -17,7 +19,7 @@ Future<(Harness, PreviewModel)> openPreview(WidgetTester tester, {int windows = 
   await pumpWindow(tester, Directionality(textDirection: TextDirection.ltr, child: Stack(children: [
     const Positioned.fill(child: ColoredBox(color: Color(0xFF3A5F4B))),
     appFor(h.state, PreviewView(model: model)),
-  ])), size: Size(panel.width + 56, panel.height + 56));
+  ])), size: model.windowSizeFor(panel));
   model.open(appName: 'Zen Browser', app: {'Id': 'a', 'Name': 'Zen Browser', 'ExePath': 'C:\\zen.exe'}, cards: cards);
   model.visible.value = true;
   await tester.pump();
@@ -45,6 +47,23 @@ void main() {
     expect(find.text('Inbox'), findsOneWidget);
     expect(find.byIcon(Icons.close_rounded), findsNWidgets(3));
     await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/preview.png'));
+  });
+
+  testWidgets('preview: a minimized window shows its last picture, or its icon when it has none', (tester) async {
+    final h = await makeHarness();
+    final model = PreviewModel();
+    await pumpWindow(tester, appFor(h.state, PreviewView(model: model)), size: const Size(900, 300));
+    final png = base64Decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==');
+    model.open(appName: 'x', app: {'Id': 'a', 'Name': 'Zen', 'ExePath': 'C:\zen.exe'}, cards: [
+      PreviewLayout(DockWindowInfo({'hwnd': 1, 'title': 'With picture', 'minimized': true}), const Size(200, 120), snapshot: png),
+      PreviewLayout(DockWindowInfo({'hwnd': 2, 'title': 'Without picture', 'minimized': true}), const Size(200, 120)),
+      PreviewLayout(DockWindowInfo({'hwnd': 3, 'title': 'Open window'}), const Size(200, 120)),
+    ]);
+    model.visible.value = true;
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    final pictures = find.byWidgetPredicate((w) => w is Image && w.image is MemoryImage && (w.image as MemoryImage).bytes.length == png.length);
+    expect(pictures, findsOneWidget, reason: 'only the minimized window that has a picture shows one');
   });
 
   testWidgets('preview: the live pictures are placed after the pop-in with each card\'s rectangle', (tester) async {

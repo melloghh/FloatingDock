@@ -34,18 +34,21 @@ class WindowSpec {
 
 /// One native window with one Flutter view. Windows are created once and then shown and hidden (never destroyed).
 class WindowHandle {
-  WindowHandle._(this.viewId, this.hwnd, this.kind);
+  WindowHandle._(this.viewId, this.hwnd, this.kind, this.topmost);
 
   final int viewId;
   final int hwnd;
   final String kind;
+
+  /// Whether the window is created above ordinary windows (bar, dock, popups).
+  final bool topmost;
 
   /// True while the window is on screen. Widgets use it to start their pop animation.
   final visible = ValueNotifier<bool>(false);
 
   Future<void> show({bool activate = true}) async {
     visible.value = true;
-    await native.show(viewId, activate: activate);
+    await native.show(viewId, activate: activate, raise: !WindowHost.underOverlay);
   }
 
   Future<void> hide() async {
@@ -85,12 +88,16 @@ class WindowHost extends ChangeNotifier {
       darkCaption: spec.darkCaption,
       acceptFiles: spec.acceptFiles,
     );
-    final handle = WindowHandle._(created.viewId, created.hwnd, spec.kind);
+    final handle = WindowHandle._(created.viewId, created.hwnd, spec.kind, spec.topmost);
     _handles[created.viewId] = handle;
     _builders[created.viewId] = builder;
     notifyListeners();
     return handle;
   }
+
+  /// True while a screenshot selection overlay is up. The engine puts our always-on-top windows under it (and back); this only
+  /// keeps windows that are shown meanwhile (the dock sliding in) from raising themselves above it.
+  static bool underOverlay = false;
 }
 
 /// The root of the whole process: one [View] per native window, each wrapped in the shared state and theme.
@@ -150,15 +157,11 @@ class ViewShell extends StatelessWidget {
         state: state,
         child: ListenableBuilder(
           listenable: state,
-          // While a screenshot overlay (Win+Shift+S, PrtSc) is up nothing of ours may be drawn on top of it.
-          builder: (context, _) => Opacity(
-            opacity: state.captureHidden ? 0 : 1,
-            child: MaterialApp(
-              debugShowCheckedModeBanner: false,
-              theme: state.theme,
-              scrollBehavior: const _NoGlowScroll(),
-              home: Builder(builder: builder),
-            ),
+          builder: (context, _) => MaterialApp(
+            debugShowCheckedModeBanner: false,
+            theme: state.theme,
+            scrollBehavior: const _NoGlowScroll(),
+            home: Builder(builder: builder),
           ),
         ),
       );

@@ -15,6 +15,9 @@ class PopSurface extends StatefulWidget {
     this.origin = Alignment.topCenter,
     this.onHidden,
     this.rise = 14,
+    this.from,
+    this.startScale = .84,
+    this.milliseconds = 400,
   });
 
   final bool visible;
@@ -23,6 +26,12 @@ class PopSurface extends StatefulWidget {
   final VoidCallback? onHidden;
   final double rise;
 
+  /// Where the surface starts, relative to its final place (logical px): it travels from there while it scales up, and goes back
+  /// on leaving. Null: it only rises by [rise].
+  final Offset? from;
+  final double startScale;
+  final int milliseconds;
+
   @override
   State<PopSurface> createState() => _PopSurfaceState();
 }
@@ -30,8 +39,8 @@ class PopSurface extends StatefulWidget {
 class _PopSurfaceState extends State<PopSurface> with SingleTickerProviderStateMixin {
   late final AnimationController _c = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 400),
-    reverseDuration: const Duration(milliseconds: 150),
+    duration: Duration(milliseconds: widget.milliseconds),
+    reverseDuration: Duration(milliseconds: widget.from == null ? 150 : (widget.milliseconds * .55).round()),
   );
 
   @override
@@ -59,8 +68,9 @@ class _PopSurfaceState extends State<PopSurface> with SingleTickerProviderStateM
     super.dispose();
   }
 
-  static double _scaleIn(double t) {
-    if (t < .65) return .84 + .20 * Curves.easeOutCubic.transform(t / .65);
+  double _scaleIn(double t) {
+    final base = widget.startScale;
+    if (t < .65) return base + (1.04 - base) * Curves.easeOutCubic.transform(t / .65);
     return 1.04 - .04 * Curves.easeInOut.transform((t - .65) / .35);
   }
 
@@ -73,13 +83,15 @@ class _PopSurfaceState extends State<PopSurface> with SingleTickerProviderStateM
         if (_c.isDismissed) return const SizedBox.shrink();
         final t = _c.value;
         final leaving = _c.status == AnimationStatus.reverse;
-        final scale = leaving ? .94 + .06 * Curves.easeIn.transform(t) : _scaleIn(t);
-        final opacity = Curves.easeOut.transform((t / .55).clamp(0.0, 1.0));
-        final dy = (1 - Curves.easeOutCubic.transform(t)) * widget.rise;
+        final flying = widget.from != null;
+        final scale = leaving ? (flying ? widget.startScale : .94) + (1 - (flying ? widget.startScale : .94)) * Curves.easeIn.transform(t) : _scaleIn(t);
+        final opacity = Curves.easeOut.transform((t / (flying ? .35 : .55)).clamp(0.0, 1.0));
+        final travel = (1 - Curves.easeOutCubic.transform(t));
+        final offset = flying ? widget.from! * travel : Offset(0, travel * widget.rise);
         return Opacity(
           opacity: opacity,
           child: Transform.translate(
-            offset: Offset(0, dy),
+            offset: offset,
             child: Transform.scale(scale: scale, alignment: widget.origin, child: child),
           ),
         );

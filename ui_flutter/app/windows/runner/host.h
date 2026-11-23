@@ -33,6 +33,7 @@ struct HostWindow {
   bool no_activate = false;
   int min_w = 0, min_h = 0;  // physical pixels, framed windows only
   bool app_bar = false;
+  bool topmost = false;      // created as an always-on-top window (its style can be lowered for a while, e.g. under a screenshot overlay)
   UINT app_bar_edge = 0;
   std::vector<HTHUMBNAIL> thumbnails;  // DWM live previews drawn over this window
 };
@@ -60,7 +61,7 @@ class WindowHost {
   void OnMethod(const flutter::MethodCall<Value>& call, std::unique_ptr<Result> result);
   HostWindow* Find(const Map& args);
   HostWindow* Create(const Map& args, std::string* error);
-  void Show(HostWindow* w, bool activate);
+  void Show(HostWindow* w, bool activate, bool raise);
   void SetBounds(HostWindow* w, int x, int y, double width_dip, double height_dip);
   Value Monitors();
   std::optional<std::string> PickFile(HostWindow* owner, const Map& args);

@@ -1,14 +1,38 @@
 import 'package:flutter/material.dart';
 
-/// Material 3 colour roles from the user's seed colour (hex RGB, e.g. "4E9F75").
+/// The colour the palette is generated from unless the user picks another: a soft blue that gives the lavender accent
+/// and the blue-black surfaces of the reference.
+const defaultSeed = '4A6BC8';
+
+/// Material 3 colour roles from the user's seed colour (hex RGB, e.g. "4A6BC8").
+/// A seed without any hue (R = G = B) gives a truly neutral palette (no tint in the surfaces or the accent).
+///
+/// The dark scheme is pushed one step darker than stock Material 3: the window is near-black, side panels sit on the plain
+/// surface, rows and buttons one step above, as in the reference.
 ColorScheme schemeFor(String seedHex, Brightness brightness) {
   final value = int.tryParse(seedHex.replaceFirst('#', ''), radix: 16);
-  final seed = Color(0xFF000000 | ((value ?? 0x4E9F75) & 0xFFFFFF));
-  return ColorScheme.fromSeed(seedColor: seed, brightness: brightness);
+  final rgb = (value ?? int.parse(defaultSeed, radix: 16)) & 0xFFFFFF;
+  final r = rgb >> 16, g = (rgb >> 8) & 0xFF, b = rgb & 0xFF;
+  final base = ColorScheme.fromSeed(
+    seedColor: Color(0xFF000000 | rgb),
+    brightness: brightness,
+    dynamicSchemeVariant: r == g && g == b ? DynamicSchemeVariant.monochrome : DynamicSchemeVariant.tonalSpot,
+  );
+  if (brightness != Brightness.dark) return base;
+  Color toward(Color c, Color to, double t) => Color.lerp(c, to, t)!;
+  return base.copyWith(
+    surface: toward(base.surface, Colors.black, .35),
+    surfaceContainerLowest: toward(base.surface, Colors.black, .55),
+    surfaceContainerLow: base.surface,
+    surfaceContainer: toward(base.surface, base.surfaceContainerLow, .4),
+    surfaceContainerHigh: base.surfaceContainerLow,
+    surfaceContainerHighest: base.surfaceContainer,
+  );
 }
 
-const fontFamily = 'Segoe UI Variable Text';
-const fontFallback = ['Segoe UI', 'Arial'];
+/// The reference is set entirely in a monospace face (Cascadia Mono ships with Windows 11; Consolas is the fallback).
+const fontFamily = 'Cascadia Mono';
+const fontFallback = ['Consolas', 'Segoe UI Variable Text', 'Segoe UI', 'Arial'];
 
 /// Shape scale from the reference: 4 / 8 / 12 / 16 / 28 dp.
 abstract final class Shapes {
@@ -36,6 +60,14 @@ ThemeData buildTheme(ColorScheme cs) {
     ),
   );
   return base.copyWith(
+    // A light round thumb on a dark track when off; a dark thumb on the lavender track when on.
+    switchTheme: SwitchThemeData(
+      thumbColor: WidgetStateProperty.resolveWith((s) => s.contains(WidgetState.selected) ? cs.onPrimary : cs.onSurface.withValues(alpha: .9)),
+      trackColor: WidgetStateProperty.resolveWith((s) => s.contains(WidgetState.selected) ? cs.primary : cs.surfaceContainerHighest),
+      trackOutlineColor: const WidgetStatePropertyAll(Colors.transparent),
+      thumbIcon: const WidgetStatePropertyAll(null),
+      trackOutlineWidth: const WidgetStatePropertyAll(0),
+    ),
     dialogTheme: DialogThemeData(
       backgroundColor: cs.surfaceContainerHigh,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Shapes.xl)),
