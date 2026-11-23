@@ -20,8 +20,7 @@ $root = Resolve-Path (Join-Path $PSScriptRoot '..')
 Set-Location $root
 $Out = [IO.Path]::GetFullPath($Out)
 $Ui = [IO.Path]::GetFullPath($Ui)
-[xml]$props = Get-Content (Join-Path $root 'Directory.Build.props')
-$version = $props.Project.PropertyGroup.Version
+$version = (Select-String -Path (Join-Path $root 'rust\Cargo.toml') -Pattern '^version\s*=\s*"([^"]+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
 if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) { $env:Path = "$env:USERPROFILE\.cargo\bin;$env:Path" }
 foreach ($f in 'fd_ui.exe', 'flutter_windows.dll') { if (-not (Test-Path (Join-Path $Ui $f))) { throw "$f is missing in $Ui" } }
 
@@ -42,7 +41,7 @@ Copy-Item $engine (Join-Path $staging 'FloatingDock.exe')
 robocopy $Ui (Join-Path $staging 'ui') /E /NFL /NDL /NJH /NJS /NP | Out-Null
 if ($LASTEXITCODE -ge 8) { throw 'copy of the interface failed' }
 Get-ChildItem $staging -Recurse -File -Filter '*.pdb' | Remove-Item -Force
-$assets = Join-Path $root 'src\FloatingDock.App\Assets'
+$assets = Join-Path $root 'assets'
 New-Item -ItemType Directory (Join-Path $staging 'Assets') | Out-Null
 foreach ($a in 'AppIcon.png', 'Explorer.png') { Copy-Item (Join-Path $assets $a) (Join-Path $staging "Assets\$a") }
 Copy-Item (Join-Path $root 'packaging\portable\*') $staging -Force
@@ -60,7 +59,7 @@ foreach ($n in 'UserIcons', 'Logs', 'config.json', 'pinned.json', 'HANDOFF.md', 
   if (Test-Path (Join-Path $staging $n)) { throw "Private material in the release: $n" }
 }
 $fileVersion = (Get-Item (Join-Path $staging 'FloatingDock.exe')).VersionInfo.ProductVersion
-if ($fileVersion.Split('+')[0] -ne $version) { throw "Engine version $fileVersion differs from the project version $version" }
+if ($fileVersion.Split('+')[0] -ne $version) { throw "Engine version $fileVersion differs from the workspace version $version" }
 
 # ---- replace the release
 New-Item -ItemType Directory $Out -Force | Out-Null

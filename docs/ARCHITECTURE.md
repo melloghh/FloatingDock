@@ -1,5 +1,7 @@
 # Architecture
 
+> This document describes the 1.x WinUI application (C#). Since 2.0.1 the engine is written in Rust (`rust/`, see its README) and the interface is Flutter (`ui_flutter/`); the 1.x sources are in the history (tag `v1.6.6`).
+
 ```
 src/
   FloatingDock.Core      net10.0, no OS dependency, unit-tested

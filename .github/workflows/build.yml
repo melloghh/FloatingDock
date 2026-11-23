@@ -9,21 +9,10 @@ on:
 permissions:
   contents: read
 
+# The engine is Rust (rust/); the interface is Flutter (ui_flutter/). A release is assembled with packaging/release-rust.ps1
+# (it needs a finished build of the interface) and published by hand, so this workflow only checks the engine.
 jobs:
   rust:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Test the Rust engine
-        working-directory: rust
-        shell: pwsh
-        run: cargo test --workspace --locked
-      - name: Build the Rust engine
-        working-directory: rust
-        shell: pwsh
-        run: cargo build --release --locked -p fd-engine
-
-  windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -33,70 +22,18 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          [xml]$props = Get-Content Directory.Build.props
-          if ($env:RELEASE_TAG -ne "v$($props.Project.PropertyGroup.Version)") { throw 'Release tag and project version differ.' }
-      - uses: actions/setup-dotnet@v4
-        with: { dotnet-version: '10.0.x' }
-      - name: Install Inno Setup
+          $version = (Select-String -Path rust/Cargo.toml -Pattern '^version\s*=\s*"([^"]+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+          if ($env:RELEASE_TAG -ne "v$version") { throw 'Release tag and workspace version differ.' }
+      - name: Test the engine
+        working-directory: rust
         shell: pwsh
-        run: choco install innosetup --version=6.6.1 --allow-downgrade -y --no-progress
-      - name: Restore
-        run: dotnet restore FloatingDock.sln -p:Platform=x64
-      - name: Build
-        run: dotnet build FloatingDock.sln -c Release -p:Platform=x64 --no-restore
-      - name: Test
-        run: dotnet test FloatingDock.sln -c Release -p:Platform=x64 --no-build --logger trx --results-directory artifacts/test-results
-      - name: Publish (portable zip + installer)
+        run: cargo test --workspace --locked
+      - name: Build the engine
+        working-directory: rust
         shell: pwsh
-        run: ./packaging/publish.ps1 -SkipTests -Zip -Installer
+        run: cargo build --release --locked -p fd-engine
       - uses: actions/upload-artifact@v4
         with:
-          name: FloatingDock-win-x64
+          name: fd-engine-win-x64
+          path: rust/target/release/fd-engine.exe
           if-no-files-found: error
-          path: |
-            artifacts/FloatingDock-Setup-x64.exe
-            artifacts/FloatingDock-Portable-x64.zip
-            artifacts/SHA256SUMS.txt
-      - name: Test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: FloatingDock-test-results
-          path: artifacts/test-results/*.trx
-          if-no-files-found: warn
-
-  release:
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: windows
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          name: FloatingDock-win-x64
-          path: artifacts
-      - name: Verify downloads
-        working-directory: artifacts
-        run: sha256sum --check SHA256SUMS.txt
-      - name: Publish GitHub release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: |
-          set -euo pipefail
-          if draft=$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft 2>/dev/null); then
-            if [ "$draft" = false ]; then
-              echo "Release already published; keeping its assets."
-              exit 0
-            fi
-            gh release upload "$RELEASE_TAG" --clobber \
-              artifacts/FloatingDock-Setup-x64.exe artifacts/FloatingDock-Portable-x64.zip artifacts/SHA256SUMS.txt
-          else
-            gh release create "$RELEASE_TAG" --verify-tag --draft \
-              --title "FloatingDock ${RELEASE_TAG#v}" --notes-file packaging/RELEASE.md \
-              artifacts/FloatingDock-Setup-x64.exe artifacts/FloatingDock-Portable-x64.zip artifacts/SHA256SUMS.txt
-          fi
-          gh release edit "$RELEASE_TAG" --draft=false --latest

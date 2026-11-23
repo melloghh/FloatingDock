@@ -1,6 +1,6 @@
 # Engine <-> UI protocol, version 1
 
-The single description of the wire format. The code mirrors are `src/FloatingDock.Ipc/Protocol.cs` (C#) and
+The single description of the wire format. The code mirrors are `rust/crates/fd-ipc/src/protocol.rs` (Rust) and
 `ui_flutter/fd_ipc/lib/protocol.dart` (Dart). Change the three together and bump `Version` for incompatible changes.
 
 ## Transport

@@ -32,9 +32,9 @@ public static class L {
 [L]::SetProcessDPIAware() | Out-Null
 $dart = 'C:\dev\flutter\bin\cache\dart-sdk\bin\dart.exe'
 $tool = Join-Path $PSScriptRoot '..\fd_ipc'
-$engineExe = Join-Path (Resolve-Path $Dist).Path 'FloatingDock.Engine.exe'
+$engineExe = Join-Path (Resolve-Path $Dist).Path 'FloatingDock.exe'
 New-Item -ItemType Directory -Force $Shots | Out-Null
-Get-Process FloatingDock.Engine, fd_ui -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process FloatingDock, fd_ui -ErrorAction SilentlyContinue | Stop-Process -Force
 if (Test-Path $Profile) { Remove-Item $Profile -Recurse -Force }
 robocopy "$env:LOCALAPPDATA\FloatingDock" $Profile /E /XD Logs Cache /XF engine.endpoint engine.sock* /NFL /NDL /NJH /NJS /NP | Out-Null
 $sockFile = Join-Path $Profile 'engine.endpoint'   # the engine writes tcp:<port>:<token> here once it listens
@@ -89,7 +89,7 @@ Send 'settings'; Start-Sleep -Milliseconds 300
 # --- idle cost with nothing animating
 [L]::SetCursorPos(10, 300) | Out-Null
 Start-Sleep -Seconds 4
-$u = Get-Process fd_ui; $e = Get-Process FloatingDock.Engine
+$u = Get-Process fd_ui; $e = Get-Process FloatingDock
 $c0u = $u.TotalProcessorTime; $c0e = $e.TotalProcessorTime; $t0 = Get-Date
 Start-Sleep -Seconds 10
 $u.Refresh(); $e.Refresh(); $dt = ((Get-Date) - $t0).TotalSeconds
@@ -99,7 +99,7 @@ $u.Refresh(); $e.Refresh(); $dt = ((Get-Date) - $t0).TotalSeconds
 # --- stop
 & $engineExe --diagnostic-profile $Profile --quit
 Start-Sleep -Seconds 3
-"after --quit: engine running=$([bool](Get-Process FloatingDock.Engine -ErrorAction SilentlyContinue)), ui running=$([bool](Get-Process fd_ui -ErrorAction SilentlyContinue)), endpoint file exists=$(Test-Path $sockFile)"
-Get-Process FloatingDock.Engine, fd_ui -ErrorAction SilentlyContinue | Stop-Process -Force
+"after --quit: engine running=$([bool](Get-Process FloatingDock -ErrorAction SilentlyContinue)), ui running=$([bool](Get-Process fd_ui -ErrorAction SilentlyContinue)), endpoint file exists=$(Test-Path $sockFile)"
+Get-Process FloatingDock, fd_ui -ErrorAction SilentlyContinue | Stop-Process -Force
 "--- engine.log"
 Get-Content (Join-Path $Profile 'Logs\engine.log')

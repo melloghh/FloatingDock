@@ -2,13 +2,13 @@
 # Dart script from fd_ipc/tool with the socket path and profile as arguments, stops the engine, prints its log.
 #   with-engine.ps1 ipc_check2.dart dump_fixtures.dart
 param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Scripts)
-$EngineExe = if ($env:FD_ENGINE_EXE) { $env:FD_ENGINE_EXE } else { Join-Path $PSScriptRoot '..\..\..\.validation\engine1\FloatingDock.Engine.exe' }
+$EngineExe = if ($env:FD_ENGINE_EXE) { $env:FD_ENGINE_EXE } else { Join-Path $PSScriptRoot '..\..\rust\target\release\fd-engine.exe' }
 $Profile = 'C:\dev\fd-check'
 $ErrorActionPreference = 'Stop'
 $dart = 'C:\dev\flutter\bin\cache\dart-sdk\bin\dart.exe'
 $tool = Join-Path $PSScriptRoot '..\fd_ipc'
 $EngineExe = (Resolve-Path $EngineExe).Path
-Get-Process FloatingDock.Engine -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $EngineExe } | Stop-Process -Force
+Get-Process fd-engine -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $EngineExe } | Stop-Process -Force
 if (Test-Path $Profile) { Remove-Item $Profile -Recurse -Force }
 New-Item -ItemType Directory $Profile | Out-Null
 $sockFile = Join-Path $Profile 'engine.endpoint'   # the engine writes tcp:<port>:<token> here once it listens

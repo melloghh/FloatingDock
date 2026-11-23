@@ -1,7 +1,7 @@
 # Stage 1 verification, one run: builds nothing. Starts the engine on a throw-away profile, runs the Dart link check
 # against it, then confirms the engine process is gone. Never touches %LOCALAPPDATA%\FloatingDock.
 param(
-    [string]$EngineExe = (Join-Path $PSScriptRoot '..\..\..\.validation\engine1\FloatingDock.Engine.exe'),
+    [string]$EngineExe = (Join-Path $PSScriptRoot '..\..\rust\target\release\fd-engine.exe'),
     [string]$Profile = 'C:\dev\fd-check1'
 )
 $ErrorActionPreference = 'Stop'

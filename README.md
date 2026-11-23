@@ -1,9 +1,9 @@
-<p align="center"><img src="src/FloatingDock.App/Assets/AppIcon.png" width="88" alt="FloatingDock icon"></p>
+<p align="center"><img src="assets/AppIcon.png" width="88" alt="FloatingDock icon"></p>
 <h1 align="center">FloatingDock</h1>
 <p align="center">A floating dock, Launchpad and glass menu bar for Windows.</p>
 <p align="center"><strong>English</strong> · <a href="README.ru.md">Русский</a></p>
 
-FloatingDock brings a compact desktop interface to Windows: animated icon magnification, an app launcher, live window previews and a rounded top bar. It is a standalone C# / WinUI 3 application with configurable placement, custom icons and dark glass surfaces.
+FloatingDock brings a compact desktop interface to Windows: animated icon magnification, an app launcher, live window previews and a rounded top bar. The system part is a small native engine written in Rust; the interface is built with Flutter (Material 3). Placement, icons and colours are configurable.
 
 ## Features
 
@@ -14,7 +14,6 @@ FloatingDock brings a compact desktop interface to Windows: animated icon magnif
 - **Launchpad.** Windows Start pins and apps you add with the + button or by dropping a shortcut. Three built-in launcher icon styles.
 - **A rounded menu bar.** Active application, network, volume, input language, battery when available, clock and calendar. Media playback controls, a FloatingDock menu of real Windows notification icons and search. Configurable auto-hide FPS, timing and work-area reservation.
 - **Search palette.** `Ctrl+Alt+K` searches apps and familiar personal file types in Desktop and Downloads. An empty query starts blank and later suggests apps frequently opened through search. Windows system clutter is filtered. A bounded 30-second filename cache avoids scanning on every keystroke; Documents and build noise are excluded. Configure scopes and depth in Settings → Search.
-- **Built-in tiling.** Opt-in split layouts, workspaces per monitor, directional focus/move/resize, editable bindings, focus borders, dock concealment, finite animations and position restoration. Configure Settings → Tiling manager; see [controls and limits](docs/TILING.md). No separate window manager is required.
 - **Interface language.** English by default; switch to Russian in Settings → Appearance.
 - **Your own icons.** PNG/ICO overrides and imported ZIP packs shared by the dock and Launchpad. Decorative icon packs are not bundled.
 - **Local glass effects.** App-owned blur works independently of the Windows transparency toggle; transitions respect the system animation preference.
@@ -31,7 +30,7 @@ Get the latest Windows x64 build from [Releases](https://github.com/melloghh/Flo
 
 Since 2.0.1 the engine (`FloatingDock.exe`) is a single native program written in Rust and the interface is Flutter (`ui\`), so no runtime installation is required (the download is about 13 MB, the installer 11 MB). Windows x64 is required; the project targets Windows 10 1809 and later and is tested locally on Windows 11. Builds are currently unsigned, so Windows may show a SmartScreen prompt.
 
-Open FloatingDock settings from the main menu or the dock/tray context menu. The top-bar gear opens Windows Settings. Tiling is **off by default**; enable it in Tiling manager when you want automatic window placement. Two visible tiled windows use left/right columns, equally sized when their native minimum sizes allow it. The release includes `SHA256SUMS.txt` for checking downloads and license notices for bundled components.
+Open FloatingDock settings from the main menu or the dock/tray context menu. The top-bar gear opens Windows Settings. The release includes `SHA256SUMS.txt` for checking downloads and license notices for bundled components.
 
 ## Quick controls
 
@@ -66,47 +65,33 @@ Wi-Fi scanning follows Windows permissions. Windows may require location access 
 
 ## Build from source
 
-**Release 2.x (Rust engine + Flutter interface).** Needs Rust (stable, MSVC toolchain) and Inno Setup 6 (only for the installer); the Flutter interface is built separately (`flutter build windows --release --no-tree-shake-icons` in `ui_flutter/app`).
-
-```powershell
-cd rust
-cargo test --workspace
-cd ..
-.\packaging\release-rust.ps1 -Out ..\release -Ui ui_flutter\app\build\windows\x64\runner\Release
-```
-
-The engine lives in [rust/](rust/README.md); the C# projects below remain for the 1.x WinUI application and as the reference of the engine's behaviour.
-
-**1.x (WinUI) and the C# projects.** Use Windows x64 with the .NET SDK specified in [global.json](global.json): 10.0.401 or a compatible patch. Inno Setup 6.6.1 is needed only to produce the installer; make `ISCC.exe` available on `PATH`.
+Needs Windows x64, Rust (stable, MSVC toolchain), and for the interface Flutter. Inno Setup 6 is needed only for the installer.
 
 ```powershell
 git clone https://github.com/melloghh/FloatingDock.git
-cd FloatingDock
-dotnet restore FloatingDock.sln -p:Platform=x64
-dotnet build FloatingDock.sln -c Release -p:Platform=x64 --no-restore
-dotnet test FloatingDock.sln -c Release -p:Platform=x64 --no-build
-.\packaging\publish.ps1 -Zip -Installer -SkipTests
+cd FloatingDock\rust
+cargo test --workspace
+cargo build --release -p fd-engine          # rust\target\release\fd-engine.exe
+cd ..\ui_flutter\app
+flutter build windows --release --no-tree-shake-icons
+cd ..\..
+.\packaging\release-rust.ps1 -Out ..\release -Ui ui_flutter\app\build\windows\x64\runner\Release
 ```
 
-Output is written to `artifacts/`. Omit `-Installer` if you only need the portable build. The packaging script checks the published runtime and resources and generates SHA-256 checksums. `-SmokeTest` adds a desktop runtime check and requires an interactive Windows session.
-
-GitHub Actions builds and tests the Windows x64 project and uploads the portable and installer packages as workflow artifacts. Matching version tags also verify hashes and publish a GitHub release. Desktop-only UI tests run separately; a CI build alone does not verify fullscreen or pointer interactions.
+`release-rust.ps1` assembles the portable folder (`FloatingDock.exe` is the engine and starts `ui\fd_ui.exe` itself), the zip, the installer and `SHA256SUMS.txt`. GitHub Actions runs the Rust tests and builds the engine; a release is assembled and published by hand. Releases up to 1.6.6 were a C# / WinUI 3 application: see the tag `v1.6.6`.
 
 ## Project layout
 
 | Directory | Purpose |
 |---|---|
-| `src/FloatingDock.Core` | Layout, motion, app matching, persistence and icon-pack logic |
-| `src/FloatingDock.Windows` | Windows APIs, shell integration, window tracking and taskbar restoration |
-| `src/FloatingDock.App` | WinUI interface, dock, Launchpad, settings and menu bar |
-| `tests` | Core and Windows integration tests |
-| `packaging` | Portable publication and Inno Setup installer |
+| `rust` | The engine: `fd-core` (settings, apps, icons, search, taskbar safety), `fd-ipc` (protocol), `fd-windows` (Win32), `fd-engine` (the program) |
+| `ui_flutter` | The interface (Flutter) and the Dart client of the engine protocol |
+| `assets` | Application icon and images |
+| `packaging` | Release script, Inno Setup installer, portable extras |
 
 See [Architecture](docs/ARCHITECTURE.md), [Icon-pack format](docs/ICON-PACKS.md) and [Changelog](docs/CHANGELOG.md).
 
-The version history and individual fixes are recorded in [the changelog](docs/CHANGELOG.md). Local desktop suites cover previews, language changes, Launchpad, search cancellation, owned-window tiling and actual Zen restoration. File search caches personal filenames; bounded snapshots may return partial results. Tray compatibility depends on Explorer accessibility and Windows icon snapshots, which may lag a state change. Testing across multiple physical monitors and DPI combinations is limited. Launchpad has no folders or pages.
-
-For built-in window management, see [tiling controls and limits](docs/TILING.md).
+The version history and individual fixes are recorded in [the changelog](docs/CHANGELOG.md). Local desktop suites cover previews, language changes, Launchpad, search cancellation, and actual Zen restoration. File search caches personal filenames; bounded snapshots may return partial results. Tray compatibility depends on Explorer accessibility and Windows icon snapshots, which may lag a state change. Testing across multiple physical monitors and DPI combinations is limited. Launchpad has no folders or pages.
 
 Report reproducible problems through [GitHub Issues](https://github.com/melloghh/FloatingDock/issues/new/choose), including the app version, Windows version, display scaling and steps to reproduce.
 

@@ -1,7 +1,7 @@
 # FloatingDock engine in Rust
 
 The windowless engine of FloatingDock (settings, pinned apps, windows, icons, tray, hotkeys, Windows taskbar, media, search),
-a port of `src/FloatingDock.{Core,Windows,Ipc,Engine}` (C#). The Flutter UI (`../ui_flutter`) talks to it over the same IPC
+a port of the former C# engine (`src/FloatingDock.{Core,Windows,Ipc,Engine}`, last seen in commit `fe2f5a9` and tag `v1.6.6`). The Flutter UI (`../ui_flutter`) talks to it over the same IPC
 protocol (`../ui_flutter/protocol/PROTOCOL.md`), so either engine can run behind the same UI. The stored files (`config.json`,
 `pinned.json`, `icon-overrides.json`, `taskbar-state.json`, ...) keep their format.
 
@@ -19,6 +19,6 @@ python tools/ipc_probe.py <profile> <method> [json]   # talk to a running engine
 ```
 
 `--diagnostic-profile <dir>` works on a copy of the profile and never touches the desktop (no taskbar changes, hotkeys or tray).
-The Russian UI strings are generated from the C# source: `python tools/gen_texts.py` (run from `source-v3`).
+The Russian UI strings live in `crates/fd-core/src/texts_ru.json`.
 
 Not ported yet: the right-click menu of a tray icon (`tray.activate` with `context: true` answers `ok: false`).

@@ -1,4 +1,4 @@
-// Dart mirror of src/FloatingDock.Ipc/Protocol.cs. The prose description is
+// Dart mirror of rust/crates/fd-ipc/src/protocol.rs. The prose description is
 // ui_flutter/protocol/PROTOCOL.md. Change all three together.
 
 import 'dart:io';
